@@ -1,29 +1,24 @@
-import { useState } from 'react'
-import Button from '@mui/material/Button'
-import Container from '@mui/material/Container'
-import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
-import AddIcon from '@mui/icons-material/Add'
+import { Container, Box } from "@mui/material";
+import NavBar from "./components/NavBar.tsx";
+import LinearBanner from "./components/LinearBanner.tsx";
+import { Route, Routes } from "react-router";
+import HomePage from "./pages/HomePage.tsx";
+import SettingsPage from "./pages/SettingsPage.tsx";
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Stack spacing={2} sx={{ alignItems: 'flex-start' }}>
-        <Typography variant="h4" component="h1">
-          zini
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </Button>
-      </Stack>
-    </Container>
-  )
+    <Box sx={{ display: "flex" }}>
+      <NavBar />
+
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <LinearBanner />
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+      </Container>
+    </Box>
+  );
 }
 
-export default App
+export default App;
