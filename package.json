@@ -2,12 +2,13 @@
   "name": "zini",
   "private": true,
   "workspaces": [
+    "shared",
     "backend",
     "webapp"
   ],
   "scripts": {
     "dev": "concurrently -n backend,webapp -c blue,magenta \"npm run dev -w backend\" \"npm run dev -w webapp\"",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

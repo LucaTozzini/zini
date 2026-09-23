@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@linear/sdk": "^95.1.0",
     "express": "^5.2.1",
     "sequelize": "^6.37.8",
+    "shared": "*",
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {

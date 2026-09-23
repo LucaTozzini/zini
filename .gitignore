@@ -6,6 +6,7 @@ dist
 *.log
 .DS_Store
 
-# SQLite
+# SQLite (holds the Linear API key)
+backend/data/
 *.sqlite
 *.sqlite-journal
