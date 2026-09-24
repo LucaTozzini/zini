@@ -1,44 +1,56 @@
 import { Router } from "express";
-import { STATUS_TYPES, type StatusType } from "shared";
-import { fetchLinearIssues, getLinearClient, getLinearKey, testLinearKey } from "../linear.js";
-import { Integration } from "../models/Integration.js";
+import { PROVIDERS, STATUS_TYPES, type Provider, type StatusType } from "shared";
+import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations.js";
+import { fetchLinearIssues, getLinearClient } from "../linear.js";
 
 const isStatusType = (s: string): s is StatusType =>
   (STATUS_TYPES as readonly string[]).includes(s);
 
 export const integrations = Router();
 
-// Never send the full key; the last 3 characters are enough to recognise it.
-function linearStatus(apiKey: string | null, valid = true) {
-  return apiKey
-    ? { connected: true, valid, keyHint: apiKey.slice(-3) }
-    : { connected: false };
-}
-
-integrations.get("/linear", async (_req, res) => {
-  const apiKey = await getLinearKey();
-  res.json(linearStatus(apiKey, apiKey ? await testLinearKey(apiKey) : true));
+// Which services are connected, e.g. { linear: { connected: true, keyHint: "a1b" }, ... }.
+integrations.get("/", async (_req, res) => {
+  res.json(await getIntegrations());
 });
 
-integrations.put("/linear", async (req, res) => {
-  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
-  if (!apiKey) {
-    res.status(400).json({ error: "API key is required" });
+// Saves the keys in the body, e.g. { "linear": "lin_api_..." }, after each service
+// accepts its key. The rest stay as they are. Returns all integrations.
+integrations.put("/", async (req, res) => {
+  const body: unknown = req.body;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    res.status(400).json({ error: "Expected an object of API keys" });
     return;
   }
 
-  if (!(await testLinearKey(apiKey))) {
-    res.status(400).json({ error: "Linear rejected this API key" });
-    return;
+  const keys: Partial<Record<Provider, string>> = {};
+  for (const [provider, value] of Object.entries(body)) {
+    if (!isProvider(provider)) {
+      res.status(400).json({ error: `Unknown integration "${provider}". Known: ${PROVIDERS.join(", ")}` });
+      return;
+    }
+    const apiKey = typeof value === "string" ? value.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    keys[provider] = apiKey;
   }
 
-  await Integration.upsert({ provider: "linear", apiKey });
-  res.json(linearStatus(apiKey));
+  const rejectedBy = await saveKeys(keys);
+  if (rejectedBy) {
+    res.status(400).json({ error: `${rejectedBy} rejected this API key` });
+    return;
+  }
+  res.json(await getIntegrations());
 });
 
-integrations.delete("/linear", async (_req, res) => {
-  await Integration.destroy({ where: { provider: "linear" } });
-  res.json(linearStatus(null));
+integrations.delete("/:provider", async (req, res) => {
+  if (!isProvider(req.params.provider)) {
+    res.status(404).json({ error: "Unknown integration" });
+    return;
+  }
+  await removeKey(req.params.provider);
+  res.json(await getIntegrations());
 });
 
 // Up to 250 issues, most recently updated first. ?status=unstarted,started filters by status type.

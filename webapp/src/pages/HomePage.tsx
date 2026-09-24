@@ -6,13 +6,13 @@ import ListItemText from "@mui/material/ListItemText";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import type { LinearIssue, StatusType } from "shared";
-import { errorMessage, useLinearIssues, useLinearStatus } from "../api.ts";
-import FiberManualRecordOutlinedIcon from '@mui/icons-material/FiberManualRecordOutlined';
-import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
+import { errorMessage, useLinearIssues } from "../api.ts";
+import FiberManualRecordOutlinedIcon from "@mui/icons-material/FiberManualRecordOutlined";
+import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import type { SvgIconComponent } from "@mui/icons-material";
-import { Stack } from "@mui/material";
+import { Container, Stack } from "@mui/material";
 
-type SectionType = { type: StatusType; title: string, Icon: SvgIconComponent } 
+type SectionType = { type: StatusType; title: string; Icon: SvgIconComponent };
 
 const SECTIONS: SectionType[] = [
   { type: "unstarted", title: "Todo", Icon: FiberManualRecordOutlinedIcon },
@@ -24,12 +24,16 @@ function IssueSection({ type, title, Icon }: SectionType) {
 
   return (
     <Box sx={{ mb: 4 }}>
-      <Stack direction={"row"} useFlexGap spacing={1} sx={{alignItems: "center", mb: 1}}>
-      <Icon fontSize="small"/>
-      <Typography variant="h6" component="h2">
-        {title}
-      </Typography>
-
+      <Stack
+        direction={"row"}
+        useFlexGap
+        spacing={1}
+        sx={{ alignItems: "center", mb: 1 }}
+      >
+        <Icon fontSize="small" />
+        <Typography variant="h6" component="h2">
+          {title}
+        </Typography>
       </Stack>
       {issues.isPending && (
         <Typography color="text.secondary">Loading…</Typography>
@@ -70,13 +74,13 @@ function IssueList({ issues }: { issues: LinearIssue[] }) {
 }
 
 function HomePage() {
-  const { data: status } = useLinearStatus();
-
-  if (!status?.connected || !status.valid) return;
-
-  return SECTIONS.map((section) => (
-    <IssueSection key={section.type} {...section} />
-  ));
+  return (
+    <Container maxWidth="md" sx={{py: 5}}>
+      {SECTIONS.map((section) => (
+        <IssueSection key={section.type} {...section} />
+      ))}
+    </Container>
+  );
 }
 
 export default HomePage;

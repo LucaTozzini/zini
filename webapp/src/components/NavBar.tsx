@@ -2,6 +2,7 @@ import { Box, IconButton, Stack, Tooltip } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import HomeIcon from "@mui/icons-material/Home";
 import SearchIcon from "@mui/icons-material/Search";
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import { Link } from "react-router";
 
 const NavBar = () => {
@@ -21,12 +22,17 @@ const NavBar = () => {
         <Stack spacing={2}>
           <Tooltip title={"home"} placement={"right"}>
             <IconButton component={Link} to="/">
-              <HomeIcon />
+              <HomeIcon/>
             </IconButton>
           </Tooltip>
           <Tooltip title={"search"} placement={"right"}>
             <IconButton>
               <SearchIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="product manager">
+            <IconButton component={Link} to="/product-manager">
+              <PsychologyIcon/>
             </IconButton>
           </Tooltip>
         </Stack>

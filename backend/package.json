@@ -10,11 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.12",
+    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",
+    "@langchain/openai": "^1.5.13",
     "@linear/sdk": "^95.1.0",
     "express": "^5.2.1",
+    "langchain": "^1.5.12",
     "sequelize": "^6.37.8",
     "shared": "*",
-    "sqlite3": "^6.0.1"
+    "sqlite3": "^6.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

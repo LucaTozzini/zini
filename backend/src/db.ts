@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Sequelize } from "sequelize";
 
-const storage = process.env.DB_PATH ?? "data/zini.sqlite";
+export const storage = process.env.DB_PATH ?? "data/zini.sqlite";
 mkdirSync(dirname(storage), { recursive: true });
 
 export const sequelize = new Sequelize({
