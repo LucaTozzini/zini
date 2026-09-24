@@ -13,7 +13,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <ThemeProvider theme={theme}>
+        {/* Dark until the user picks a mode in Settings; MUI saves that choice in localStorage. */}
+        <ThemeProvider theme={theme} defaultMode="dark">
           <CssBaseline />
           <App />
         </ThemeProvider>
