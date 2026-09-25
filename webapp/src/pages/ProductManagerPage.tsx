@@ -1,14 +1,14 @@
 import { Box } from "@mui/material";
-import { useNavigate, useParams } from "react-router";
-import { useDeleteThread, useThreads } from "../api.ts";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { useDeleteThread, useThreadEvents, useThreads } from "../api.ts";
 import Chat from "../components/Chat.tsx";
 import ThreadList from "../components/ThreadList.tsx";
-import { useChat } from "../hooks/useChat.ts";
+import { useChat, type CreatedChatState } from "../hooks/useChat.ts";
 
 const BASE_PATH = "/product-manager";
 
-// Keyed by thread in the page, so switching chats starts with a fresh draft and
-// request state.
+// Keyed in the page (see chatKey), so switching chats starts with a fresh draft,
+// request and scroll state.
 function ProductManagerChat({ threadId }: { threadId?: string }) {
   const chat = useChat(threadId, BASE_PATH);
   return (
@@ -27,7 +27,15 @@ function ProductManagerChat({ threadId }: { threadId?: string }) {
 const ProductManagerPage = () => {
   const { threadId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // A chat per thread, and a fresh one each time a new chat is opened. A new chat
+  // keeps its key once its first message creates it, so the view carries on rather
+  // than remounting mid-reply.
+  const created = location.state as CreatedChatState | null;
+  const chatKey = created?.chatKey ?? threadId ?? location.key;
   const threads = useThreads();
+  // Live updates while the page is open: replies, running chats, other tabs.
+  useThreadEvents();
   const deleteThread = useDeleteThread();
 
   // Leave a chat that was just deleted while open.
@@ -54,7 +62,7 @@ const ProductManagerPage = () => {
         basePath={BASE_PATH}
         onDelete={handleDelete}
       />
-      <ProductManagerChat key={threadId ?? "new"} threadId={threadId} />
+      <ProductManagerChat key={chatKey} threadId={threadId} />
     </Box>
   );
 };

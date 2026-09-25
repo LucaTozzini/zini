@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  CircularProgress,
   IconButton,
   List,
   ListItemButton,
@@ -62,6 +63,11 @@ const ThreadItem = ({ basePath, thread, activeId, onDelete }: ThreadItemProps) =
           {thread.title}
         </Typography>
 
+        {/* The agent is working on this chat. */}
+        {thread.running && !isHovered && !menuAnchor && (
+          <CircularProgress size={14} sx={{ flexShrink: 0 }} aria-label="Working" />
+        )}
+
         {/* Kept while the menu is open, since the menu is anchored to its button. */}
         {(isHovered || menuAnchor) && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -92,8 +98,10 @@ const ThreadItem = ({ basePath, thread, activeId, onDelete }: ThreadItemProps) =
               // up to the row's link, which would open the chat.
               onClick={(e) => e.stopPropagation()}
             >
+              {/* A running chat can't be deleted until its run ends. */}
               <MenuItem
                 sx={{ color: "error.main" }}
+                disabled={thread.running}
                 onClick={() => {
                   setMenuAnchor(null);
                   onDelete(thread.id);

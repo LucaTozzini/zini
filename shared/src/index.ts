@@ -48,20 +48,25 @@ export type PendingAction = { name: string; args: Record<string, unknown> };
 // The user's answer to one pending action. A reject message is passed to the agent.
 export type Decision = { type: "approve" } | { type: "reject"; message?: string };
 
-// What sending a message or resuming returns. The agent either replied, or
-// paused with actions to approve (pending is then non-empty).
-export type ChatResponse = { reply: string; pending: PendingAction[] };
-
 // A saved product manager chat, as listed by GET /api/product-manager/threads.
-export type ThreadSummary = { id: string; title: string; createdAt: string };
+// running: the agent is working on it now.
+export type ThreadSummary = { id: string; title: string; createdAt: string; running: boolean };
 
-// A chat reopened with GET /api/product-manager/threads/:id.
+// A chat reopened with GET /api/product-manager/threads/:id. pending is non-empty
+// when the agent is paused on actions to approve. error is why the last run failed,
+// until the next one starts; it's lost if the server restarts.
 export type Thread = {
   id: string;
   title: string;
   messages: ChatMessage[];
   pending: PendingAction[];
+  running: boolean;
+  error: string | null;
 };
+
+// The one server-sent event on GET /api/product-manager/events: the chat changed,
+// so refetch it (and the chat list).
+export type ThreadEvent = { type: "thread.updated"; threadId: string };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
 // githubRepo is "owner/name".

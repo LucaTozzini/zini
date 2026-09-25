@@ -38,7 +38,8 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
 
   const { scrollRef, lastMessageRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
     content: thread.data,
-    sending: Boolean(sending),
+    // A new chat's first message, or a message just sent to this one.
+    sending: Boolean(sending) || sendLoading,
     busy,
     error: Boolean(error),
     lastIsReply: messages.at(-1)?.role === "assistant",
