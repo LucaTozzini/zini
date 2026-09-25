@@ -5,7 +5,7 @@ import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { PmThread } from "../models/PmThread.js";
 import { chat, deleteThreadHistory, loadThread, resume } from "../productManager.js";
-import { broadcast, forgetRun, isRunning, runStatus, startRun, subscribe } from "../runs.js";
+import { broadcast, forgetRun, isRunning, runStatus, startRun } from "../runs.js";
 import { getSetting } from "../settings.js";
 
 export const productManager = Router();
@@ -61,12 +61,6 @@ async function begin(res: Response, threadId: string, start: Parameters<typeof s
   }
   return false;
 }
-
-// Server-sent events: { type: "thread.updated", threadId } whenever a chat changes
-// (a run starts, finishes a step, ends or fails; a chat is created or deleted).
-productManager.get("/events", (_req, res) => {
-  subscribe(res);
-});
 
 // Newest first.
 productManager.get("/threads", async (_req, res) => {

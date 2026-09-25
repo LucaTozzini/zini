@@ -35,9 +35,21 @@ export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
   team: { key: string; name: string };
 };
 
+// Where a workspace's setup command is at. A workspace is only ready to work in once
+// setup has succeeded (or there's no setup command).
+export type SetupStatus = "running" | "ready" | "failed";
+
 // A Linear issue's workspace: a git worktree of the repo with the issue's branch
 // checked out, as returned by /api/workspaces. branch is read from the worktree.
-export type Workspace = { issueId: string; branch: string; path: string; createdAt: string };
+// setupError says why setup failed, e.g. "Exited with code 1".
+export type Workspace = {
+  issueId: string;
+  branch: string;
+  path: string;
+  createdAt: string;
+  setupStatus: SetupStatus;
+  setupError: string | null;
+};
 
 // One turn of the product manager chat, as shown in the webapp.
 export type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -64,13 +76,27 @@ export type Thread = {
   error: string | null;
 };
 
-// The one server-sent event on GET /api/product-manager/events: the chat changed,
-// so refetch it (and the chat list).
+// A product manager chat changed: refetch it (and the chat list).
 export type ThreadEvent = { type: "thread.updated"; threadId: string };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
-// githubRepo is "owner/name".
-export type Settings = { productManagerModel: string | null; githubRepo: string | null };
+// githubRepo is "owner/name". workspaceSetupCommand runs in each new workspace, and is
+// stopped after workspaceSetupTimeoutMinutes (a whole number; 15 when unset).
+export type Settings = {
+  productManagerModel: string | null;
+  githubRepo: string | null;
+  workspaceSetupCommand: string | null;
+  workspaceSetupTimeoutMinutes: string | null;
+};
+
+// Settings that can be cleared, by saving an empty value.
+export const OPTIONAL_SETTINGS = ["workspaceSetupCommand", "workspaceSetupTimeoutMinutes"] as const;
+
+// A workspace's setup started, finished or failed: refetch it.
+export type WorkspaceEvent = { type: "workspace.updated"; issueId: string };
+
+// Everything sent on GET /api/events.
+export type ServerEvent = ThreadEvent | WorkspaceEvent;
 
 // Services zini connects to with an API key.
 export const PROVIDERS = ["linear", "openrouter", "github"] as const;

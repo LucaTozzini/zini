@@ -104,25 +104,27 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
   );
 }
 
-type SettingCardProps = {
+// One text field for one setting. An optional one can be left empty, which clears it.
+type SettingField = {
   setting: keyof Settings;
-  title: string;
   label: string;
   placeholder: string;
   helperText: string;
+  optional?: boolean;
 };
 
-// A card with one text field that saves a single setting.
-function SettingCard({ setting, title, label, placeholder, helperText }: SettingCardProps) {
+// A card of setting fields saved together.
+function SettingCard({ title, fields }: { title: string; fields: SettingField[] }) {
   const settings = useSettings();
   const save = useSaveSettings();
-  // null until the user edits the field, so it shows the saved value.
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? settings.data?.[setting] ?? "";
+  // Only the edited fields; the others show their saved value.
+  const [drafts, setDrafts] = useState<Partial<Record<keyof Settings, string>>>({});
+  const edited = Object.keys(drafts).length > 0;
+  const valueOf = (setting: keyof Settings) => drafts[setting] ?? settings.data?.[setting] ?? "";
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    save.mutate({ [setting]: value }, { onSuccess: () => setDraft(null) });
+    save.mutate(drafts, { onSuccess: () => setDrafts({}) });
   }
 
   return (
@@ -140,15 +142,18 @@ function SettingCard({ setting, title, label, placeholder, helperText }: Setting
 
           {settings.isSuccess && (
             <Stack component="form" spacing={2} onSubmit={handleSubmit}>
-              <TextField
-                label={label}
-                value={value}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={placeholder}
-                helperText={helperText}
-                autoComplete="off"
-                required
-              />
+              {fields.map(({ setting, label, placeholder, helperText, optional }) => (
+                <TextField
+                  key={setting}
+                  label={label}
+                  value={valueOf(setting)}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [setting]: e.target.value }))}
+                  placeholder={placeholder}
+                  helperText={helperText}
+                  autoComplete="off"
+                  required={!optional}
+                />
+              ))}
               {save.isError && (
                 <Alert severity="error">{errorMessage(save.error)}</Alert>
               )}
@@ -157,7 +162,7 @@ function SettingCard({ setting, title, label, placeholder, helperText }: Setting
                   type="submit"
                   variant="contained"
                   loading={save.isPending}
-                  disabled={draft === null}
+                  disabled={!edited}
                 >
                   Save
                 </Button>
@@ -216,18 +221,47 @@ function SettingsPage() {
           helperText="Create a fine-grained token at github.com/settings/personal-access-tokens. Under Repository access, select your repo; under Permissions, set Contents and Pull requests to Read and write, so agents can push branches and open PRs."
         />
         <SettingCard
-          setting="githubRepo"
           title="Repository"
-          label="GitHub repository"
-          placeholder="owner/name"
-          helperText="The repo your Linear issues are about, as owner/name. Connect GitHub first; the token needs access to this repo."
+          fields={[
+            {
+              setting: "githubRepo",
+              label: "GitHub repository",
+              placeholder: "owner/name",
+              helperText:
+                "The repo your Linear issues are about, as owner/name. Connect GitHub first; the token needs access to this repo.",
+            },
+          ]}
         />
         <SettingCard
-          setting="productManagerModel"
+          title="Workspace setup"
+          fields={[
+            {
+              setting: "workspaceSetupCommand",
+              label: "Setup command",
+              placeholder: "npm ci",
+              helperText:
+                "Runs in each new workspace to get it ready, e.g. installing dependencies. Uses cmd on Windows and sh elsewhere. Leave empty for none.",
+              optional: true,
+            },
+            {
+              setting: "workspaceSetupTimeoutMinutes",
+              label: "Timeout (minutes)",
+              placeholder: "15",
+              helperText: "Setup is stopped and marked failed after this long. 15 minutes if empty.",
+              optional: true,
+            },
+          ]}
+        />
+        <SettingCard
           title="Product manager"
-          label="Model"
-          placeholder="anthropic/claude-sonnet-5"
-          helperText="An OpenRouter model ID that supports tool calling."
+          fields={[
+            {
+              setting: "productManagerModel",
+              label: "Model",
+              placeholder: "anthropic/claude-sonnet-5",
+              helperText: "An OpenRouter model ID that supports tool calling.",
+            },
+          ]}
         />
         <AppearanceCard />
       </Stack>

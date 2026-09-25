@@ -8,12 +8,17 @@ import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
 import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
-import { PRIORITY_NAMES } from "shared";
+import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
+import ReplayIcon from "@mui/icons-material/Replay";
+import { PRIORITY_NAMES, type Workspace } from "shared";
 import {
   errorMessage,
   useCreateWorkspace,
   useDeleteWorkspace,
   useLinearIssue,
+  useRerunSetup,
+  useSetupLog,
   useWorkspace,
 } from "../api.ts";
 import PriorityIcon from "./icons/PriorityIcon.tsx";
@@ -25,6 +30,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -117,6 +123,99 @@ function Code({ children }: { children: ReactNode }) {
 // vscode://file/ takes forward slashes and no leading slash (C:/Users/… or home/…).
 const vscodeUrl = (path: string) =>
   `vscode://file/${encodeURI(path.replace(/\\/g, "/").replace(/^\//, ""))}?windowId=_blank`;
+
+// The end of the workspace's setup output; refetched every couple of seconds while
+// setup is running, so it can be followed.
+function SetupLogDialog({
+  workspace,
+  open,
+  onClose,
+}: {
+  workspace: Workspace;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const running = workspace.setupStatus === "running";
+  const log = useSetupLog(workspace.issueId, open, running);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>Setup log</DialogTitle>
+      <DialogContent>
+        {log.isPending && <Skeleton height={120} />}
+        {log.isError && <Alert severity="error">{errorMessage(log.error)}</Alert>}
+        {log.isSuccess && (
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              fontFamily: "monospace",
+              fontSize: "0.8125rem",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {log.data || "No setup has run in this workspace."}
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// Where the workspace's setup is at, with its log and, unless it's running, a way to
+// run it again (e.g. after fixing the command in Settings).
+function SetupStatusRow({ workspace }: { workspace: Workspace }) {
+  const rerun = useRerunSetup();
+  const [showLog, setShowLog] = useState(false);
+  const { setupStatus, setupError } = workspace;
+
+  const status = {
+    running: {
+      label: "Setting up",
+      icon: <CircularProgress size={16} />,
+      text: "Setting up…",
+    },
+    ready: {
+      label: "Set up",
+      icon: <CheckCircleOutlinedIcon fontSize="small" color="success" />,
+      text: "Ready to work in",
+    },
+    failed: {
+      label: "Setup failed",
+      icon: <ErrorOutlineOutlinedIcon fontSize="small" color="error" />,
+      text: `Setup failed: ${setupError ?? "unknown error"}`,
+    },
+  }[setupStatus];
+
+  return (
+    <>
+      <Property label={status.label} icon={status.icon}>
+        {status.text}
+      </Property>
+      <Stack direction="row" spacing={1} sx={{ pl: 3.5 }}>
+        <Button size="small" startIcon={<ArticleOutlinedIcon />} onClick={() => setShowLog(true)}>
+          Log
+        </Button>
+        {setupStatus !== "running" && (
+          <Button
+            size="small"
+            startIcon={<ReplayIcon />}
+            loading={rerun.isPending}
+            onClick={() => rerun.mutate(workspace.issueId)}
+          >
+            Re-run setup
+          </Button>
+        )}
+      </Stack>
+      {rerun.isError && <Alert severity="error">{errorMessage(rerun.error)}</Alert>}
+      <SetupLogDialog workspace={workspace} open={showLog} onClose={() => setShowLog(false)} />
+    </>
+  );
+}
 
 // The issue's git workspace: a button to create it, or its folder with
 // buttons to open it in VS Code and to delete it.
@@ -213,11 +312,14 @@ function WorkspaceSection({
                 <Code>{workspace.data.branch}</Code>
               </Property>
             ))}
+          <SetupStatusRow workspace={workspace.data} />
           <Box sx={{ mt: 1 }}>
+            {/* Not while setup is running in it. */}
             <Button
               color="error"
               size="small"
               startIcon={<DeleteOutlinedIcon />}
+              disabled={workspace.data.setupStatus === "running"}
               onClick={() => setConfirming(true)}
             >
               Delete workspace

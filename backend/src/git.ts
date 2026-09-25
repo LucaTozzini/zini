@@ -15,6 +15,10 @@ const execFileAsync = promisify(execFile);
 const REPO_DIR = resolve(dirname(storage), "repo.git");
 const REF = "origin/HEAD";
 
+// Workspaces are git worktrees of the clone: real folders, each with its own branch
+// checked out, sharing repo.git's history. Named by Linear issue id, which never changes.
+const WORKSPACES_DIR = resolve(dirname(storage), "workspaces");
+
 // Caps so a big file or a common search term doesn't flood the model's context.
 const MAX_FILE_CHARS = 50_000;
 const MAX_MATCHES = 100;
@@ -37,6 +41,10 @@ async function git(args: string[], token?: string) {
     env: {
       ...process.env,
       GIT_TERMINAL_PROMPT: "0",
+      // git never looks for a repo above the workspaces folder: a workspace that has
+      // lost its .git link then fails, rather than git finding whatever repo contains
+      // zini's data folder (e.g. zini's own checkout) and acting on that.
+      GIT_CEILING_DIRECTORIES: WORKSPACES_DIR,
       // Abort a clone or fetch that has stalled (under 1 KB/s for 30s), without
       // cutting off a big one that's still downloading.
       GIT_HTTP_LOW_SPEED_LIMIT: "1000",
@@ -114,10 +122,6 @@ async function updateRepo() {
   await exclusive(() => git(["-C", REPO_DIR, "fetch", "--quiet", "--prune", "origin"], token));
 }
 
-// Workspaces are git worktrees of the clone: real folders, each with its own branch
-// checked out, sharing repo.git's history. Named by Linear issue id, which never changes.
-const WORKSPACES_DIR = resolve(dirname(storage), "workspaces");
-
 export const workspacePath = (issueId: string) => join(WORKSPACES_DIR, issueId);
 
 // Checks out branch in a new worktree for the issue. Continues origin/<branch> if
@@ -145,17 +149,20 @@ export async function worktreeBranch(issueId: string) {
 }
 
 // Deletes the issue's worktree, including uncommitted changes, and its local branch.
-// The branch on GitHub is left alone. If the folder was already deleted by hand,
-// this just clears git's record of it.
+// The branch on GitHub is left alone. Works on a folder that's already half-deleted
+// or gone too.
 export async function removeWorktree(issueId: string) {
   const path = workspacePath(issueId);
-  const branch = existsSync(path) ? await worktreeBranch(issueId) : "";
+  // Read first; "" if the folder is gone or no longer a worktree.
+  const branch = await worktreeBranch(issueId).catch(() => "");
   await exclusive(async () => {
-    if (existsSync(path)) {
-      await git(["-C", REPO_DIR, "worktree", "remove", "--force", path]);
-    } else {
-      await git(["-C", REPO_DIR, "worktree", "prune"]);
-    }
+    // Deleted here rather than by `git worktree remove`, which on Windows fails on the
+    // junctions npm workspaces put in node_modules, leaving the folder half-deleted.
+    // fs.rm removes a junction itself without following it, and retries on files
+    // Windows briefly holds locked.
+    await rm(path, { recursive: true, force: true, maxRetries: 5 });
+    // Then git forgets the worktree, whose folder is gone.
+    await git(["-C", REPO_DIR, "worktree", "prune"]);
     if (branch) await git(["-C", REPO_DIR, "branch", "-D", branch]);
   });
 }

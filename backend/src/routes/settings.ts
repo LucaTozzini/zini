@@ -5,6 +5,7 @@ import { Workspace } from "../models/Workspace.js";
 import {
   getSetting,
   getSettings,
+  isOptionalSetting,
   isSettingKey,
   saveSettings,
   SETTING_KEYS,
@@ -31,13 +32,23 @@ settings.put("/", async (req, res) => {
       res.status(400).json({ error: `Unknown setting "${key}". Known: ${SETTING_KEYS.join(", ")}` });
       return;
     }
-    // Every setting is a non-empty string for now.
-    const trimmed = typeof value === "string" ? value.trim() : "";
-    if (!trimmed) {
+    // Every setting is a string; only optional ones can be cleared with "".
+    if (typeof value !== "string") {
+      res.status(400).json({ error: `${key} must be a string` });
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed && !isOptionalSetting(key)) {
       res.status(400).json({ error: `${key} must be a non-empty string` });
       return;
     }
     changes[key] = trimmed;
+  }
+
+  const timeout = changes.workspaceSetupTimeoutMinutes;
+  if (timeout && !/^[1-9]\d*$/.test(timeout)) {
+    res.status(400).json({ error: "The setup timeout must be a whole number of minutes, 1 or more" });
+    return;
   }
 
   // The repo is only saved once it's cloned, which also checks the token can read it.
