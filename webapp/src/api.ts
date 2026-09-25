@@ -10,7 +10,7 @@ import type {
   Settings,
   StatusType,
   Thread,
-  ThreadEvent,
+  ServerEvent,
   ThreadSummary,
   Workspace,
 } from 'shared'
@@ -78,7 +78,8 @@ export function useLinearIssue(id: string) {
   })
 }
 
-const workspaceKey = (issueId: string) => ['workspaces', issueId]
+const workspacesKey = ['workspaces']
+const workspaceKey = (issueId: string) => [...workspacesKey, issueId]
 
 // The issue's workspace, or null if it doesn't have one yet.
 export function useWorkspace(issueId: string) {
@@ -103,6 +104,26 @@ export function useDeleteWorkspace() {
   return useMutation({
     mutationFn: (issueId: string) => api.delete(`workspaces/${issueId}`, { timeout: false }),
     onSuccess: (_res, issueId) => queryClient.setQueryData(workspaceKey(issueId), null),
+  })
+}
+
+// Runs the setup command again; its outcome comes through useServerEvents.
+export function useRerunSetup() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (issueId: string) => api.post(`workspaces/${issueId}/setup`).json<Workspace>(),
+    onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(workspace.issueId), workspace),
+  })
+}
+
+// The end of the workspace's last setup output, fetched while enabled (e.g. the log is
+// open). Under the workspace's key, so it's refetched with it; every 2s while running.
+export function useSetupLog(issueId: string, enabled: boolean, running: boolean) {
+  return useQuery({
+    queryKey: [...workspaceKey(issueId), 'setup-log'],
+    queryFn: () => api.get(`workspaces/${issueId}/setup-log`).text(),
+    enabled,
+    refetchInterval: running ? 2000 : false,
   })
 }
 
@@ -144,26 +165,34 @@ export function useThread(id: string | undefined) {
   })
 }
 
-// Keeps the chats up to date while mounted. The server sends thread.updated whenever
-// a chat changes (a run starts, finishes a step, ends or fails), and that chat and the
-// list are refetched. On (re)connect everything is refetched, in case events were
-// missed while disconnected.
-export function useThreadEvents() {
+// Keeps the app up to date, from one connection to the server's events (mounted once,
+// in App). Each event says what changed, and that's refetched: a chat (and the chat
+// list) when a product manager run starts, finishes a step, ends or fails; a
+// workspace when its setup starts or ends. On (re)connect everything is refetched, in
+// case events were missed while disconnected.
+export function useServerEvents() {
   const queryClient = useQueryClient()
   useEffect(() => {
-    const events = new EventSource('/api/product-manager/events')
-    events.onopen = () => queryClient.invalidateQueries({ queryKey: threadsKey })
+    const events = new EventSource('/api/events')
+    events.onopen = () => {
+      queryClient.invalidateQueries({ queryKey: threadsKey })
+      queryClient.invalidateQueries({ queryKey: workspacesKey })
+    }
     events.onmessage = (e: MessageEvent<string>) => {
-      const { threadId } = JSON.parse(e.data) as ThreadEvent
-      queryClient.invalidateQueries({ queryKey: threadKey(threadId) })
-      queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
+      const event = JSON.parse(e.data) as ServerEvent
+      if (event.type === 'thread.updated') {
+        queryClient.invalidateQueries({ queryKey: threadKey(event.threadId) })
+        queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
+      } else {
+        queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId) })
+      }
     }
     return () => events.close()
   }, [queryClient])
 }
 
 // Sending answers once the message is saved, so any fetch of the chat after that has it;
-// the agent's reply comes through useThreadEvents.
+// the agent's reply comes through useServerEvents.
 const post = (path: string, json: object) => api.post(`product-manager/${path}`, { json })
 
 // Shows a change to a chat straight away, before the server has it: cancels fetches

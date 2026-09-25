@@ -1,6 +1,6 @@
 import { Box } from "@mui/material";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { useDeleteThread, useThreadEvents, useThreads } from "../api.ts";
+import { useDeleteThread, useThreads } from "../api.ts";
 import Chat from "../components/Chat.tsx";
 import ThreadList from "../components/ThreadList.tsx";
 import { useChat, type CreatedChatState } from "../hooks/useChat.ts";
@@ -34,8 +34,6 @@ const ProductManagerPage = () => {
   const created = location.state as CreatedChatState | null;
   const chatKey = created?.chatKey ?? threadId ?? location.key;
   const threads = useThreads();
-  // Live updates while the page is open: replies, running chats, other tabs.
-  useThreadEvents();
   const deleteThread = useDeleteThread();
 
   // Leave a chat that was just deleted while open.

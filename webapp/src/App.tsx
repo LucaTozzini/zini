@@ -2,6 +2,7 @@ import { Box, useMediaQuery, useTheme } from "@mui/material";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
 import { Route, Routes } from "react-router";
+import { useServerEvents } from "./api.ts";
 import { useSetup } from "./hooks/useSetup.ts";
 import HomePage from "./pages/HomePage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
@@ -9,6 +10,8 @@ import ProductManagerPage from "./pages/ProductManagerPage.tsx";
 
 function App() {
   const setup = useSetup();
+  // Live updates for every page: chat replies, running chats, workspace setup.
+  useServerEvents();
   const theme =useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down("md"));
 
