@@ -11,6 +11,9 @@ export const STATUS_TYPES = [
 
 export type StatusType = (typeof STATUS_TYPES)[number];
 
+// Linear's priority numbers, 0 to 4, by name.
+export const PRIORITY_NAMES = ["None", "Urgent", "High", "Medium", "Low"] as const;
+
 // An issue as returned by GET /api/integrations/linear/issues.
 export type LinearIssue = {
   id: string;
@@ -22,6 +25,19 @@ export type LinearIssue = {
   state: { name: string; type: StatusType };
   assignee: { name: string } | null;
 };
+
+// One issue with its details, as returned by GET /api/integrations/linear/issues/:id.
+// branchName is the git branch Linear suggests for it; PRs from that branch link back.
+export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
+  description: string | null;
+  branchName: string;
+  assignee: { name: string; email: string } | null;
+  team: { key: string; name: string };
+};
+
+// A Linear issue's workspace: a git worktree of the repo with the issue's branch
+// checked out, as returned by /api/workspaces. branch is read from the worktree.
+export type Workspace = { issueId: string; branch: string; path: string; createdAt: string };
 
 // One turn of the product manager chat, as shown in the webapp.
 export type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -48,10 +64,11 @@ export type Thread = {
 };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
-export type Settings = { productManagerModel: string | null };
+// githubRepo is "owner/name".
+export type Settings = { productManagerModel: string | null; githubRepo: string | null };
 
 // Services zini connects to with an API key.
-export const PROVIDERS = ["linear", "openrouter"] as const;
+export const PROVIDERS = ["linear", "openrouter", "github"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 // As returned by GET /api/integrations. Never the full key; the last 3 characters

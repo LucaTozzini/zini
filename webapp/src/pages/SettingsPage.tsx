@@ -14,7 +14,7 @@ import {
   useSaveSettings,
   useSettings,
 } from "../api.ts";
-import type { Provider } from "shared";
+import type { Provider, Settings } from "shared";
 import { Container, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
 
@@ -104,26 +104,32 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
   );
 }
 
-function ProductManagerCard() {
+type SettingCardProps = {
+  setting: keyof Settings;
+  title: string;
+  label: string;
+  placeholder: string;
+  helperText: string;
+};
+
+// A card with one text field that saves a single setting.
+function SettingCard({ setting, title, label, placeholder, helperText }: SettingCardProps) {
   const settings = useSettings();
   const save = useSaveSettings();
-  // null until the user edits the field, so it shows the saved model.
-  const [model, setModel] = useState<string | null>(null);
-  const value = model ?? settings.data?.productManagerModel ?? "";
+  // null until the user edits the field, so it shows the saved value.
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? settings.data?.[setting] ?? "";
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    save.mutate(
-      { productManagerModel: value },
-      { onSuccess: () => setModel(null) },
-    );
+    save.mutate({ [setting]: value }, { onSuccess: () => setDraft(null) });
   }
 
   return (
     <Card variant="outlined">
       <CardContent>
         <Stack spacing={2}>
-          <Typography variant="h6">Product manager</Typography>
+          <Typography variant="h6">{title}</Typography>
 
           {settings.isPending && (
             <Typography color="text.secondary">Loading…</Typography>
@@ -135,11 +141,11 @@ function ProductManagerCard() {
           {settings.isSuccess && (
             <Stack component="form" spacing={2} onSubmit={handleSubmit}>
               <TextField
-                label="Model"
+                label={label}
                 value={value}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="anthropic/claude-sonnet-5"
-                helperText="An OpenRouter model ID that supports tool calling."
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={placeholder}
+                helperText={helperText}
                 autoComplete="off"
                 required
               />
@@ -151,7 +157,7 @@ function ProductManagerCard() {
                   type="submit"
                   variant="contained"
                   loading={save.isPending}
-                  disabled={model === null}
+                  disabled={draft === null}
                 >
                   Save
                 </Button>
@@ -204,7 +210,25 @@ function SettingsPage() {
           name="OpenRouter"
           helperText="Create an API key at openrouter.ai/keys."
         />
-        <ProductManagerCard />
+        <KeyCard
+          provider="github"
+          name="GitHub"
+          helperText="Create a fine-grained token at github.com/settings/personal-access-tokens. Under Repository access, select your repo; under Permissions, set Contents and Pull requests to Read and write, so agents can push branches and open PRs."
+        />
+        <SettingCard
+          setting="githubRepo"
+          title="Repository"
+          label="GitHub repository"
+          placeholder="owner/name"
+          helperText="The repo your Linear issues are about, as owner/name. Connect GitHub first; the token needs access to this repo."
+        />
+        <SettingCard
+          setting="productManagerModel"
+          title="Product manager"
+          label="Model"
+          placeholder="anthropic/claude-sonnet-5"
+          helperText="An OpenRouter model ID that supports tool calling."
+        />
         <AppearanceCard />
       </Stack>
     </Container>

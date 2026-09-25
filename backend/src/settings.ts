@@ -4,7 +4,7 @@ import { Setting } from "./models/Setting.js";
 export type SettingKey = keyof Settings;
 
 // The settings that exist. Each is a row in the settings table once saved.
-export const SETTING_KEYS: SettingKey[] = ["productManagerModel"];
+export const SETTING_KEYS: SettingKey[] = ["productManagerModel", "githubRepo"];
 
 export const isSettingKey = (key: string): key is SettingKey =>
   (SETTING_KEYS as string[]).includes(key);
