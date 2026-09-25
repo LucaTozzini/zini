@@ -4,10 +4,12 @@ import { Command } from "@langchain/langgraph";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { ChatOpenAI } from "@langchain/openai";
 import {
+  AIMessage,
   createAgent,
   createMiddleware,
   humanInTheLoopMiddleware,
   tool,
+  toolErrorMiddleware,
   ToolMessage,
   type HITLRequest,
 } from "langchain";
@@ -167,6 +169,45 @@ const fetchRepoMiddleware = createMiddleware({
   },
 });
 
+// A tool that throws (e.g. no such file, or an unknown status name) gives the model
+// the error as its result, so it can correct itself and carry on. The agent does this
+// by default, but not once any wrapToolCall middleware is in use: errors then end the
+// run. Interrupts for approval still pass through.
+const toolErrors = toolErrorMiddleware({
+  onError: (error) => `${error instanceof Error ? error.message : String(error)}\nPlease fix your mistakes.`,
+});
+
+// Tool calls that never got a result, because the run died while they ran (a crash, a
+// server restart), make the model API reject the whole conversation, leaving the chat
+// stuck. Each model call gets a stand-in result for them; the saved history is left
+// as it is.
+function withMissingToolResults(messages: BaseMessage[]) {
+  const answered = new Set(messages.filter(ToolMessage.isInstance).map((m) => m.tool_call_id));
+  return messages.flatMap((message) => {
+    const missing = AIMessage.isInstance(message)
+      ? (message.tool_calls ?? []).filter((call) => call.id && !answered.has(call.id))
+      : [];
+    return [
+      message,
+      ...missing.map(
+        (call) =>
+          new ToolMessage({
+            tool_call_id: call.id!,
+            name: call.name,
+            status: "error",
+            content: "This call was interrupted and never ran.",
+          }),
+      ),
+    ];
+  });
+}
+
+const repairToolCalls = createMiddleware({
+  name: "RepairToolCalls",
+  wrapModelCall: (request, handler) =>
+    handler({ ...request, messages: withMissingToolResults(request.messages) }),
+});
+
 // Conversations live here, keyed by thread id, so a run can pause for approval and
 // resume later, even after a restart. Its own file next to the main database, since
 // it uses a different SQLite driver (better-sqlite3) than Sequelize.
@@ -185,6 +226,9 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
     systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [
+      // Outermost, so it also covers fetchRepoMiddleware's tools.
+      toolErrors,
+      repairToolCalls,
       humanInTheLoopMiddleware({
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
