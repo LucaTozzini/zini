@@ -15,7 +15,6 @@ import type { BaseMessage } from "@langchain/core/messages";
 import {
   STATUS_TYPES,
   type ChatMessage,
-  type ChatResponse,
   type Decision,
   type PendingAction,
 } from "shared";
@@ -202,21 +201,27 @@ type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo:
 
 const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });
 
-// Sends the user's next message on a thread.
-export async function chat(setup: Setup, threadId: string, message: string) {
-  const agent = buildAgent(setup);
-  const result = await agent.invoke(
+// Runs are streamed so the caller can report progress: "values" yields the state
+// once the input is applied and again after every step, and "sync" saves each step
+// before its chunk is yielded, so a reload at any chunk sees everything so far.
+const streamConfig = (threadId: string) => ({
+  ...threadConfig(threadId),
+  streamMode: "values" as const,
+  durability: "sync" as const,
+});
+
+// Sends the user's next message on a thread. The run ends with a reply, or paused
+// on actions to approve.
+export function chat(setup: Setup, threadId: string, message: string) {
+  return buildAgent(setup).stream(
     { messages: [{ role: "user", content: message }] },
-    threadConfig(threadId),
+    streamConfig(threadId),
   );
-  return toResponse(result.messages, result.__interrupt__);
 }
 
 // Answers the actions a paused thread is waiting on, one decision per action.
-export async function resume(setup: Setup, threadId: string, decisions: Decision[]) {
-  const agent = buildAgent(setup);
-  const result = await agent.invoke(new Command({ resume: { decisions } }), threadConfig(threadId));
-  return toResponse(result.messages, result.__interrupt__);
+export function resume(setup: Setup, threadId: string, decisions: Decision[]) {
+  return buildAgent(setup).stream(new Command({ resume: { decisions } }), streamConfig(threadId));
 }
 
 // A saved thread's conversation, and the actions it's paused on if any.
@@ -241,13 +246,6 @@ function toChatMessage(message: BaseMessage): ChatMessage[] {
 function toPending(interrupts: { value?: unknown }[] = []): PendingAction[] {
   const request = interrupts[0]?.value as HITLRequest | undefined;
   return request?.actionRequests.map(({ name, args }) => ({ name, args })) ?? [];
-}
-
-function toResponse(
-  messages: { text: string }[],
-  interrupts?: { value?: unknown }[],
-): ChatResponse {
-  return { reply: messages.at(-1)?.text ?? "", pending: toPending(interrupts) };
 }
 
 // Removes a thread's saved conversation from the checkpointer.

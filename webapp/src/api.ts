@@ -1,8 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import ky, { HTTPError } from 'ky'
 import type {
-  ChatMessage,
-  ChatResponse,
   Decision,
   Integrations,
   LinearIssue,
@@ -11,6 +10,7 @@ import type {
   Settings,
   StatusType,
   Thread,
+  ThreadEvent,
   ThreadSummary,
   Workspace,
 } from 'shared'
@@ -144,53 +144,93 @@ export function useThread(id: string | undefined) {
   })
 }
 
-// Agent turns can take a while when it calls several tools, so no timeout.
-const post = <T>(path: string, json: object) =>
-  api.post(`product-manager/${path}`, { json, timeout: false }).json<T>()
-
-// Adds a finished turn to the cached thread instead of refetching it.
-function appendTurn(thread: Thread, userMessage: string | null, { reply, pending }: ChatResponse): Thread {
-  const messages: ChatMessage[] = [...thread.messages]
-  if (userMessage) messages.push({ role: 'user', content: userMessage })
-  if (reply) messages.push({ role: 'assistant', content: reply })
-  return { ...thread, messages, pending }
+// Keeps the chats up to date while mounted. The server sends thread.updated whenever
+// a chat changes (a run starts, finishes a step, ends or fails), and that chat and the
+// list are refetched. On (re)connect everything is refetched, in case events were
+// missed while disconnected.
+export function useThreadEvents() {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const events = new EventSource('/api/product-manager/events')
+    events.onopen = () => queryClient.invalidateQueries({ queryKey: threadsKey })
+    events.onmessage = (e: MessageEvent<string>) => {
+      const { threadId } = JSON.parse(e.data) as ThreadEvent
+      queryClient.invalidateQueries({ queryKey: threadKey(threadId) })
+      queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
+    }
+    return () => events.close()
+  }, [queryClient])
 }
 
-// Starts a chat; resolves to the new thread's id.
+// Sending answers once the message is saved, so any fetch of the chat after that has it;
+// the agent's reply comes through useThreadEvents.
+const post = (path: string, json: object) => api.post(`product-manager/${path}`, { json })
+
+// Shows a change to a chat straight away, before the server has it: cancels fetches
+// that could overwrite it, applies it to the cached chat, and returns a way to undo it
+// if the request fails.
+async function updateThreadNow(
+  queryClient: QueryClient,
+  threadId: string,
+  change: (thread: Thread) => Thread,
+) {
+  const key = threadKey(threadId)
+  await queryClient.cancelQueries({ queryKey: key })
+  const previous = queryClient.getQueryData<Thread>(key)
+  if (previous) queryClient.setQueryData(key, change(previous))
+  return () => queryClient.setQueryData(key, previous)
+}
+
+// Starts a chat with its first message; resolves to the new chat, cached with that
+// message and running, so opening it shows both at once.
 export function useCreateThread() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) =>
-      post<ThreadSummary & ChatResponse>('threads', { message }),
-    onSuccess: ({ id, title, ...response }, message) => {
-      const empty: Thread = { id, title, messages: [], pending: [] }
-      queryClient.setQueryData(threadKey(id), appendTurn(empty, message, response))
-      queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
+    mutationFn: (message: string) => post('threads', { message }).json<ThreadSummary>(),
+    onSuccess: ({ id, title }, message) => {
+      queryClient.setQueryData<Thread>(threadKey(id), {
+        id,
+        title,
+        messages: [{ role: 'user', content: message }],
+        pending: [],
+        running: true,
+        error: null,
+      })
+      void queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
     },
   })
 }
 
+// The message shows in the chat, with "thinking", as soon as it's sent.
 export function useSendMessage(threadId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => post<ChatResponse>(`threads/${threadId}/messages`, { message }),
-    onSuccess: (response, message) =>
-      queryClient.setQueryData<Thread>(threadKey(threadId), (thread) =>
-        thread && appendTurn(thread, message, response),
-      ),
+    mutationFn: (message: string) => post(`threads/${threadId}/messages`, { message }),
+    onMutate: (message) =>
+      updateThreadNow(queryClient, threadId, (thread) => ({
+        ...thread,
+        messages: [...thread.messages, { role: 'user', content: message }],
+        running: true,
+        error: null,
+      })),
+    onError: (_err, _message, undo) => undo?.(),
   })
 }
 
-// Approves or rejects the actions the agent paused on, one decision per action.
+// Approves or rejects the actions the agent paused on, one decision per action. The
+// approval card goes, and "thinking" shows, as soon as it's sent.
 export function useResumeThread(threadId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (decisions: Decision[]) =>
-      post<ChatResponse>(`threads/${threadId}/resume`, { decisions }),
-    onSuccess: (response) =>
-      queryClient.setQueryData<Thread>(threadKey(threadId), (thread) =>
-        thread && appendTurn(thread, null, response),
-      ),
+    mutationFn: (decisions: Decision[]) => post(`threads/${threadId}/resume`, { decisions }),
+    onMutate: () =>
+      updateThreadNow(queryClient, threadId, (thread) => ({
+        ...thread,
+        pending: [],
+        running: true,
+        error: null,
+      })),
+    onError: (_err, _decisions, undo) => undo?.(),
   })
 }
 
