@@ -20,10 +20,12 @@ const isDecision = (d: unknown): d is Decision =>
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
-  const [linear, openRouterKey, model] = await Promise.all([
+  const [linear, openRouterKey, githubToken, model, repo] = await Promise.all([
     getLinearClient(),
     getKey("openrouter"),
+    getKey("github"),
     getSetting("productManagerModel"),
+    getSetting("githubRepo"),
   ]);
   const missing = (error: string) => {
     res.status(409).json({ error });
@@ -31,8 +33,10 @@ async function loadSetup(res: Response) {
   };
   if (!linear) return missing("Linear isn't connected");
   if (!openRouterKey) return missing("OpenRouter isn't connected");
+  if (!githubToken) return missing("GitHub isn't connected");
   if (!model) return missing("No model set");
-  return { linear, openRouterKey, model };
+  if (!repo) return missing("No GitHub repository set");
+  return { linear, openRouterKey, model, repo };
 }
 
 // The chat with this id, or null after sending a 404.

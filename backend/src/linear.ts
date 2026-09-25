@@ -1,6 +1,6 @@
 import { AuthenticationLinearError, LinearClient } from "@linear/sdk";
 import { getKey } from "./models/Integration.js";
-import type { LinearIssue, StatusType } from "shared";
+import type { LinearIssue, LinearIssueDetails, StatusType } from "shared";
 
 // Built per call so a replaced or removed key takes effect immediately.
 export async function getLinearClient() {
@@ -67,7 +67,7 @@ export async function searchLinearIssues(client: LinearClient, query: string) {
 const ISSUE_QUERY = `
   query Issue($id: String!) {
     issue(id: $id) {
-      id identifier title description priority url updatedAt
+      id identifier title description priority url updatedAt branchName
       state { name type }
       assignee { name email }
       team { key name }
@@ -75,9 +75,10 @@ const ISSUE_QUERY = `
   }
 `;
 
-// Accepts the internal id or the identifier, e.g. "ENG-123".
+// Accepts the internal id or the identifier, e.g. "ENG-123". Throws
+// InvalidInputLinearError if there's no such issue.
 export async function fetchLinearIssue(client: LinearClient, id: string) {
-  const { data } = await client.client.rawRequest<{ issue: unknown }, { id: string }>(
+  const { data } = await client.client.rawRequest<{ issue: LinearIssueDetails }, { id: string }>(
     ISSUE_QUERY,
     { id },
   );

@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { Button, Card, CardContent, Stack, TextField, Typography } from "@mui/material";
-import type { Decision, PendingAction } from "shared";
-
-const PRIORITIES = ["None", "Urgent", "High", "Medium", "Low"];
+import { PRIORITY_NAMES, type Decision, type PendingAction } from "shared";
 
 // One create_issue or update_issue call, shown field by field.
 function ActionDetails({ action }: { action: PendingAction }) {
@@ -22,7 +20,7 @@ function ActionDetails({ action }: { action: PendingAction }) {
       {title && <Typography>{title}</Typography>}
       {priority !== undefined && (
         <Typography color="text.secondary">
-          Priority: {PRIORITIES[priority] ?? priority}
+          Priority: {PRIORITY_NAMES[priority] ?? priority}
         </Typography>
       )}
       {status && <Typography color="text.secondary">Status: {status}</Typography>}

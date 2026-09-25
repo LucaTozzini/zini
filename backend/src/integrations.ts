@@ -1,4 +1,5 @@
 import { PROVIDERS, type Integrations, type Provider } from "shared";
+import { testGitHubKey } from "./github.js";
 import { testLinearKey } from "./linear.js";
 import { Integration } from "./models/Integration.js";
 import { testOpenRouterKey } from "./openrouter.js";
@@ -9,6 +10,7 @@ import { testOpenRouterKey } from "./openrouter.js";
 const SERVICES: Record<Provider, { name: string; testKey: (apiKey: string) => Promise<boolean> }> = {
   linear: { name: "Linear", testKey: testLinearKey },
   openrouter: { name: "OpenRouter", testKey: testOpenRouterKey },
+  github: { name: "GitHub", testKey: testGitHubKey },
 };
 
 export const isProvider = (value: string): value is Provider =>

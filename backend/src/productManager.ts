@@ -3,7 +3,14 @@ import { join, dirname } from "node:path";
 import { Command } from "@langchain/langgraph";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent, humanInTheLoopMiddleware, tool, type HITLRequest } from "langchain";
+import {
+  createAgent,
+  createMiddleware,
+  humanInTheLoopMiddleware,
+  tool,
+  ToolMessage,
+  type HITLRequest,
+} from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
 import {
   STATUS_TYPES,
@@ -22,9 +29,12 @@ import {
   updateLinearIssue,
 } from "./linear.js";
 import { storage } from "./db.js";
+import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 
-const SYSTEM_PROMPT = `You are a product manager with access to the user's Linear workspace.
+// {repo} is the githubRepo setting.
+const SYSTEM_PROMPT = `You are a product manager with access to the user's Linear workspace
+and to the code of the product's GitHub repository ({repo}).
 Help the user think through ideas, bugs and features, and turn them into clear Linear issues.
 
 - Look at existing issues before proposing new ones (search_issues finds them by keyword),
@@ -34,7 +44,11 @@ Help the user think through ideas, bugs and features, and turn them into clear L
 - Linear priorities: 0 = none, 1 = urgent, 2 = high, 3 = medium, 4 = low.
 - Statuses and assignees are per team: use list_teams to see a team's status names and
   members. "Me" is the list_teams viewer.
-- After creating or updating an issue, share its identifier and link.`;
+- After creating or updating an issue, share its identifier and link.
+- list_files, read_file and search_code read the repo's default branch, always up to date.
+  Check the code before saying what the product does or doesn't do, and before proposing
+  issues about it.
+- Mention the relevant files in issue descriptions when it helps whoever picks it up.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -86,8 +100,9 @@ function buildTools(linear: LinearClient) {
     tool(async ({ id, ...changes }) => JSON.stringify(await updateLinearIssue(linear, id, changes)), {
       name: "update_issue",
       description:
-        "Change an issue's title, description, priority, status or assignee. Only pass the " +
-        "fields to change; set assignee to null to unassign. " +
+        "Change an issue's title, description, priority, status or assignee. Every field " +
+        "but id is optional: omit the ones you aren't changing, rather than passing their " +
+        "current value or an empty string. Set assignee to null to unassign. " +
         "The user approves the call before it runs.",
       schema: z.object({
         id: z.string().describe("Identifier (e.g. ENG-123) or id"),
@@ -101,6 +116,58 @@ function buildTools(linear: LinearClient) {
   ];
 }
 
+// Read-only tools over the repo's default branch. Fetching is left to fetchRepoMiddleware.
+const codeTools = [
+  tool(async ({ path }) => listRepoFiles(path ?? ""), {
+    name: "list_files",
+    description: "List a folder's files and subfolders (subfolders end in /). Omit path for the root.",
+    schema: z.object({ path: z.string().optional().describe('e.g. "src/components"') }),
+  }),
+  tool(async ({ path, startLine, endLine }) => readRepoFile(path, startLine, endLine), {
+    name: "read_file",
+    description:
+      "Read a file, with line numbers. Long files are cut off with a note saying which " +
+      "startLine to read on from; pass a line range to read just part of a file.",
+    schema: z.object({
+      path: z.string().describe('e.g. "src/App.tsx"'),
+      startLine: z.number().int().min(1).optional().describe("First line to read, from 1"),
+      endLine: z.number().int().min(1).optional().describe("Last line to read, inclusive"),
+    }),
+  }),
+  tool(async ({ query }) => searchRepoCode(query), {
+    name: "search_code",
+    description:
+      "Find lines containing some text (plain text, any case), as path:line:text. " +
+      "Up to 100 matches; use a more specific term if there are more.",
+    schema: z.object({ query: z.string().min(1) }),
+  }),
+];
+const CODE_TOOL_NAMES = new Set<string>(codeTools.map((t) => t.name));
+
+// Brings the clone up to date before each code tool runs; other tools pass straight
+// through. Parallel code tools share one fetch (see fetchRepo). If the fetch fails,
+// the tool doesn't run on stale code: the model gets the error as its result.
+const fetchRepoMiddleware = createMiddleware({
+  name: "FetchRepo",
+  wrapToolCall: async (request, handler) => {
+    if (!CODE_TOOL_NAMES.has(request.toolCall.name)) return handler(request);
+    try {
+      await fetchRepo();
+    } catch (err) {
+      console.error("Fetching the repo failed:", err);
+      // A failed git command's message ends with its "fatal: ..." line.
+      const reason = err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
+      return new ToolMessage({
+        tool_call_id: request.toolCall.id ?? "",
+        name: request.toolCall.name,
+        status: "error",
+        content: `Couldn't update the code from GitHub: ${reason}. Tell the user.`,
+      });
+    }
+    return handler(request);
+  },
+});
+
 // Conversations live here, keyed by thread id, so a run can pause for approval and
 // resume later, even after a restart. Its own file next to the main database, since
 // it uses a different SQLite driver (better-sqlite3) than Sequelize.
@@ -108,15 +175,15 @@ const checkpointer = SqliteSaver.fromConnString(join(dirname(storage), "checkpoi
 
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
-function buildAgent(linear: LinearClient, openRouterKey: string, model: string) {
+function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
   return createAgent({
     model: new ChatOpenAI({
       model,
       apiKey: openRouterKey,
       configuration: { baseURL: OPENROUTER_URL },
     }),
-    tools: buildTools(linear),
-    systemPrompt: SYSTEM_PROMPT,
+    tools: [...buildTools(linear), ...codeTools],
+    systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [
       humanInTheLoopMiddleware({
@@ -125,17 +192,19 @@ function buildAgent(linear: LinearClient, openRouterKey: string, model: string) 
           update_issue: { allowedDecisions: ["approve", "reject"] },
         },
       }),
+      fetchRepoMiddleware,
     ],
   });
 }
 
-type Setup = { linear: LinearClient; openRouterKey: string; model: string };
+// repo is the githubRepo setting, "owner/name".
+type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo: string };
 
 const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });
 
 // Sends the user's next message on a thread.
 export async function chat(setup: Setup, threadId: string, message: string) {
-  const agent = buildAgent(setup.linear, setup.openRouterKey, setup.model);
+  const agent = buildAgent(setup);
   const result = await agent.invoke(
     { messages: [{ role: "user", content: message }] },
     threadConfig(threadId),
@@ -145,14 +214,14 @@ export async function chat(setup: Setup, threadId: string, message: string) {
 
 // Answers the actions a paused thread is waiting on, one decision per action.
 export async function resume(setup: Setup, threadId: string, decisions: Decision[]) {
-  const agent = buildAgent(setup.linear, setup.openRouterKey, setup.model);
+  const agent = buildAgent(setup);
   const result = await agent.invoke(new Command({ resume: { decisions } }), threadConfig(threadId));
   return toResponse(result.messages, result.__interrupt__);
 }
 
 // A saved thread's conversation, and the actions it's paused on if any.
 export async function loadThread(setup: Setup, threadId: string) {
-  const agent = buildAgent(setup.linear, setup.openRouterKey, setup.model);
+  const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
   const messages: BaseMessage[] = state.values.messages ?? [];
   return {

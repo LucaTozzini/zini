@@ -6,11 +6,13 @@ import type {
   Decision,
   Integrations,
   LinearIssue,
+  LinearIssueDetails,
   Provider,
   Settings,
   StatusType,
   Thread,
   ThreadSummary,
+  Workspace,
 } from 'shared'
 
 // Retries are left to TanStack Query.
@@ -68,6 +70,42 @@ export function useLinearIssues(statuses: StatusType[]) {
   })
 }
 
+// One issue with its details, by identifier (e.g. ZIN-4) or id.
+export function useLinearIssue(id: string) {
+  return useQuery({
+    queryKey: ['linear', 'issue', id],
+    queryFn: () => api.get(`integrations/linear/issues/${id}`).json<LinearIssueDetails>(),
+  })
+}
+
+const workspaceKey = (issueId: string) => ['workspaces', issueId]
+
+// The issue's workspace, or null if it doesn't have one yet.
+export function useWorkspace(issueId: string) {
+  return useQuery({
+    queryKey: workspaceKey(issueId),
+    queryFn: () => api.get(`workspaces/${issueId}`).json<Workspace | null>(),
+  })
+}
+
+// Creating checks out a branch, which can take a while on a big repo, so no timeout.
+export function useCreateWorkspace() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (issueId: string) =>
+      api.post('workspaces', { json: { issueId }, timeout: false }).json<Workspace>(),
+    onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(workspace.issueId), workspace),
+  })
+}
+
+export function useDeleteWorkspace() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (issueId: string) => api.delete(`workspaces/${issueId}`, { timeout: false }),
+    onSuccess: (_res, issueId) => queryClient.setQueryData(workspaceKey(issueId), null),
+  })
+}
+
 const settingsKey = ['settings']
 
 export function useSettings() {
@@ -77,12 +115,13 @@ export function useSettings() {
   })
 }
 
-// Saves only the settings passed; returns all of them.
+// Saves only the settings passed; returns all of them. No timeout, since saving the
+// repo waits for it to be cloned, which can take a while for a big repo.
 export function useSaveSettings() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (changes: Partial<Record<keyof Settings, string>>) =>
-      api.put('settings', { json: changes }).json<Settings>(),
+      api.put('settings', { json: changes, timeout: false }).json<Settings>(),
     onSuccess: (data) => queryClient.setQueryData(settingsKey, data),
   })
 }

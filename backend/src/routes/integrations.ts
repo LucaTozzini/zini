@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { PROVIDERS, STATUS_TYPES, type Provider, type StatusType } from "shared";
 import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations.js";
-import { fetchLinearIssues, getLinearClient } from "../linear.js";
+import { InvalidInputLinearError } from "@linear/sdk";
+import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../linear.js";
 
 const isStatusType = (s: string): s is StatusType =>
   (STATUS_TYPES as readonly string[]).includes(s);
@@ -68,4 +69,24 @@ integrations.get("/linear/issues", async (req, res) => {
   }
 
   res.json({ issues: await fetchLinearIssues(client, status) });
+});
+
+// One issue with its details, by identifier (e.g. ZIN-4) or id.
+integrations.get("/linear/issues/:id", async (req, res) => {
+  const client = await getLinearClient();
+  if (!client) {
+    res.status(409).json({ error: "Linear isn't connected" });
+    return;
+  }
+
+  try {
+    res.json(await fetchLinearIssue(client, req.params.id));
+  } catch (err) {
+    // What Linear throws for an issue that doesn't exist.
+    if (err instanceof InvalidInputLinearError) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    throw err;
+  }
 });
