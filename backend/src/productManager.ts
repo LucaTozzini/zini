@@ -1,7 +1,5 @@
 import type { LinearClient } from "@linear/sdk";
-import { join, dirname } from "node:path";
 import { Command } from "@langchain/langgraph";
-import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   AIMessage,
@@ -9,17 +7,11 @@ import {
   createMiddleware,
   humanInTheLoopMiddleware,
   tool,
-  toolErrorMiddleware,
   ToolMessage,
   type HITLRequest,
 } from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
-import {
-  STATUS_TYPES,
-  type ChatMessage,
-  type Decision,
-  type PendingAction,
-} from "shared";
+import { STATUS_TYPES, type Decision, type PendingAction } from "shared";
 import { z } from "zod";
 import {
   createLinearIssue,
@@ -29,7 +21,7 @@ import {
   searchLinearIssues,
   updateLinearIssue,
 } from "./linear.js";
-import { storage } from "./db.js";
+import { checkpointer, streamConfig, threadConfig, toChatMessage, toolErrors } from "./agents.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 
@@ -169,13 +161,6 @@ const fetchRepoMiddleware = createMiddleware({
   },
 });
 
-// A tool that throws (e.g. no such file, or an unknown status name) gives the model
-// the error as its result, so it can correct itself and carry on. The agent does this
-// by default, but not once any wrapToolCall middleware is in use: errors then end the
-// run. Interrupts for approval still pass through.
-const toolErrors = toolErrorMiddleware({
-  onError: (error) => `${error instanceof Error ? error.message : String(error)}\nPlease fix your mistakes.`,
-});
 
 // Tool calls that never got a result, because the run died while they ran (a crash, a
 // server restart), make the model API reject the whole conversation, leaving the chat
@@ -208,11 +193,6 @@ const repairToolCalls = createMiddleware({
     handler({ ...request, messages: withMissingToolResults(request.messages) }),
 });
 
-// Conversations live here, keyed by thread id, so a run can pause for approval and
-// resume later, even after a restart. Its own file next to the main database, since
-// it uses a different SQLite driver (better-sqlite3) than Sequelize.
-const checkpointer = SqliteSaver.fromConnString(join(dirname(storage), "checkpoints.sqlite"));
-
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
 function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
@@ -243,17 +223,6 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
 // repo is the githubRepo setting, "owner/name".
 type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo: string };
 
-const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });
-
-// Runs are streamed so the caller can report progress: "values" yields the state
-// once the input is applied and again after every step, and "sync" saves each step
-// before its chunk is yielded, so a reload at any chunk sees everything so far.
-const streamConfig = (threadId: string) => ({
-  ...threadConfig(threadId),
-  streamMode: "values" as const,
-  durability: "sync" as const,
-});
-
 // Sends the user's next message on a thread. The run ends with a reply, or paused
 // on actions to approve.
 export function chat(setup: Setup, threadId: string, message: string) {
@@ -277,14 +246,6 @@ export async function loadThread(setup: Setup, threadId: string) {
     messages: messages.flatMap(toChatMessage),
     pending: toPending(state.tasks.flatMap((task) => task.interrupts)),
   };
-}
-
-// Only the user's messages and the agent's written replies; tool calls and their
-// results stay out of the chat.
-function toChatMessage(message: BaseMessage): ChatMessage[] {
-  if (message.type === "human") return [{ role: "user", content: message.text }];
-  if (message.type === "ai" && message.text) return [{ role: "assistant", content: message.text }];
-  return [];
 }
 
 function toPending(interrupts: { value?: unknown }[] = []): PendingAction[] {

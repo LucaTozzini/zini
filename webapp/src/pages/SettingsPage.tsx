@@ -263,6 +263,18 @@ function SettingsPage() {
             },
           ]}
         />
+        <SettingCard
+          title="Coordinator"
+          fields={[
+            {
+              setting: "coordinatorModel",
+              label: "Model",
+              placeholder: "anthropic/claude-sonnet-5",
+              helperText:
+                "An OpenRouter model ID for the coordinator, which guides implementing an issue in its workspace.",
+            },
+          ]}
+        />
         <AppearanceCard />
       </Stack>
     </Container>

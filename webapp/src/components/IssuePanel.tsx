@@ -4,16 +4,21 @@ import AddIcon from "@mui/icons-material/Add";
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import CloseIcon from "@mui/icons-material/Close";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
 import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import ReplayIcon from "@mui/icons-material/Replay";
-import { PRIORITY_NAMES, type Workspace } from "shared";
+import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
+import { GridLoader } from "react-spinners";
+import { PRIORITY_NAMES, type PipelineState, type Workspace } from "shared";
 import {
   errorMessage,
+  useCoordinator,
   useCreateWorkspace,
   useDeleteWorkspace,
   useLinearIssue,
@@ -24,10 +29,12 @@ import {
 import PriorityIcon from "./icons/PriorityIcon.tsx";
 import StatusIcon from "./icons/StatusIcon.tsx";
 import VSCodeIcon from "./icons/VSCodeIcon.tsx";
+import CoordinatorDialog from "./CoordinatorDialog.tsx";
 import {
   useMediaQuery,
   useTheme,
   Alert,
+  Badge,
   Box,
   Button,
   CircularProgress,
@@ -38,6 +45,10 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   Skeleton,
   Stack,
@@ -45,15 +56,17 @@ import {
   Typography,
 } from "@mui/material";
 
-// One property row: an icon that says what the property is, then its value. The
-// label shows when hovering the icon.
+// One property row: an icon that says what the property is, then its value, and
+// optional actions at the far right. The label shows when hovering the icon.
 function Property({
   label,
   icon,
+  action,
   children,
 }: {
   label: string;
   icon: ReactNode;
+  action?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -74,9 +87,10 @@ function Property({
           {icon}
         </Box>
       </Tooltip>
-      <Typography variant="body2" component="div" sx={{ minWidth: 0 }}>
+      <Typography variant="body2" component="div" sx={{ minWidth: 0, flex: 1 }}>
         {children}
       </Typography>
+      {action}
     </Stack>
   );
 }
@@ -193,26 +207,148 @@ function SetupStatusRow({ workspace }: { workspace: Workspace }) {
 
   return (
     <>
-      <Property label={status.label} icon={status.icon}>
-        {status.text}
+      <Property
+        label={status.label}
+        icon={status.icon}
+        action={
+          <Stack direction="row">
+            <Tooltip title="Setup log">
+              <IconButton size="small" onClick={() => setShowLog(true)} aria-label="Setup log">
+                <ArticleOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {setupStatus !== "running" && (
+              <Tooltip title="Re-run setup">
+                <IconButton
+                  size="small"
+                  loading={rerun.isPending}
+                  onClick={() => rerun.mutate(workspace.issueId)}
+                  aria-label="Re-run setup"
+                >
+                  <ReplayIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        }
+      >
+        {/* A failed setup needs attention; otherwise it's just status. */}
+        <Box
+          component="span"
+          sx={{ color: setupStatus === "failed" ? "text.primary" : "text.secondary" }}
+        >
+          {status.text}
+        </Box>
       </Property>
-      <Stack direction="row" spacing={1} sx={{ pl: 3.5 }}>
-        <Button size="small" startIcon={<ArticleOutlinedIcon />} onClick={() => setShowLog(true)}>
-          Log
-        </Button>
-        {setupStatus !== "running" && (
-          <Button
-            size="small"
-            startIcon={<ReplayIcon />}
-            loading={rerun.isPending}
-            onClick={() => rerun.mutate(workspace.issueId)}
-          >
-            Re-run setup
-          </Button>
-        )}
-      </Stack>
       {rerun.isError && <Alert severity="error">{errorMessage(rerun.error)}</Alert>}
       <SetupLogDialog workspace={workspace} open={showLog} onClose={() => setShowLog(false)} />
+    </>
+  );
+}
+
+// A long path shortened in the middle, keeping its start and its end (the
+// workspace's folder).
+function shortPath(path: string, max = 36) {
+  if (path.length <= max) return path;
+  const tail = Math.ceil(max * 0.6);
+  return `${path.slice(0, max - tail - 1)}…${path.slice(-tail)}`;
+}
+
+// The workspace's folder, shortened, with the whole path in a tooltip and a button to
+// copy it. Copying needs a secure page (https or localhost), so the button is hidden
+// otherwise.
+function FolderRow({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  const canCopy = Boolean(navigator.clipboard);
+
+  function copy() {
+    navigator.clipboard.writeText(path).then(
+      () => setCopied(true),
+      () => {},
+    );
+  }
+
+  return (
+    <Property
+      label="Folder"
+      icon={<FolderOutlinedIcon fontSize="small" color="action" />}
+      action={
+        canCopy && (
+          <Tooltip title={copied ? "Copied" : "Copy path"} onClose={() => setCopied(false)}>
+            <IconButton size="small" onClick={copy} aria-label="Copy path">
+              <ContentCopyOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
+      }
+    >
+      <Tooltip title={path}>
+        <Box
+          component="span"
+          sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap" }}
+        >
+          {shortPath(path)}
+        </Box>
+      </Tooltip>
+    </Property>
+  );
+}
+
+// Where the issue's pipeline is at, for the coordinator button: its mark (a spinner
+// while working, a dot when it needs you or failed) and its tooltip.
+// Finished counts as done even though it waits for feedback: that's optional.
+function pipelineStatus(pipeline: PipelineState | undefined) {
+  if (!pipeline?.started) return null;
+  if (pipeline.running) return { mark: "working", tooltip: `Working: ${pipeline.running}` } as const;
+  if (pipeline.error) return { mark: "failed", tooltip: `Failed: ${pipeline.error}` } as const;
+  if (pipeline.finished) return { mark: null, tooltip: "Done" } as const;
+  const waiting = pipeline.waiting;
+  if (!waiting) return null;
+  const tooltip =
+    waiting.kind === "questions"
+      ? `Needs you: answer the ${waiting.from}'s questions`
+      : waiting.kind === "approve_plan"
+        ? "Needs you: approve the plan"
+        : "Needs you";
+  return { mark: "needs_you", tooltip } as const;
+}
+
+// Opens the issue's coordinator, showing where the pipeline is at so you know without
+// opening it: its icon is a spinner while a subagent works, and a dot on the button
+// says it needs you (orange) or failed (red). The tooltip says what exactly.
+function CoordinatorButton({ issueId }: { issueId: string }) {
+  const [open, setOpen] = useState(false);
+  const theme = useTheme();
+  const status = pipelineStatus(useCoordinator(issueId).data);
+
+  const icon =
+    status?.mark === "working" ? (
+      // Its grid is 3 × (size + 4)px wide: 21px, about the robot icon's size.
+      <Box sx={{ display: "flex" }}>
+        <GridLoader size={3} color={(theme.vars || theme).palette.primary.contrastText} />
+      </Box>
+    ) : (
+      <SmartToyOutlinedIcon />
+    );
+  const dot = status?.mark === "needs_you" || status?.mark === "failed";
+
+  return (
+    <>
+      {/* The dot sits on the button's top-right corner; the badge spans the full width
+          so the button still can. */}
+      <Badge
+        variant="dot"
+        color={status?.mark === "failed" ? "error" : "warning"}
+        invisible={!dot}
+        sx={{ width: "100%" }}
+      >
+        <Tooltip title={status?.tooltip ?? ""}>
+          <Button variant="contained" fullWidth startIcon={icon} onClick={() => setOpen(true)}>
+            Open coordinator
+          </Button>
+        </Tooltip>
+      </Badge>
+      <CoordinatorDialog issueId={issueId} open={open} onClose={() => setOpen(false)} />
     </>
   );
 }
@@ -231,6 +367,7 @@ function WorkspaceSection({
   const create = useCreateWorkspace();
   const remove = useDeleteWorkspace();
   const [confirming, setConfirming] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   function handleDelete() {
     remove.mutate(issueId, { onSuccess: () => setConfirming(false) });
@@ -242,15 +379,46 @@ function WorkspaceSection({
         title="Workspace"
         action={
           workspace.data && (
-            <Tooltip title="Open in VS Code">
+            <Stack direction="row">
+              <Tooltip title="Open in VS Code">
+                <IconButton
+                  size="small"
+                  href={vscodeUrl(workspace.data.path)}
+                  aria-label="Open in VS Code"
+                >
+                  <VSCodeIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <IconButton
                 size="small"
-                href={vscodeUrl(workspace.data.path)}
-                aria-label="Open in VS Code"
+                onClick={(e) => setMenuAnchor(e.currentTarget)}
+                aria-label="More actions"
               >
-                <VSCodeIcon fontSize="small" />
+                <MoreVertIcon fontSize="small" />
               </IconButton>
-            </Tooltip>
+              <Menu
+                anchorEl={menuAnchor}
+                open={Boolean(menuAnchor)}
+                onClose={() => setMenuAnchor(null)}
+              >
+                {/* Not while setup or the coordinator is running in it. */}
+                <MenuItem
+                  disabled={
+                    workspace.data.setupStatus === "running" || workspace.data.coordinatorRunning
+                  }
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    setConfirming(true);
+                  }}
+                  sx={{ color: "error.main" }}
+                >
+                  <ListItemIcon>
+                    <DeleteOutlinedIcon fontSize="small" color="error" />
+                  </ListItemIcon>
+                  <ListItemText>Delete workspace</ListItemText>
+                </MenuItem>
+              </Menu>
+            </Stack>
           )
         }
       />
@@ -284,12 +452,7 @@ function WorkspaceSection({
 
       {workspace.data && (
         <Stack sx={{ mt: 0.5 }}>
-          <Property
-            label="Folder"
-            icon={<FolderOutlinedIcon fontSize="small" color="action" />}
-          >
-            <Code>{workspace.data.path}</Code>
-          </Property>
+          <FolderRow path={workspace.data.path} />
           {/* Linear's suggested branch can change (e.g. the issue is renamed) while the
               workspace keeps the branch it was created on. */}
           {linearBranch !== undefined &&
@@ -313,18 +476,12 @@ function WorkspaceSection({
               </Property>
             ))}
           <SetupStatusRow workspace={workspace.data} />
-          <Box sx={{ mt: 1 }}>
-            {/* Not while setup is running in it. */}
-            <Button
-              color="error"
-              size="small"
-              startIcon={<DeleteOutlinedIcon />}
-              disabled={workspace.data.setupStatus === "running"}
-              onClick={() => setConfirming(true)}
-            >
-              Delete workspace
-            </Button>
-          </Box>
+          {/* The coordinator works in the workspace, so only once it's set up. */}
+          {workspace.data.setupStatus === "ready" && (
+            <Box sx={{ mt: 1.5 }}>
+              <CoordinatorButton issueId={issueId} />
+            </Box>
+          )}
 
           <Dialog
             open={confirming}
@@ -335,7 +492,7 @@ function WorkspaceSection({
               <DialogContentText>
                 This deletes the folder and the local branch{" "}
                 <Code>{workspace.data.branch}</Code>, including any uncommitted
-                changes. The branch on GitHub is kept.
+                changes, and the coordinator conversation. The branch on GitHub is kept.
               </DialogContentText>
               {remove.isError && (
                 <Alert severity="error" sx={{ mt: 2 }}>

@@ -1,6 +1,6 @@
 import { AuthenticationLinearError, LinearClient } from "@linear/sdk";
 import { getKey } from "./models/Integration.js";
-import type { LinearIssue, LinearIssueDetails, StatusType } from "shared";
+import type { LinearComment, LinearIssue, LinearIssueDetails, StatusType } from "shared";
 
 // Built per call so a replaced or removed key takes effect immediately.
 export async function getLinearClient() {
@@ -71,18 +71,25 @@ const ISSUE_QUERY = `
       state { name type }
       assignee { name email }
       team { key name }
+      comments(first: 100) { nodes { body createdAt user { name } } }
     }
   }
 `;
 
+type IssueWithCommentNodes = Omit<LinearIssueDetails, "comments"> & {
+  comments: { nodes: LinearComment[] };
+};
+
 // Accepts the internal id or the identifier, e.g. "ENG-123". Throws
 // InvalidInputLinearError if there's no such issue.
-export async function fetchLinearIssue(client: LinearClient, id: string) {
-  const { data } = await client.client.rawRequest<{ issue: LinearIssueDetails }, { id: string }>(
+export async function fetchLinearIssue(client: LinearClient, id: string): Promise<LinearIssueDetails> {
+  const { data } = await client.client.rawRequest<{ issue: IssueWithCommentNodes }, { id: string }>(
     ISSUE_QUERY,
     { id },
   );
-  return data!.issue;
+  const { comments, ...issue } = data!.issue;
+  const oldestFirst = [...comments.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return { ...issue, comments: oldestFirst };
 }
 
 type Team = {

@@ -4,6 +4,9 @@ import { addWorktree, fetchRepo, removeWorktree, workspacePath, worktreeBranch }
 import { fetchLinearIssue } from "./linear.js";
 import { Workspace } from "./models/Workspace.js";
 import { deleteSetupLog, startSetup } from "./workspaceSetup.js";
+import { coordinatorThreadId, deleteConversation } from "./coordinator.js";
+import { deleteRunLogs } from "./coordinator/runLog.js";
+import { forgetRun, isRunning } from "./runs.js";
 
 // Linear issue ids are UUIDs. Checked before an id is used in a folder path.
 export const isIssueId = (id: string) => /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
@@ -16,6 +19,7 @@ async function toResponse(row: Workspace): Promise<WorkspaceResponse> {
     createdAt: row.createdAt.toISOString(),
     setupStatus: row.setupStatus,
     setupError: row.setupError,
+    coordinatorRunning: isCoordinatorRunning(row.issueId),
   };
 }
 
@@ -68,13 +72,19 @@ export async function rerunSetup(issueId: string) {
   return toResponse(await row.reload());
 }
 
-// Removes the issue's worktree and local branch, its setup log, then its row. false
-// if it had none. Not while setup is running (see isSettingUp).
+// Removes the issue's worktree and local branch, its setup log, its coordinator
+// conversation (which was about this workspace), then its row. false if it had none.
+// Not while setup or the coordinator is running (see isSettingUp, isCoordinatorRunning).
 export async function deleteWorkspace(issueId: string) {
   const row = await Workspace.findByPk(issueId);
   if (!row) return false;
   await removeWorktree(issueId);
   await deleteSetupLog(issueId);
+  await deleteConversation(issueId);
+  await deleteRunLogs(issueId);
+  forgetRun(coordinatorThreadId(issueId));
   await row.destroy();
   return true;
 }
+
+export const isCoordinatorRunning = (issueId: string) => isRunning(coordinatorThreadId(issueId));

@@ -26,8 +26,19 @@ const MAX_LINE_CHARS = 300;
 
 // Runs git and returns stdout. With a token, it's passed as an auth header for this
 // command only (via env, so it never lands in the clone's config or on the command line),
-// and credential helpers are off so git never prompts.
-async function git(args: string[], token?: string) {
+// and credential helpers are off so git never prompts. exit1Ok: exit code 1 isn't a
+// failure (git grep with no matches, git diff --no-index with differences).
+export async function git(args: string[], token?: string, { exit1Ok = false } = {}) {
+  try {
+    return await runGit(args, token);
+  } catch (err) {
+    const { code, stdout } = err as { code?: number; stdout?: string };
+    if (exit1Ok && code === 1) return stdout ?? "";
+    throw err;
+  }
+}
+
+async function runGit(args: string[], token?: string) {
   const auth = token
     ? {
         GIT_CONFIG_COUNT: "2",
@@ -168,7 +179,7 @@ export async function removeWorktree(issueId: string) {
 }
 
 // "src/App.tsx", "./src/App.tsx" and "/src/App.tsx" all mean the same file; "" is the root.
-const cleanPath = (path: string) => path.trim().replace(/^\.?\/+/, "").replace(/\/+$/, "");
+export const cleanPath = (path: string) => path.trim().replace(/^\.?\/+/, "").replace(/\/+$/, "");
 
 async function objectType(path: string) {
   return (await git(["-C", REPO_DIR, "cat-file", "-t", `${REF}:${path}`]).catch(() => "")).trim();
@@ -198,7 +209,13 @@ export async function readRepoFile(path: string, startLine = 1, endLine?: number
   path = cleanPath(path);
   const type = await objectType(path);
   if (type !== "blob") throw new Error(type ? `${path} is a folder` : `No file at ${path}`);
-  const content = await git(["-C", REPO_DIR, "show", `${REF}:${path}`]);
+  return numberedLines(path, await git(["-C", REPO_DIR, "show", `${REF}:${path}`]), startLine, endLine);
+}
+
+// A file's content for a model: its lines numbered like "12\ttext", from startLine to
+// endLine (1-based, inclusive), stopping after about MAX_FILE_CHARS with a note saying
+// where to continue.
+export function numberedLines(path: string, content: string, startLine = 1, endLine?: number) {
   if (content.slice(0, 8000).includes("\0")) return `${path} is a binary file`;
 
   const lines = content.split(/\r?\n/);
@@ -228,18 +245,19 @@ export async function readRepoFile(path: string, startLine = 1, endLine?: number
 // Lines on the default branch containing query (plain text, any case), as
 // "path:line:text", up to MAX_MATCHES.
 export async function searchRepoCode(query: string) {
-  let out: string;
-  try {
-    out = await git(["-C", REPO_DIR, "grep", "-n", "-I", "-i", "-F", "-e", query, REF]);
-  } catch (err) {
-    // git grep exits with 1 when nothing matches.
-    if ((err as { code?: number }).code === 1) return "No matches";
-    throw err;
-  }
-  const lines = out.split("\n").filter(Boolean);
-  const matches = lines
-    .slice(0, MAX_MATCHES)
-    .map((line) => line.slice(REF.length + 1, REF.length + 1 + MAX_LINE_CHARS));
+  // git grep exits with 1 when nothing matches. Its lines start with "origin/HEAD:".
+  const out = await git(["-C", REPO_DIR, "grep", "-n", "-I", "-i", "-F", "-e", query, REF], undefined, {
+    exit1Ok: true,
+  });
+  return formatMatches(out.split("\n").map((line) => line.slice(REF.length + 1)));
+}
+
+// git grep's "path:line:text" lines for a model: up to MAX_MATCHES, each cut to
+// MAX_LINE_CHARS.
+export function formatMatches(lines: string[]) {
+  lines = lines.filter(Boolean);
+  if (lines.length === 0) return "No matches";
+  const matches = lines.slice(0, MAX_MATCHES).map((line) => line.slice(0, MAX_LINE_CHARS));
   if (lines.length > MAX_MATCHES) {
     matches.push(`[${lines.length - MAX_MATCHES} more matches; search for something more specific]`);
   }

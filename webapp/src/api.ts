@@ -10,6 +10,11 @@ import type {
   Settings,
   StatusType,
   Thread,
+  PipelineResume,
+  PipelineState,
+  RunLogEvent,
+  RunLogSummary,
+  WorkspaceDiff,
   ServerEvent,
   ThreadSummary,
   Workspace,
@@ -177,14 +182,24 @@ export function useServerEvents() {
     events.onopen = () => {
       queryClient.invalidateQueries({ queryKey: threadsKey })
       queryClient.invalidateQueries({ queryKey: workspacesKey })
+      queryClient.invalidateQueries({ queryKey: ['coordinator'] })
     }
     events.onmessage = (e: MessageEvent<string>) => {
       const event = JSON.parse(e.data) as ServerEvent
       if (event.type === 'thread.updated') {
         queryClient.invalidateQueries({ queryKey: threadKey(event.threadId) })
         queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
-      } else {
+      } else if (event.type === 'workspace.updated') {
         queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId) })
+      } else if (event.type === 'coordinator.updated') {
+        queryClient.invalidateQueries({ queryKey: coordinatorKey(event.issueId) })
+        // The workspace says whether its coordinator is working (it can't be deleted then).
+        queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId), exact: true })
+      } else {
+        // A line was added to a run's log: that run, and the list (a new run, or an
+        // ended one's outcome). Only fetched if they're shown.
+        queryClient.invalidateQueries({ queryKey: runLogsKey(event.issueId), exact: true })
+        queryClient.invalidateQueries({ queryKey: [...runLogsKey(event.issueId), event.runId] })
       }
     }
     return () => events.close()
@@ -195,17 +210,12 @@ export function useServerEvents() {
 // the agent's reply comes through useServerEvents.
 const post = (path: string, json: object) => api.post(`product-manager/${path}`, { json })
 
-// Shows a change to a chat straight away, before the server has it: cancels fetches
-// that could overwrite it, applies it to the cached chat, and returns a way to undo it
-// if the request fails.
-async function updateThreadNow(
-  queryClient: QueryClient,
-  threadId: string,
-  change: (thread: Thread) => Thread,
-) {
-  const key = threadKey(threadId)
+// Shows a change to a conversation straight away, before the server has it: cancels
+// fetches that could overwrite it, applies it to the cached data, and returns a way to
+// undo it if the request fails.
+async function updateNow<T>(queryClient: QueryClient, key: unknown[], change: (data: T) => T) {
   await queryClient.cancelQueries({ queryKey: key })
-  const previous = queryClient.getQueryData<Thread>(key)
+  const previous = queryClient.getQueryData<T>(key)
   if (previous) queryClient.setQueryData(key, change(previous))
   return () => queryClient.setQueryData(key, previous)
 }
@@ -236,7 +246,7 @@ export function useSendMessage(threadId: string) {
   return useMutation({
     mutationFn: (message: string) => post(`threads/${threadId}/messages`, { message }),
     onMutate: (message) =>
-      updateThreadNow(queryClient, threadId, (thread) => ({
+      updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
         messages: [...thread.messages, { role: 'user', content: message }],
         running: true,
@@ -253,13 +263,72 @@ export function useResumeThread(threadId: string) {
   return useMutation({
     mutationFn: (decisions: Decision[]) => post(`threads/${threadId}/resume`, { decisions }),
     onMutate: () =>
-      updateThreadNow(queryClient, threadId, (thread) => ({
+      updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
         pending: [],
         running: true,
         error: null,
       })),
     onError: (_err, _decisions, undo) => undo?.(),
+  })
+}
+
+const coordinatorKey = (issueId: string) => ['coordinator', issueId]
+
+// The issue's coordinator pipeline (one per issue). Its progress comes through
+// useServerEvents, which refetches it (and the diff below) on coordinator.updated.
+export function useCoordinator(issueId: string) {
+  return useQuery({
+    queryKey: coordinatorKey(issueId),
+    queryFn: () => api.get(`coordinator/${issueId}`).json<PipelineState>(),
+  })
+}
+
+// The workspace's changes so far. Under the coordinator's key, so it's refetched with
+// it, e.g. after every file the coder writes.
+export function useWorkspaceDiff(issueId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...coordinatorKey(issueId), 'diff'],
+    queryFn: () => api.get(`workspaces/${issueId}/diff`).json<WorkspaceDiff>(),
+    enabled,
+  })
+}
+
+const runLogsKey = (issueId: string) => [...coordinatorKey(issueId), 'logs']
+
+// The issue's subagent runs, oldest first, kept up to date by useServerEvents.
+export function useRunLogs(issueId: string) {
+  return useQuery({
+    queryKey: runLogsKey(issueId),
+    queryFn: () => api.get(`coordinator/${issueId}/logs`).json<RunLogSummary[]>(),
+  })
+}
+
+// One run's log, fetched while enabled (e.g. its section is open); refetched on each
+// line added.
+export function useRunLog(issueId: string, runId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...runLogsKey(issueId), runId],
+    queryFn: () => api.get(`coordinator/${issueId}/logs/${runId}`).json<RunLogEvent[]>(),
+    enabled,
+  })
+}
+
+// Starting and replying answer once the run has started; refetching then shows it.
+export function useStartPipeline(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (note: string) => api.post(`coordinator/${issueId}/start`, { json: { note } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: coordinatorKey(issueId) }),
+  })
+}
+
+// Replies to what the pipeline is waiting on: answers, approving the plan, or feedback.
+export function useResumePipeline(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (reply: PipelineResume) => api.post(`coordinator/${issueId}/resume`, { json: reply }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: coordinatorKey(issueId) }),
   })
 }
 

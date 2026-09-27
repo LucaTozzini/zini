@@ -3,11 +3,13 @@ import { Router, type Response } from "express";
 import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../settings.js";
+import { workspaceDiff } from "../workspaceFiles.js";
 import { isSettingUp, readSetupLog } from "../workspaceSetup.js";
 import {
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
+  isCoordinatorRunning,
   isIssueId,
   rerunSetup,
 } from "../workspaces.js";
@@ -56,6 +58,23 @@ workspaces.post("/:issueId/setup", async (req, res) => {
   res.json(workspace);
 });
 
+// Everything changed in the workspace since it branched, as a unified diff (see
+// workspaceDiff).
+workspaces.get("/:issueId/diff", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (!(await getWorkspace(issueId))) {
+    res.status(404).json({ error: "This issue has no workspace" });
+    return;
+  }
+  try {
+    res.json(await workspaceDiff(issueId));
+  } catch (err) {
+    console.error(`Reading the diff for ${issueId} failed:`, err);
+    res.status(500).json({ error: `Couldn't read the changes: ${lastLine(err)}` });
+  }
+});
+
 // The end of the last setup's output (see readSetupLog), as plain text.
 workspaces.get("/:issueId/setup-log", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
@@ -95,12 +114,16 @@ workspaces.post("/", async (req, res) => {
   }
 });
 
-// Not while setup is running in it.
+// Not while setup or the coordinator is running in it.
 workspaces.delete("/:issueId", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   if (isSettingUp(issueId)) {
     stillSettingUp(res);
+    return;
+  }
+  if (isCoordinatorRunning(issueId)) {
+    res.status(409).json({ error: "The coordinator is still working in this workspace" });
     return;
   }
   try {

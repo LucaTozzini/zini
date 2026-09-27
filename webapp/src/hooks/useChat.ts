@@ -2,6 +2,7 @@ import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Decision } from "shared";
 import { useCreateThread, useResumeThread, useSendMessage, useThread } from "../api.ts";
+import type { ChatState } from "../components/Chat.tsx";
 
 // Navigation state when a new chat's first message creates it: the page keeps the
 // same chat view (see ProductManagerPage), so nothing on screen restarts.
@@ -10,8 +11,8 @@ export type CreatedChatState = { chatKey: string };
 // Everything one chat needs: its messages, the draft, and sending or approving.
 // A new chat when threadId is undefined; its first message creates the thread and
 // moves to basePath/<id>. The agent works in the background: the chat shows it as
-// running, and useThreadEvents keeps it refetched until the reply is in.
-export function useChat(threadId: string | undefined, basePath: string) {
+// running, and useServerEvents keeps it refetched until the reply is in.
+export function useChat(threadId: string | undefined, basePath: string): ChatState {
   const navigate = useNavigate();
   const location = useLocation();
   const thread = useThread(threadId);
@@ -65,7 +66,8 @@ export function useChat(threadId: string | undefined, basePath: string) {
   }
 
   return {
-    thread,
+    loading: thread.isLoading,
+    content: thread.data,
     messages,
     pending,
     draft,
@@ -83,4 +85,3 @@ export function useChat(threadId: string | undefined, basePath: string) {
   };
 }
 
-export type ChatState = ReturnType<typeof useChat>;
