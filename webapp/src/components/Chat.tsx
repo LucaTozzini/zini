@@ -1,15 +1,40 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import type { FormEvent, KeyboardEvent } from "react";
+import type { ChatMessage, Decision, PendingAction } from "shared";
 import { errorMessage } from "../api.ts";
-import type { ChatState } from "../hooks/useChat.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
 import ChatAvatar from "./ChatAvatar.tsx";
 import ChatInput from "./ChatInput.tsx";
 import { MessageBubble } from "./MessageBubble.tsx";
 
+// Everything the chat shows and does, whatever agent and API are behind it (e.g.
+// useChat for the product manager).
+export type ChatState = {
+  messages: ChatMessage[];
+  // Actions waiting on approval.
+  pending: PendingAction[];
+  // The conversation is loading for the first time.
+  loading: boolean;
+  // Changes whenever the conversation does, for auto-scroll.
+  content: unknown;
+  draft: string;
+  setDraft: (draft: string) => void;
+  // A message on its way that isn't in messages yet.
+  sending: string | null | undefined;
+  // The agent is working.
+  busy: boolean;
+  canSend: boolean;
+  error: Error | null;
+  sendLoading: boolean;
+  decideLoading: boolean;
+  sendDraft: (e?: FormEvent) => void;
+  handleKeyDown: (e: KeyboardEvent) => void;
+  decide: (decision: Decision) => void;
+};
+
 type ChatProps = {
-  // From useChat; the role's page decides which thread and API it talks to.
   chat: ChatState;
   avatar: { src: string; label: string };
   // Shown in an empty chat.
@@ -20,7 +45,8 @@ type ChatProps = {
 // A chat with any agent role: messages, approvals and the input box.
 function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
   const {
-    thread,
+    loading,
+    content,
     messages,
     pending,
     draft,
@@ -37,7 +63,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
   } = chat;
 
   const { scrollRef, lastMessageRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
-    content: thread.data,
+    content,
     // A new chat's first message, or a message just sent to this one.
     sending: Boolean(sending) || sendLoading,
     busy,
@@ -63,16 +89,14 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
           overflow: "auto",
           pb: 20,
 
-          "&::-webkit-scrollbar": {
-            display: "none", // Safari and Chrome
-          },
-          msOverflowStyle: "none", // IE and Edge
+          // No scrollbar, in every browser. Overrides the theme's global "thin".
+          scrollbarWidth: "none",
         }}
       >
         <ChatAvatar src={avatar.src} label={avatar.label} />
         <Container maxWidth={false} sx={{ maxWidth: 750 }}>
           <Stack spacing={2} sx={{ pt: 3 }}>
-            {messages.length === 0 && !sending && !thread.isLoading && (
+            {messages.length === 0 && !sending && !loading && (
               <Typography
                 color="text.secondary"
                 align="center"
@@ -81,7 +105,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
                 {emptyText}
               </Typography>
             )}
-            {thread.isLoading && (
+            {loading && (
               <Typography color="text.secondary">Loading…</Typography>
             )}
             {messages.map((message, i) => (

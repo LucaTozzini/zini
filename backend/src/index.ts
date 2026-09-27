@@ -2,6 +2,7 @@ import express from "express";
 import { initDb } from "./db.js";
 import { subscribe } from "./events.js";
 import { failInterruptedSetups } from "./workspaceSetup.js";
+import { coordinator } from "./routes/coordinator.js";
 import { integrations } from "./routes/integrations.js";
 import { productManager } from "./routes/productManager.js";
 import { settings } from "./routes/settings.js";
@@ -21,6 +22,7 @@ app.get("/api/events", (_req, res) => {
   subscribe(res);
 });
 
+app.use("/api/coordinator", coordinator);
 app.use("/api/integrations", integrations);
 app.use("/api/product-manager", productManager);
 app.use("/api/settings", settings);

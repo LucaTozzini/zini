@@ -34,6 +34,14 @@ export const theme = createTheme({
   },
   defaultColorScheme: "dark",
   components: {
+    // Global CSS, applied by CssBaseline (in main.tsx).
+    MuiCssBaseline: {
+      styleOverrides: {
+        // Thin scrollbars everywhere. On every element, since scrollbar-width isn't
+        // inherited: each scrolling element sets its own.
+        "*": { scrollbarWidth: "thin" },
+      },
+    },
     MuiPaper: {
       styleOverrides: {
         // MUI's shadow for the paper's elevation with the y offset set to 0, so it's

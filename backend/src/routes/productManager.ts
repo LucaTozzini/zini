@@ -5,7 +5,8 @@ import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { PmThread } from "../models/PmThread.js";
 import { chat, deleteThreadHistory, loadThread, resume } from "../productManager.js";
-import { broadcast, forgetRun, isRunning, runStatus, startRun } from "../runs.js";
+import { sendEvent } from "../events.js";
+import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus } from "../runs.js";
 import { getSetting } from "../settings.js";
 
 export const productManager = Router();
@@ -47,20 +48,12 @@ async function findThread(id: string, res: Response) {
   return thread;
 }
 
-const alreadyRunning = (res: Response) =>
-  res.status(409).json({ error: "The product manager is still working on this chat" });
+// Tells every connected webapp that the chat changed.
+const broadcast = (threadId: string) => sendEvent({ type: "thread.updated", threadId });
 
-// Starts a run and waits until its input is saved; true then. Otherwise sends a 409
-// (already running) or a 500 (the run failed before that) and returns false.
-async function begin(res: Response, threadId: string, start: Parameters<typeof startRun>[1]) {
-  try {
-    if (await startRun(threadId, start)) return true;
-    alreadyRunning(res);
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-  return false;
-}
+// Starts a run on the chat (see beginRun), sending its event as it goes.
+const begin = (res: Response, threadId: string, start: Parameters<typeof beginRun>[2]) =>
+  beginRun(res, threadId, start, () => broadcast(threadId));
 
 // Newest first.
 productManager.get("/threads", async (_req, res) => {
