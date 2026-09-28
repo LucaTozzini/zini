@@ -11,6 +11,8 @@ const ChatAvatar = ({ src, label }: ChatAvatarProps) => {
       sx={{
         position: "sticky",
         top: 0,
+        // Above the messages it scrolls over: tool call lines are positioned (ButtonBase).
+        zIndex: 1,
         left: 0,
         right: 0,
         display: "flex",

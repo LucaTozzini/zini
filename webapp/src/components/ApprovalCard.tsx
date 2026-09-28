@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Card, CardContent, Stack, TextField, Typography } from "@mui/material";
 import { PRIORITY_NAMES, type Decision, type PendingAction } from "shared";
+import MarkdownText from "./MarkdownText.tsx";
 
 // One create_issue or update_issue call, shown field by field.
 function ActionDetails({ action }: { action: PendingAction }) {
@@ -27,11 +28,7 @@ function ActionDetails({ action }: { action: PendingAction }) {
       {assignee !== undefined && (
         <Typography color="text.secondary">Assignee: {assignee ?? "Unassigned"}</Typography>
       )}
-      {description && (
-        <Typography color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>
-          {description}
-        </Typography>
-      )}
+      {description && <MarkdownText color="text.secondary">{description}</MarkdownText>}
     </Stack>
   );
 }

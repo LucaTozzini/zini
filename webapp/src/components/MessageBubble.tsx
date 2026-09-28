@@ -1,19 +1,13 @@
-import { Paper, Typography, useTheme } from "@mui/material";
+import { Paper, useTheme } from "@mui/material";
 import type { Ref } from "react";
 import type { ChatMessage } from "shared";
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import { BeatLoader } from "react-spinners";
-
-// Links open in a new tab instead of replacing the chat. noreferrer also stops the
-// new page from reaching back into this one through window.opener.
-const markdownComponents: Components = {
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
-};
+import MarkdownText from "./MarkdownText.tsx";
 
 type MessageBubbleProps = {
-  message: ChatMessage;
+  // Tool calls show as a ToolCallLine instead.
+  message: Exclude<ChatMessage, { role: "tool" }>;
   ref?: Ref<HTMLDivElement>;
   loading?: boolean;
 };
@@ -38,10 +32,8 @@ export function MessageBubble({
         py: 1,
         maxWidth: "85%",
         // User messages are plain text, so keep their line breaks. Replies are
-        // markdown, which handles its own; trim its outer paragraph margins.
+        // markdown, which handles its own.
         whiteSpace: isUser ? "pre-wrap" : undefined,
-        "& > .markdown > :first-child": { mt: 0 },
-        "& > .markdown > :last-child": { mb: 0 },
 
         alignSelf: isUser ? "flex-end" : "flex-start",
         borderRadius: 6,
@@ -54,11 +46,7 @@ export function MessageBubble({
       {loading ? (
         <BeatLoader size={8} margin={1} color={(theme.vars || theme).palette.text.secondary}  />
       ) : (
-        <Typography component="div" className="markdown">
-          <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {message.content}
-          </Markdown>
-        </Typography>
+        <MarkdownText>{message.content}</MarkdownText>
       )}
     </Paper>
   );

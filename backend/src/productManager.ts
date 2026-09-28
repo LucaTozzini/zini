@@ -21,7 +21,7 @@ import {
   searchLinearIssues,
   updateLinearIssue,
 } from "./linear.js";
-import { checkpointer, streamConfig, threadConfig, toChatMessage, toolErrors } from "./agents.js";
+import { checkpointer, streamConfig, threadConfig, toChatMessages, toolErrors } from "./agents.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 
@@ -237,14 +237,16 @@ export function resume(setup: Setup, threadId: string, decisions: Decision[]) {
   return buildAgent(setup).stream(new Command({ resume: { decisions } }), streamConfig(threadId));
 }
 
-// A saved thread's conversation, and the actions it's paused on if any.
-export async function loadThread(setup: Setup, threadId: string) {
+// A saved thread's conversation, and the actions it's paused on if any. running: a
+// run is going on it now.
+export async function loadThread(setup: Setup, threadId: string, running: boolean) {
   const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
   const messages: BaseMessage[] = state.values.messages ?? [];
+  const pending = toPending(state.tasks.flatMap((task) => task.interrupts));
   return {
-    messages: messages.flatMap(toChatMessage),
-    pending: toPending(state.tasks.flatMap((task) => task.interrupts)),
+    messages: toChatMessages(messages, running || pending.length > 0),
+    pending,
   };
 }
 
