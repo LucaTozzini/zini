@@ -8,6 +8,8 @@ import ApprovalCard from "./ApprovalCard.tsx";
 import ChatAvatar from "./ChatAvatar.tsx";
 import ChatInput from "./ChatInput.tsx";
 import { MessageBubble } from "./MessageBubble.tsx";
+import ToolCallGroup from "./ToolCallGroup.tsx";
+import ToolCallLine from "./ToolCallLine.tsx";
 
 // Everything the chat shows and does, whatever agent and API are behind it (e.g.
 // useChat for the product manager).
@@ -33,6 +35,24 @@ export type ChatState = {
   handleKeyDown: (e: KeyboardEvent) => void;
   decide: (decision: Decision) => void;
 };
+
+type ToolCall = Extract<ChatMessage, { role: "tool" }>;
+type ChatItem =
+  | { i: number; message: Exclude<ChatMessage, ToolCall>; calls?: undefined }
+  | { i: number; message?: undefined; calls: ToolCall[] };
+
+// Messages as shown: consecutive tool calls together, each item keeping the index of
+// its first message (its key).
+function groupToolCalls(messages: ChatMessage[]) {
+  const items: ChatItem[] = [];
+  messages.forEach((message, i) => {
+    if (message.role !== "tool") return items.push({ i, message });
+    const last = items.at(-1);
+    if (last?.calls) last.calls.push(message);
+    else items.push({ i, calls: [message] });
+  });
+  return items;
+}
 
 type ChatProps = {
   chat: ChatState;
@@ -108,13 +128,21 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
             {loading && (
               <Typography color="text.secondary">Loading…</Typography>
             )}
-            {messages.map((message, i) => (
-              <MessageBubble
-                key={i}
-                message={message}
-                ref={i === messages.length - 1 ? lastMessageRef : undefined}
-              />
-            ))}
+            {groupToolCalls(messages).map(({ i, message, calls }) =>
+              calls ? (
+                calls.length === 1 ? (
+                  <ToolCallLine key={i} call={calls[0]} busy={busy} />
+                ) : (
+                  <ToolCallGroup key={i} calls={calls} busy={busy} />
+                )
+              ) : (
+                <MessageBubble
+                  key={i}
+                  message={message}
+                  ref={i === messages.length - 1 ? lastMessageRef : undefined}
+                />
+              ),
+            )}
             {sending && (
               <MessageBubble message={{ role: "user", content: sending }} />
             )}

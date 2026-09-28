@@ -98,7 +98,7 @@ productManager.get("/threads/:id", async (req, res) => {
   res.json({
     id: thread.id,
     title: thread.title,
-    ...(await loadThread(setup, thread.id)),
+    ...(await loadThread(setup, thread.id, isRunning(thread.id))),
     ...runStatus(thread.id),
   });
 });

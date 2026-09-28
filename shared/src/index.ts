@@ -58,8 +58,19 @@ export type Workspace = {
   coordinatorRunning: boolean;
 };
 
-// One turn of the product manager chat, as shown in the webapp.
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+// One turn of the product manager chat, as shown in the webapp: a message, or one of
+// the agent's tool calls (without its result). A call is pending while it runs or
+// waits on approval, and never_ran when it can't get a result anymore (e.g. the run
+// failed first); error is set when it failed or was rejected.
+export type ChatMessage =
+  | { role: "user" | "assistant"; content: string }
+  | {
+      role: "tool";
+      name: string;
+      args: Record<string, unknown>;
+      status: "pending" | "done" | "error" | "never_ran";
+      error?: string;
+    };
 
 // A tool call the agent is waiting on the user to approve, e.g. create_issue.
 export type PendingAction = { name: string; args: Record<string, unknown> };

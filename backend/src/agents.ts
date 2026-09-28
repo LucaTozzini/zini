@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
-import type { BaseMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { storage } from "./db.js";
@@ -31,10 +31,27 @@ export const toolErrors = toolErrorMiddleware({
   onError: (error) => `${error instanceof Error ? error.message : String(error)}\nPlease fix your mistakes.`,
 });
 
-// Only the user's messages and the agent's written replies; tool calls and their
-// results stay out of the chat.
-export function toChatMessage(message: BaseMessage): ChatMessage[] {
-  if (message.type === "human") return [{ role: "user", content: message.text }];
-  if (message.type === "ai" && message.text) return [{ role: "assistant", content: message.text }];
-  return [];
+// The user's messages, the agent's written replies and its tool calls, each with its
+// result's status. Results themselves stay out: they can be whole files. live: the
+// conversation is running or waiting on approval, so the last reply's calls without a
+// result may still get one. Any other call without a result never ran (e.g. the run
+// failed first).
+export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMessage[] {
+  const results = new Map(
+    messages.filter(ToolMessage.isInstance).map((m) => [m.tool_call_id, m]),
+  );
+  const lastReply = messages.findLast(AIMessage.isInstance);
+  return messages.flatMap((message): ChatMessage[] => {
+    if (message.type === "human") return [{ role: "user", content: message.text }];
+    if (!AIMessage.isInstance(message)) return [];
+    const calls = (message.tool_calls ?? []).map((call): ChatMessage => {
+      const result = call.id ? results.get(call.id) : undefined;
+      const base = { role: "tool" as const, name: call.name, args: call.args };
+      if (!result && live && message === lastReply) return { ...base, status: "pending" };
+      if (!result) return { ...base, status: "never_ran" };
+      if (result.status === "error") return { ...base, status: "error", error: result.text };
+      return { ...base, status: "done" };
+    });
+    return message.text ? [{ role: "assistant", content: message.text }, ...calls] : calls;
+  });
 }
