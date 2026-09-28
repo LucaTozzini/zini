@@ -25,6 +25,7 @@ import {
   REVIEWER_PROMPT,
 } from "./coordinator/systemPrompts.js";
 import { diffTool, readTools, writeTools } from "./coordinator/tools.js";
+import { npmTools } from "./npmTools.js";
 import { fetchLinearIssue } from "./linear.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 import { isRunning, runStatus } from "./runs.js";
@@ -113,7 +114,7 @@ function buildPipeline(run: Run | null) {
     const plan = await runSubagent(need(), {
       role: "planner",
       prompt: PLANNER_PROMPT,
-      tools: readTools(issueId),
+      tools: [...readTools(issueId), ...npmTools],
       schema: PLAN_SCHEMA,
       input: inputText(await issue(), [
         ["Note from the user", state.note],
@@ -138,6 +139,7 @@ function buildPipeline(run: Run | null) {
         ...readTools(issueId),
         ...writeTools(issueId, notify),
         diffTool(issueId),
+        ...npmTools,
       ],
       schema: IMPLEMENTATION_SCHEMA,
       input: inputText(await issue(), [
@@ -162,7 +164,7 @@ function buildPipeline(run: Run | null) {
     const review = await runSubagent(need(), {
       role: "reviewer",
       prompt: REVIEWER_PROMPT,
-      tools: [...readTools(issueId), diffTool(issueId)],
+      tools: [...readTools(issueId), diffTool(issueId), ...npmTools],
       schema: REVIEW_SCHEMA,
       input: inputText(await issue(), [
         ["The approved plan", state.plan && planText(state.plan)],

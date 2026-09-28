@@ -23,6 +23,7 @@ import {
 } from "./linear.js";
 import { checkpointer, streamConfig, threadConfig, toChatMessages, toolErrors } from "./agents.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
+import { npmTools } from "./npmTools.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 
 // {repo} is the githubRepo setting.
@@ -41,7 +42,9 @@ Help the user think through ideas, bugs and features, and turn them into clear L
 - list_files, read_file and search_code read the repo's default branch, always up to date.
   Check the code before saying what the product does or doesn't do, and before proposing
   issues about it.
-- Mention the relevant files in issue descriptions when it helps whoever picks it up.`;
+- Mention the relevant files in issue descriptions when it helps whoever picks it up.
+- The repo's files don't include its dependencies. To see what a package offers, read
+  it with the npm_ tools, at the version in the repo's package.json or lockfile.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -202,7 +205,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
       apiKey: openRouterKey,
       configuration: { baseURL: OPENROUTER_URL },
     }),
-    tools: [...buildTools(linear), ...codeTools],
+    tools: [...buildTools(linear), ...codeTools, ...npmTools],
     systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [

@@ -2,6 +2,11 @@ const RULES = `Ask only when you truly can't decide: put each question in
 blockingQuestions, and the user will answer before the work continues. Don't ask what
 the issue, the plan or the answers already settle.`;
 
+// Every subagent can read npm packages (see npmTools.ts).
+const DEPENDENCIES = `The workspace's files don't include its dependencies: to check a
+package's API or types, read it with the npm_ tools, at the version in the workspace's
+package.json or lockfile, rather than guessing.`;
+
 // Each subagent finishes by calling its doc tool (see documents.ts); replying with
 // text instead would end its turn without a document.
 const finishWith = (tool: string) =>
@@ -20,6 +25,7 @@ can't decide between options, ask in blockingQuestions.
 The coder carries out the steps, and it can only read, search and edit files: it can't
 run commands (builds, tests, linters, installs) or open the app. So every step must be
 a change to files. Leave checking the result to the user.
+${DEPENDENCIES}
 ${RULES}
 ${finishWith("submit_plan")}`;
 
@@ -34,6 +40,7 @@ the surrounding code's style. Change files with write_file (whole files, e.g. ne
 edit_file (one exact snippet) and delete_file. Don't commit. The plan is approved, so
 only ask when a step can't be done as written. When the changes are made, call
 submit_implementation with your questions, if any.
+${DEPENDENCIES}
 ${RULES}
 ${finishWith("submit_implementation")}`;
 
@@ -46,5 +53,6 @@ plainly broken (wouldn't compile, a wrong import, an obvious bug). Nothing beyon
 no style or "better approach" suggestions. Then call submit_review with
 requiredChanges: one entry per thing the coder must change, naming the file and line and
 what to do; leave it empty if the changes follow the plan and work.
+${DEPENDENCIES}
 ${RULES}
 ${finishWith("submit_review")}`;
