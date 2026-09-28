@@ -92,20 +92,32 @@ export async function deleteWorkspaceFile(issueId: string, path: string) {
   return `Deleted ${rel}`;
 }
 
-// Everything changed in the workspace since it branched from the default branch, as a
-// unified diff: changes to tracked files (committed or not), then each new untracked
-// file diffed against nothing, so it shows as a new file. Ignored files are left out.
-// Nothing is staged or committed.
-export async function workspaceDiff(issueId: string): Promise<WorkspaceDiff> {
-  const base = (await inWorkspace(issueId, ["merge-base", "HEAD", "origin/HEAD"])).trim();
-  let diff = await inWorkspace(issueId, ["diff", "--no-color", base]);
+// The commit the workspace branched from on the default branch.
+async function diffBase(issueId: string) {
+  return (await inWorkspace(issueId, ["merge-base", "HEAD", "origin/HEAD"])).trim();
+}
 
+// New files git doesn't track yet, minus ignored ones.
+async function untrackedFiles(issueId: string) {
   const status = await inWorkspace(issueId, ["status", "--porcelain", "-z", "--untracked-files=all"]);
-  const untracked = status
+  return status
     .split("\0")
     .filter((entry) => entry.startsWith("?? "))
     .map((entry) => entry.slice(3));
-  for (const file of untracked) {
+}
+
+const isIn = (file: string, path: string) => !path || file === path || file.startsWith(`${path}/`);
+
+// Everything changed in the workspace since it branched from the default branch, as a
+// unified diff: changes to tracked files (committed or not), then each new untracked
+// file diffed against nothing, so it shows as a new file. Ignored files are left out.
+// With a path, only the changes to that file or folder. Nothing is staged or committed.
+export async function workspaceDiff(issueId: string, path = ""): Promise<WorkspaceDiff> {
+  const rel = path && resolveIn(issueId, path).rel;
+  const base = await diffBase(issueId);
+  let diff = await inWorkspace(issueId, ["diff", "--no-color", "--no-renames", base, "--", ...(rel ? [rel] : [])]);
+
+  for (const file of (await untrackedFiles(issueId)).filter((file) => isIn(file, rel))) {
     if (diff.length > MAX_DIFF_CHARS) break;
     diff += await inWorkspace(issueId, ["diff", "--no-color", "--no-index", "--", "/dev/null", file], true);
   }
@@ -113,4 +125,26 @@ export async function workspaceDiff(issueId: string): Promise<WorkspaceDiff> {
   const truncated = diff.length > MAX_DIFF_CHARS;
   if (truncated) diff = diff.slice(0, diff.lastIndexOf("\ndiff --git ", MAX_DIFF_CHARS) + 1 || MAX_DIFF_CHARS);
   return { diff, truncated };
+}
+
+// Each file changed since the workspace branched, as in workspaceDiff, with its lines
+// added and removed ("-" for a binary file), in path order.
+export async function workspaceChanges(issueId: string) {
+  const base = await diffBase(issueId);
+  // Each record is "added\tremoved\tpath".
+  const numstat = await inWorkspace(issueId, ["diff", "--numstat", "-z", "--no-renames", base]);
+  const changes = numstat
+    .split("\0")
+    .filter(Boolean)
+    .map((record) => {
+      const [added, removed, ...rest] = record.split("\t");
+      return { path: rest.join("\t"), added, removed, isNew: false };
+    });
+  for (const file of await untrackedFiles(issueId)) {
+    const content = await readFile(resolve(workspacePath(issueId), file), "utf8").catch(() => "");
+    const binary = content.slice(0, 8000).includes("\0");
+    const lines = content.split("\n").length - (content === "" || content.endsWith("\n") ? 1 : 0);
+    changes.push({ path: file, added: binary ? "-" : String(lines), removed: binary ? "-" : "0", isNew: true });
+  }
+  return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
