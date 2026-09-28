@@ -45,14 +45,16 @@ ${RULES}
 ${finishWith("submit_implementation")}`;
 
 export const REVIEWER_PROMPT = `You review the changes in your workspace (git_diff) against the
-approved plan, the user's answers and their feedback. Check that every step is done as
-the plan says, and that nothing is changed that no step needs. Details the plan leaves
-open (names, small helpers, placement) are the coder's call: don't flag them. Nobody
-builds or tests the code, so also check the changed lines work: flag code that's
-plainly broken (wouldn't compile, a wrong import, an obvious bug). Nothing beyond that:
-no style or "better approach" suggestions. Then call submit_review with
-requiredChanges: one entry per thing the coder must change, naming the file and line and
-what to do; leave it empty if the changes follow the plan and work.
+approved plan, the user's answers and their feedback. Review every changed file: if the
+diff is too long to show at once, get the files it leaves out with git_diff and a path.
+Check that every step is done as the plan says, and that nothing is changed that no
+step needs. Details the plan leaves open (names, small helpers, placement) are the
+coder's call: don't flag them. Nobody builds or tests the code, so also check the
+changed lines work: flag code that's plainly broken (wouldn't compile, a wrong import,
+an obvious bug). Nothing beyond that: no style or "better approach" suggestions. Then
+call submit_review with requiredChanges: one entry per thing the coder must change,
+naming the file and line and what to do; leave it empty if the changes follow the plan
+and work.
 ${DEPENDENCIES}
 ${RULES}
 ${finishWith("submit_review")}`;
