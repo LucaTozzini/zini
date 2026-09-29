@@ -258,6 +258,40 @@ export function useSendMessage(threadId: string) {
   })
 }
 
+// Stops the run going on the chat: it stops showing as running straight away, before
+// the server has stopped it, and the messages and last step it reached stay where they
+// are.
+export function useStopThread(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => post(`threads/${id}/stop`, {}),
+    onMutate: () =>
+      updateNow<Thread>(queryClient, threadKey(id), (thread) => ({
+        ...thread,
+        running: false,
+      })),
+    onError: (_err, _variables, undo) => undo?.(),
+  })
+}
+
+// Sends a message that redirects the agent while it works: the server stops the run and
+// starts a new one from the message. The message shows right away, with the run going
+// on again, the way a sent one does.
+export function useSteerThread(threadId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (message: string) => post(`threads/${threadId}/steer`, { message }),
+    onMutate: (message) =>
+      updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
+        ...thread,
+        messages: [...thread.messages, { role: 'user', content: message }],
+        running: true,
+        error: null,
+      })),
+    onError: (_err, _message, undo) => undo?.(),
+  })
+}
+
 // Approves or rejects the actions the agent paused on, one decision per action. The
 // approval card goes, and "thinking" shows, as soon as it's sent.
 export function useResumeThread(threadId: string) {

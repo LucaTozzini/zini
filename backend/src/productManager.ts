@@ -240,19 +240,21 @@ type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo:
 const RECURSION_LIMIT = 250;
 
 // Sends the user's next message on a thread. The run ends with a reply, or paused
-// on actions to approve.
-export function chat(setup: Setup, threadId: string, message: string) {
+// on actions to approve. Aborting it stops the run in flight, leaving the checkpoint
+// its finished steps were saved to, which the next turn carries on from.
+export function chat(setup: Setup, threadId: string, message: string, signal?: AbortSignal) {
   return buildAgent(setup).stream(
     { messages: [{ role: "user", content: message }] },
-    streamConfig(threadId, RECURSION_LIMIT),
+    streamConfig(threadId, RECURSION_LIMIT, signal),
   );
 }
 
-// Answers the actions a paused thread is waiting on, one decision per action.
-export function resume(setup: Setup, threadId: string, decisions: Decision[]) {
+// Answers the actions a paused thread is waiting on, one decision per action. Like
+// chat, it can be stopped while it runs.
+export function resume(setup: Setup, threadId: string, decisions: Decision[], signal?: AbortSignal) {
   return buildAgent(setup).stream(
     new Command({ resume: { decisions } }),
-    streamConfig(threadId, RECURSION_LIMIT),
+    streamConfig(threadId, RECURSION_LIMIT, signal),
   );
 }
 
