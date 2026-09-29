@@ -18,10 +18,14 @@ export const threadConfig = (threadId: string) => ({ configurable: { thread_id: 
 // Runs are streamed so the caller can report progress: "values" yields the state
 // once the input is applied and again after every step, and "sync" saves each step
 // before its chunk is yielded, so a reload at any chunk sees everything so far.
-export const streamConfig = (threadId: string) => ({
+// recursionLimit is optional, and left out (LangGraph's default of 25) unless the
+// agent needs more steps than that. It counts the steps of one run: the count is
+// read from the saved checkpoint, so every message gets a fresh budget.
+export const streamConfig = (threadId: string, recursionLimit?: number) => ({
   ...threadConfig(threadId),
   streamMode: "values" as const,
   durability: "sync" as const,
+  ...(recursionLimit === undefined ? {} : { recursionLimit }),
 });
 
 // A tool that throws (e.g. no such file, or an unknown status name) gives the model
