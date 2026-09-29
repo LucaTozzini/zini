@@ -6,12 +6,13 @@ import {
   createAgent,
   createMiddleware,
   humanInTheLoopMiddleware,
+  todoListMiddleware,
   tool,
   ToolMessage,
   type HITLRequest,
 } from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
-import { STATUS_TYPES, type Decision, type PendingAction } from "shared";
+import { STATUS_TYPES, type Decision, type PendingAction, type Todo } from "shared";
 import { z } from "zod";
 import {
   createLinearIssue,
@@ -22,6 +23,8 @@ import {
   updateLinearIssue,
 } from "./linear.js";
 import { checkpointer, streamConfig, threadConfig, toChatMessages, toolErrors } from "./agents.js";
+import { compactionMiddleware } from "./compaction.js";
+import { factsMiddleware } from "./facts.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
 import { npmTools } from "./npmTools.js";
 import { OPENROUTER_URL } from "./openrouter.js";
@@ -199,19 +202,23 @@ const repairToolCalls = createMiddleware({
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
 function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
+  const chatModel = new ChatOpenAI({
+    model,
+    apiKey: openRouterKey,
+    configuration: { baseURL: OPENROUTER_URL },
+  });
   return createAgent({
-    model: new ChatOpenAI({
-      model,
-      apiKey: openRouterKey,
-      configuration: { baseURL: OPENROUTER_URL },
-    }),
+    model: chatModel,
     tools: [...buildTools(linear), ...codeTools, ...npmTools],
     systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [
       // Outermost, so it also covers fetchRepoMiddleware's tools.
       toolErrors,
+      compactionMiddleware(chatModel),
       repairToolCalls,
+      todoListMiddleware(),
+      factsMiddleware,
       humanInTheLoopMiddleware({
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
@@ -240,16 +247,19 @@ export function resume(setup: Setup, threadId: string, decisions: Decision[]) {
   return buildAgent(setup).stream(new Command({ resume: { decisions } }), streamConfig(threadId));
 }
 
-// A saved thread's conversation, and the actions it's paused on if any. running: a
-// run is going on it now.
+// A saved thread's whole conversation, compacted messages included, the actions it's
+// paused on if any, and the agent's key facts and to-do list. running: a run is going
+// on it now.
 export async function loadThread(setup: Setup, threadId: string, running: boolean) {
   const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
-  const messages: BaseMessage[] = state.values.messages ?? [];
+  const messages: BaseMessage[] = [...(state.values.compacted ?? []), ...(state.values.messages ?? [])];
   const pending = toPending(state.tasks.flatMap((task) => task.interrupts));
   return {
     messages: toChatMessages(messages, running || pending.length > 0),
     pending,
+    facts: (state.values.facts ?? []) as string[],
+    todos: (state.values.todos ?? []) as Todo[],
   };
 }
 

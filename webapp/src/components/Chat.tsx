@@ -1,15 +1,16 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { FormEvent, KeyboardEvent } from "react";
-import type { ChatMessage, Decision, PendingAction } from "shared";
+import type { ChatMessage, Decision, PendingAction, Todo } from "shared";
 import { errorMessage } from "../api.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
-import ChatAvatar from "./ChatAvatar.tsx";
 import ChatInput from "./ChatInput.tsx";
+import CompactionMarker from "./CompactionMarker.tsx";
 import { MessageBubble } from "./MessageBubble.tsx";
 import ToolCallGroup from "./ToolCallGroup.tsx";
 import ToolCallLine from "./ToolCallLine.tsx";
+import ChatHeader from "./ChatHeader.tsx";
 
 // Everything the chat shows and does, whatever agent and API are behind it (e.g.
 // useChat for the product manager).
@@ -17,6 +18,9 @@ export type ChatState = {
   messages: ChatMessage[];
   // Actions waiting on approval.
   pending: PendingAction[];
+  // The agent's key facts and to-do list.
+  facts: string[];
+  todos: Todo[];
   // The conversation is loading for the first time.
   loading: boolean;
   // Changes whenever the conversation does, for auto-scroll.
@@ -60,15 +64,19 @@ type ChatProps = {
   // Shown in an empty chat.
   emptyText: string;
   placeholder: string;
+  showChatlistButton: boolean;
+  onChatlistButtonClick: () => void;
 };
 
 // A chat with any agent role: messages, approvals and the input box.
-function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
+function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChatlistButtonClick }: ChatProps) {
   const {
     loading,
     content,
     messages,
     pending,
+    facts,
+    todos,
     draft,
     setDraft,
     sending,
@@ -113,7 +121,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
           scrollbarWidth: "none",
         }}
       >
-        <ChatAvatar src={avatar.src} label={avatar.label} />
+        <ChatHeader src={avatar.src} label={avatar.label} facts={facts} todos={todos} showChatlistButton={showChatlistButton} onChatlistButtonClick={onChatlistButtonClick} />
         <Container maxWidth={false} sx={{ maxWidth: 750 }}>
           <Stack spacing={2} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (
@@ -135,6 +143,8 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
                 ) : (
                   <ToolCallGroup key={i} calls={calls} busy={busy} />
                 )
+              ) : message.role === "compaction" ? (
+                <CompactionMarker key={i} summary={message.summary} />
               ) : (
                 <MessageBubble
                   key={i}

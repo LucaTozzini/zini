@@ -127,6 +127,7 @@ function ThreadList({ threads, error, activeId, basePath, onDelete }: ThreadList
         borderRightWidth: 1,
         borderRightColor: "divider",
         overflow: "auto",
+        height: "100%"
       }}
     >
       <Box
