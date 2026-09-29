@@ -20,12 +20,15 @@ export const threadConfig = (threadId: string) => ({ configurable: { thread_id: 
 // before its chunk is yielded, so a reload at any chunk sees everything so far.
 // recursionLimit is optional, and left out (LangGraph's default of 25) unless the
 // agent needs more steps than that. It counts the steps of one run: the count is
-// read from the saved checkpoint, so every message gets a fresh budget.
-export const streamConfig = (threadId: string, recursionLimit?: number) => ({
+// read from the saved checkpoint, so every message gets a fresh budget. signal is the
+// run's abort signal (see stopRun), which cancels the model and tool calls it has in
+// flight, and is left out for a run that can't be stopped (the coordinator's).
+export const streamConfig = (threadId: string, recursionLimit?: number, signal?: AbortSignal) => ({
   ...threadConfig(threadId),
   streamMode: "values" as const,
   durability: "sync" as const,
   ...(recursionLimit === undefined ? {} : { recursionLimit }),
+  ...(signal ? { signal } : {}),
 });
 
 // A tool that throws (e.g. no such file, or an unknown status name) gives the model

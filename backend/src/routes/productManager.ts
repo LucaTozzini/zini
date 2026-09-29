@@ -6,7 +6,7 @@ import { getKey } from "../models/Integration.js";
 import { PmThread } from "../models/PmThread.js";
 import { chat, deleteThreadHistory, loadThread, resume } from "../productManager.js";
 import { sendEvent } from "../events.js";
-import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus } from "../runs.js";
+import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../runs.js";
 import { getSetting } from "../settings.js";
 
 export const productManager = Router();
@@ -51,7 +51,8 @@ async function findThread(id: string, res: Response) {
 // Tells every connected webapp that the chat changed.
 const broadcast = (threadId: string) => sendEvent({ type: "thread.updated", threadId });
 
-// Starts a run on the chat (see beginRun), sending its event as it goes.
+// Starts a run on the chat (see beginRun), sending its event as it goes. start is
+// handed the run's signal, which stops the run in flight (see stopRun).
 const begin = (res: Response, threadId: string, start: Parameters<typeof beginRun>[2]) =>
   beginRun(res, threadId, start, () => broadcast(threadId));
 
@@ -80,7 +81,8 @@ productManager.post("/threads", async (req, res) => {
 
   const title = message.trim().replace(/\s+/g, " ").slice(0, 60);
   const thread = await PmThread.create({ id: randomUUID(), title });
-  if (!(await begin(res, thread.id, () => chat(setup, thread.id, message)))) {
+  const start = (signal: AbortSignal) => chat(setup, thread.id, message, signal);
+  if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
     forgetRun(thread.id);
@@ -104,7 +106,8 @@ productManager.get("/threads/:id", async (req, res) => {
 });
 
 // Sends a message, answering once it's saved; the agent's reply comes later, as the
-// run goes on in the background.
+// run goes on in the background. A conversation with a run going on it answers 409:
+// the client steers it instead (see /steer).
 productManager.post("/threads/:id/messages", async (req, res) => {
   const { message } = req.body ?? {};
   if (!nonEmptyString(message)) {
@@ -116,7 +119,44 @@ productManager.post("/threads/:id/messages", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  if (await begin(res, id, () => chat(setup, id, message))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, signal))) res.status(202).end();
+});
+
+// Stops the run going on the chat. It shows as stopped straight away, while the run
+// unwinds in the background (see stopRun).
+productManager.post("/threads/:id/stop", async (req, res) => {
+  if (!(await findThread(req.params.id, res))) return;
+
+  const id = req.params.id;
+  if (!stopRun(id)) {
+    res.status(409).json({ error: "The agent isn't working on this conversation" });
+    return;
+  }
+  broadcast(id);
+  res.status(202).end();
+});
+
+// Sends a message that redirects the agent while it's working: stops the run and starts
+// a new one, seeded with the message, from the checkpoint the stopped run left.
+productManager.post("/threads/:id/steer", async (req, res) => {
+  const { message } = req.body ?? {};
+  if (!nonEmptyString(message)) {
+    res.status(400).json({ error: "message is required" });
+    return;
+  }
+  if (!(await findThread(req.params.id, res))) return;
+
+  const setup = await loadSetup(res);
+  if (!setup) return;
+  const id = req.params.id;
+  // No event for the stop: one now would have the webapp refetch the chat before the
+  // message is saved, dropping the message it already shows. Starting the run sends one
+  // once it is. A run paused on approval has already ended, so steering that one is just
+  // a new turn. Stopping frees the run at once, so this one starts while the stopped run
+  // is still unwinding. Unlike /messages, which answers 409 while the agent works (which
+  // guards a send from another tab), this is how the client sends one while it works.
+  stopRun(id);
+  if (await begin(res, id, (signal) => chat(setup, id, message, signal))) res.status(202).end();
 });
 
 // Approves or rejects the actions a thread is paused on, one decision per action.
@@ -132,7 +172,8 @@ productManager.post("/threads/:id/resume", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  if (await begin(res, id, () => resume(setup, id, decisions))) res.status(202).end();
+  const start = (signal: AbortSignal) => resume(setup, id, decisions, signal);
+  if (await begin(res, id, start)) res.status(202).end();
 });
 
 // Deletes the chat and its saved conversation. Doesn't need Linear or OpenRouter.

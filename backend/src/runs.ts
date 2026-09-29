@@ -11,8 +11,14 @@ type RunStatus = { running: boolean; error: string | null };
 
 const runs = new Map<string, RunStatus>();
 
+// A conversation with no run on it, which is all the status it ever has.
+const NOT_RUNNING: RunStatus = { running: false, error: null };
+
+// Each run's own controller, so it can be stopped (see stopRun).
+const controls = new Map<string, AbortController>();
+
 export function runStatus(runId: string): RunStatus {
-  return runs.get(runId) ?? { running: false, error: null };
+  return runs.get(runId) ?? NOT_RUNNING;
 }
 
 export const isRunning = (runId: string) => runStatus(runId).running;
@@ -20,46 +26,81 @@ export const isRunning = (runId: string) => runStatus(runId).running;
 // Drops a deleted conversation's status.
 export function forgetRun(runId: string) {
   runs.delete(runId);
+  controls.delete(runId);
 }
 
-function finishRun(runId: string, notify: () => void, err?: unknown) {
+// Changes a run's status, but only while it is still that run: a stop frees the run at
+// once and another one takes its place, and a conversation can be deleted while its
+// run goes on, which shouldn't bring its status back.
+function changeRun(runId: string, status: RunStatus, change: Partial<RunStatus>) {
+  if (runs.get(runId) === status) runs.set(runId, { ...status, ...change });
+}
+
+// Stops a run: false if there isn't one going. The slot is freed at once, so another
+// run can start on the same conversation while this one unwinds, which takes as long
+// as the model and tool calls it has in flight take to notice the abort. The stopped
+// run saves nothing after the abort, so the next one carries on from its last step.
+export function stopRun(runId: string): boolean {
+  const control = controls.get(runId);
+  if (!isRunning(runId) || !control) return false;
+  control.abort();
+  runs.set(runId, NOT_RUNNING);
+  return true;
+}
+
+// Ends a run: its status is freed, and its conversation's event sent. A stopped run
+// does neither: it was freed when it was stopped, its abort throws, which isn't a
+// failure, and it changed nothing since. The status may be another run's by now, and an
+// event could have the webapp refetch the conversation before that run's message is
+// saved, dropping the message it already shows.
+function endRun(
+  runId: string,
+  control: AbortController,
+  status: RunStatus,
+  notify: () => void,
+  err?: unknown,
+) {
+  if (control.signal.aborted) return;
   if (err) console.error(`Agent run ${runId} failed:`, err);
   const error = err ? (err instanceof Error ? err.message : String(err)) : null;
-  // The conversation may have been deleted meanwhile; don't bring its status back.
-  if (runs.has(runId)) runs.set(runId, { running: false, error });
+  changeRun(runId, status, { running: false, error });
   notify();
 }
 
-// Starts a run; false if one is already going. start returns the run's stream, whose
-// first chunk comes once the input is saved: this resolves then, so whoever started
-// the run can refetch the conversation and find it. The rest of the run goes on in
-// the background, calling notify (to send the conversation's event) after each chunk
-// (a finished, saved step) and at the end; its error is kept for the GET. An error
-// before the input is saved is thrown.
+// Starts a run; false if one is already going. start is handed the run's signal, which
+// cancels the model and tool calls it has in flight (see stopRun), and returns the
+// run's stream, whose first chunk comes once the input is saved: this resolves then, so
+// whoever started the run can refetch the conversation and find it. The rest of the run
+// goes on in the background, calling notify (to send the conversation's event) after
+// each chunk (a finished, saved step) and at the end; its error is kept for the GET. An
+// error before the input is saved is thrown.
 export async function startRun(
   runId: string,
-  start: () => Promise<AsyncIterable<unknown>>,
+  start: (signal: AbortSignal) => Promise<AsyncIterable<unknown>>,
   notify: () => void,
 ) {
   if (isRunning(runId)) return false;
-  runs.set(runId, { running: true, error: null });
+  const status: RunStatus = { ...NOT_RUNNING, running: true };
+  const control = new AbortController();
+  runs.set(runId, status);
+  controls.set(runId, control);
 
   let chunks: AsyncIterator<unknown>;
   try {
-    chunks = (await start())[Symbol.asyncIterator]();
+    chunks = (await start(control.signal))[Symbol.asyncIterator]();
     await chunks.next();
   } catch (err) {
-    finishRun(runId, notify, err);
+    endRun(runId, control, status, notify, err);
     throw err;
   }
   notify();
 
   void (async () => {
     try {
-      while (!(await chunks.next()).done) notify();
-      finishRun(runId, notify);
+      while (!(await chunks.next()).done) if (!control.signal.aborted) notify();
+      endRun(runId, control, status, notify);
     } catch (err) {
-      finishRun(runId, notify, err);
+      endRun(runId, control, status, notify, err);
     }
   })();
   return true;

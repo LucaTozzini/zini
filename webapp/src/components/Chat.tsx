@@ -38,6 +38,10 @@ export type ChatState = {
   sendDraft: (e?: FormEvent) => void;
   handleKeyDown: (e: KeyboardEvent) => void;
   decide: (decision: Decision) => void;
+  // A run is going on that can be stopped, so the input's button stops it while there's
+  // nothing typed to send.
+  stoppable: boolean;
+  stopAgent: () => void;
 };
 
 type ToolCall = Extract<ChatMessage, { role: "tool" }>;
@@ -88,6 +92,8 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
     sendDraft,
     handleKeyDown,
     decide,
+    stoppable,
+    stopAgent,
   } = chat;
 
   const { scrollRef, lastMessageRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
@@ -232,8 +238,14 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
               handleKeyDown={handleKeyDown}
               disabled={pending.length > 0}
               canSend={canSend}
+              stoppable={stoppable}
+              onStop={stopAgent}
               placeholder={
-                pending.length ? "Approve or reject above first" : placeholder
+                pending.length
+                  ? "Approve or reject above first"
+                  : stoppable
+                    ? "Send to steer the agent, or stop it"
+                    : placeholder
               }
               onSubmit={sendDraft}
             />

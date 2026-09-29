@@ -1,11 +1,16 @@
 import type { KeyboardEvent } from "react";
 import { IconButton, InputAdornment, TextField } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import StopRounded from "@mui/icons-material/StopRounded";
 
 type ChatInputProps = {
   disabled: boolean;
   loading: boolean;
   canSend: boolean;
+  // A run is going on that can be stopped: while nothing is typed, the send button
+  // stops it instead.
+  stoppable: boolean;
+  onStop: () => void;
   placeholder: string;
   value: string;
   handleKeyDown: (e: KeyboardEvent<Element>) => void;
@@ -17,6 +22,8 @@ const ChatInput = ({
   disabled,
   loading,
   canSend,
+  stoppable,
+  onStop,
   placeholder,
   value,
   onChange,
@@ -24,8 +31,6 @@ const ChatInput = ({
   onSubmit,
 }: ChatInputProps) => {
   return (
-    
-      
       <TextField
         component="form"
         onSubmit={onSubmit}
@@ -61,21 +66,43 @@ const ChatInput = ({
             },
             endAdornment: (
               <InputAdornment position="end" sx={{ alignSelf: "flex-end" }}>
-                <IconButton
-                  size="small"
-                  type="submit"
-                  loading={loading}
-                  disabled={!canSend}
-                  sx={{
-                    background: (theme) => (theme.vars || theme).palette.primary.main,
-                    ":hover": {
-                      background: (theme) => (theme.vars || theme).palette.primary.light,
-                    },
-                    color: "primary.contrastText"
-                  }}
-                >
-                  <ArrowUpwardIcon fontSize="small" />
-                </IconButton>
+                {/* While the agent works and nothing is typed, the button stops the run:
+                the square, in the send button's place, rather than a second control
+                beside it. With a message typed, it sends it, which steers the agent. */}
+                {stoppable && !value.trim() ? (
+                  <IconButton
+                    size="small"
+                    type="button"
+                    aria-label="Stop"
+                    onClick={onStop}
+                    disabled={disabled}
+                    sx={{
+                      background: (theme) => (theme.vars || theme).palette.primary.main,
+                      ":hover": {
+                        background: (theme) => (theme.vars || theme).palette.primary.light,
+                      },
+                      color: "primary.contrastText"
+                    }}
+                  >
+                    <StopRounded fontSize="small" />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    size="small"
+                    type="submit"
+                    loading={loading}
+                    disabled={!canSend}
+                    sx={{
+                      background: (theme) => (theme.vars || theme).palette.primary.main,
+                      ":hover": {
+                        background: (theme) => (theme.vars || theme).palette.primary.light,
+                      },
+                      color: "primary.contrastText"
+                    }}
+                  >
+                    <ArrowUpwardIcon fontSize="small" />
+                  </IconButton>
+                )}
               </InputAdornment>
             ),
           },
