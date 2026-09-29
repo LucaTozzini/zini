@@ -233,18 +233,27 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
 // repo is the githubRepo setting, "owner/name".
 type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo: string };
 
+// A reply is many small steps (a tool call, then its result), so LangGraph's default
+// of 25 is nowhere near enough for a long one, and compaction (100k tokens) never
+// comes into play first. The limit is on the steps of a single run: the count is read
+// from the saved checkpoint, so every message gets a fresh budget.
+const RECURSION_LIMIT = 250;
+
 // Sends the user's next message on a thread. The run ends with a reply, or paused
 // on actions to approve.
 export function chat(setup: Setup, threadId: string, message: string) {
   return buildAgent(setup).stream(
     { messages: [{ role: "user", content: message }] },
-    streamConfig(threadId),
+    streamConfig(threadId, RECURSION_LIMIT),
   );
 }
 
 // Answers the actions a paused thread is waiting on, one decision per action.
 export function resume(setup: Setup, threadId: string, decisions: Decision[]) {
-  return buildAgent(setup).stream(new Command({ resume: { decisions } }), streamConfig(threadId));
+  return buildAgent(setup).stream(
+    new Command({ resume: { decisions } }),
+    streamConfig(threadId, RECURSION_LIMIT),
+  );
 }
 
 // A saved thread's whole conversation, compacted messages included, the actions it's

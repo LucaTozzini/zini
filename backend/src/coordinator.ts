@@ -268,6 +268,10 @@ function buildPipeline(run: Run | null) {
 
 // ---- Running and reading it -------------------------------------------------------
 
+// The pipeline's own graph keeps LangGraph's default step limit (25) on purpose: its
+// steps are whole nodes, so it never comes close, and a coder↔reviewer loop costs
+// real money every time round, which 25 stops early.
+
 // Starts the issue's pipeline with an optional note for the planner; the returned
 // stream is the run (see startRun).
 export function startPipeline(run: Run, note: string) {
