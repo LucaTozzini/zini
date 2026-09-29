@@ -232,6 +232,8 @@ export function useCreateThread() {
         title,
         messages: [{ role: 'user', content: message }],
         pending: [],
+        facts: [],
+        todos: [],
         running: true,
         error: null,
       })

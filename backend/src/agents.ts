@@ -3,6 +3,7 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
+import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "./db.js";
 
 // What the agents (product manager, coordinator) share.
@@ -32,16 +33,17 @@ export const toolErrors = toolErrorMiddleware({
 });
 
 // The user's messages, the agent's written replies and its tool calls, each with its
-// result's status. Results themselves stay out: they can be whole files. live: the
-// conversation is running or waiting on approval, so the last reply's calls without a
-// result may still get one. Any other call without a result never ran (e.g. the run
-// failed first).
+// result's status, and a marker where each compaction happened, with its summary.
+// Results themselves stay out: they can be whole files. live: the conversation is
+// running or waiting on approval, so the last reply's calls without a result may still
+// get one. Any other call without a result never ran (e.g. the run failed first).
 export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMessage[] {
   const results = new Map(
     messages.filter(ToolMessage.isInstance).map((m) => [m.tool_call_id, m]),
   );
   const lastReply = messages.findLast(AIMessage.isInstance);
   return messages.flatMap((message): ChatMessage[] => {
+    if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
     if (message.type === "human") return [{ role: "user", content: message.text }];
     if (!AIMessage.isInstance(message)) return [];
     const calls = (message.tool_calls ?? []).map((call): ChatMessage => {

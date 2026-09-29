@@ -6,8 +6,8 @@ import { BeatLoader } from "react-spinners";
 import MarkdownText from "./MarkdownText.tsx";
 
 type MessageBubbleProps = {
-  // Tool calls show as a ToolCallLine instead.
-  message: Exclude<ChatMessage, { role: "tool" }>;
+  // Tool calls show as a ToolCallLine instead, compactions as a CompactionMarker.
+  message: Extract<ChatMessage, { role: "user" | "assistant" }>;
   ref?: Ref<HTMLDivElement>;
   loading?: boolean;
 };

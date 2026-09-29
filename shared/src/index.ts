@@ -58,8 +58,9 @@ export type Workspace = {
   coordinatorRunning: boolean;
 };
 
-// One turn of the product manager chat, as shown in the webapp: a message, or one of
-// the agent's tool calls (without its result). A call is pending while it runs or
+// One turn of the product manager chat, as shown in the webapp: a message, one of
+// the agent's tool calls (without its result), or where the conversation was
+// compacted (the messages before it are replaced by a summary for the model). A call is pending while it runs or
 // waits on approval, and never_ran when it can't get a result anymore (e.g. the run
 // failed first); error is set when it failed or was rejected.
 export type ChatMessage =
@@ -70,7 +71,8 @@ export type ChatMessage =
       args: Record<string, unknown>;
       status: "pending" | "done" | "error" | "never_ran";
       error?: string;
-    };
+    }
+  | { role: "compaction"; summary: string };
 
 // A tool call the agent is waiting on the user to approve, e.g. create_issue.
 export type PendingAction = { name: string; args: Record<string, unknown> };
@@ -82,14 +84,20 @@ export type Decision = { type: "approve" } | { type: "reject"; message?: string 
 // running: the agent is working on it now.
 export type ThreadSummary = { id: string; title: string; createdAt: string; running: boolean };
 
+// An item of the agent's to-do list, which it keeps for work with several steps.
+export type Todo = { content: string; status: "pending" | "in_progress" | "completed" };
+
 // A chat reopened with GET /api/product-manager/threads/:id. pending is non-empty
-// when the agent is paused on actions to approve. error is why the last run failed,
-// until the next one starts; it's lost if the server restarts.
+// when the agent is paused on actions to approve. facts are the key facts the agent
+// recorded, kept through compaction. error is why the last run failed, until the next
+// one starts; it's lost if the server restarts.
 export type Thread = {
   id: string;
   title: string;
   messages: ChatMessage[];
   pending: PendingAction[];
+  facts: string[];
+  todos: Todo[];
   running: boolean;
   error: string | null;
 };
