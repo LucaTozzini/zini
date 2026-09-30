@@ -1,20 +1,26 @@
-import { useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import List from "@mui/material/List";
-import ListItemButton from "@mui/material/ListItemButton";
-import ListItemText from "@mui/material/ListItemText";
-import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import type { LinearIssue, StatusType } from "shared";
 import { errorMessage, useLinearIssues } from "../api.ts";
 import IssuePanel from "../components/IssuePanel.tsx";
 import PriorityIcon from "../components/icons/PriorityIcon.tsx";
-import StatusIcon from "../components/icons/StatusIcon.tsx";
 import FiberManualRecordOutlinedIcon from "@mui/icons-material/FiberManualRecordOutlined";
 import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import type { SvgIconComponent } from "@mui/icons-material";
-import { Container, Stack, useMediaQuery, useTheme } from "@mui/material";
+import {
+  Card,
+  CardActionArea,
+  CardContent,
+  Container,
+  Divider,
+  Stack,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
+import { useSearchParams } from "react-router";
+
+const ISSUE_ID = "issueId";
 
 type SectionType = { type: StatusType; title: string; Icon: SvgIconComponent };
 
@@ -75,50 +81,42 @@ function IssueList({
     return <Typography color="text.secondary">No issues.</Typography>;
 
   return (
-    <Paper variant="outlined">
-      <List disablePadding>
-        {issues.map((issue) => (
-          <ListItemButton
-            key={issue.id}
-            selected={issue.id === selectedId}
+    <Stack spacing={1}>
+      {issues.map((issue) => (
+        <Card key={issue.id} variant="outlined">
+          <CardActionArea
             onClick={() => onSelect(issue)}
-            divider
+            data-active={issue.id === selectedId ? "" : undefined}
+            sx={{
+              "&[data-active]": {
+                backgroundColor: "action.selected",
+              },
+            }}
           >
-            <ListItemText
-              primary={`${issue.identifier}  ${issue.title}`}
-              secondary={
-                <Stack
-                  direction="row"
-                  spacing={1}
-                  sx={{ alignItems: "center" }}
-                >
-                  <PriorityIcon
-                    priority={issue.priority}
-                    sx={{ fontSize: 16 }}
-                  />
-                  <StatusIcon
-                    type={issue.state.type}
-                    name={issue.state.name}
-                    sx={{ fontSize: 16 }}
-                  />
-                  <span>{issue.assignee?.name ?? "Unassigned"}</span>
-                </Stack>
-              }
-              // The secondary line is a <p> by default, which can't hold the Stack's <div>.
-              slotProps={{ secondary: { component: "div" } }}
-            />
-          </ListItemButton>
-        ))}
-      </List>
-    </Paper>
+            <CardContent>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <PriorityIcon priority={issue.priority} sx={{ fontSize: 18 }} />
+                <Typography variant="body2" sx={{ flexShrink: 0 }}>
+                  {issue.identifier}
+                </Typography>
+                <Divider orientation="vertical" flexItem />
+                <Typography noWrap>{issue.title}</Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      ))}
+    </Stack>
   );
 }
 
 function HomePage() {
   // The issue whose panel is open, if any.
-  const [selected, setSelected] = useState<LinearIssue | null>(null);
+  // const [selected, setSelected] = useState<LinearIssue | null>(null);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down("md"));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get(ISSUE_ID);
 
   // With an issue open, the panel sits beside the lists and they shrink to make room.
   return (
@@ -130,7 +128,7 @@ function HomePage() {
         overflow: "hidden",
       }}
     >
-      {!(isSmallScreen && selected) && (
+      {!(isSmallScreen && selectedId) && (
         <Container maxWidth="md" sx={{ py: 5, overflow: "auto" }}>
           <Stack direction="row" spacing={2} sx={{ alignItems: "flex-start" }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -138,19 +136,31 @@ function HomePage() {
                 <IssueSection
                   key={section.type}
                   {...section}
-                  selectedId={selected?.id}
-                  onSelect={setSelected}
+                  selectedId={selectedId ?? undefined}
+                  onSelect={(issue) => {
+                    if (issue.id !== selectedId) {
+                      setSearchParams((params) => {
+                        params.set(ISSUE_ID, issue.id);
+                        return params;
+                      });
+                    }
+                  }}
                 />
               ))}
             </Box>
           </Stack>
         </Container>
       )}
-      {selected && (
+      {selectedId && (
         <IssuePanel
-          key={selected.id}
-          issueId={selected.id}
-          onClose={() => setSelected(null)}
+          key={selectedId}
+          issueId={selectedId}
+          onClose={() =>
+            setSearchParams((params) => {
+              params.delete(ISSUE_ID);
+              return params;
+            })
+          }
         />
       )}
     </Box>
