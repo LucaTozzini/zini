@@ -21,9 +21,11 @@ import {
 import TextSnippetIcon from "@mui/icons-material/TextSnippet";
 import FormatListNumberedRtlIcon from "@mui/icons-material/FormatListNumberedRtl";
 import CloseIcon from "@mui/icons-material/Close";
+import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import { useState, type ReactNode } from "react";
 import type { Todo } from "shared";
 import ForumIcon from "@mui/icons-material/Forum";
+import MarkdownText from "./MarkdownText.tsx";
 
 const MyAvatar = ({ src, label }: { src: string; label: string }) => (
   <Tooltip title={label} enterDelay={600}>
@@ -89,13 +91,14 @@ const MyDialog = ({
 type ChatHeaderProps = {
   src: string;
   label: string;
-  // The agent's key facts and to-do list, for the dialogs.
+  // The agent's key facts, to-do list and project notes (markdown), for the dialogs.
   facts: string[];
   todos: Todo[];
+  notes: string;
   showChatlistButton: boolean;
   onChatlistButtonClick: () => void;
 };
-const ChatHeader = ({ src, label, facts, todos, showChatlistButton, onChatlistButtonClick }: ChatHeaderProps) => {
+const ChatHeader = ({ src, label, facts, todos, notes, showChatlistButton, onChatlistButtonClick }: ChatHeaderProps) => {
   const [showModal, setShowModal] = useState(0);
   const openTodos = todos.filter((todo) => todo.status !== "completed").length;
 
@@ -153,6 +156,12 @@ const ChatHeader = ({ src, label, facts, todos, showChatlistButton, onChatlistBu
                 </Badge>
               </IconButton>
             </Tooltip>
+
+            <Tooltip title="Project notes">
+              <IconButton onClick={() => setShowModal(3)}>
+                <StickyNote2Icon />
+              </IconButton>
+            </Tooltip>
           </ButtonGroup>
         </Paper>
         <Box sx={{ flex: 1 }}></Box>
@@ -200,6 +209,14 @@ const ChatHeader = ({ src, label, facts, todos, showChatlistButton, onChatlistBu
             ))}
           </List>
         )}
+      </MyDialog>
+      {/* Shared by every chat: agents/pm.md in the backend's data folder. */}
+      <MyDialog
+        open={showModal === 3}
+        title="Project notes"
+        setShowModal={setShowModal}
+      >
+        {notes.trim() && <MarkdownText>{notes}</MarkdownText>}
       </MyDialog>
     </>
   );

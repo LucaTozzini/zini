@@ -33,6 +33,7 @@ import {
 import { compactionMiddleware } from "./compaction.js";
 import { factsMiddleware } from "./facts.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
+import { notesMiddleware, readNotes } from "./notes.js";
 import { npmTools } from "./npmTools.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 
@@ -226,6 +227,8 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
       modelRetry,
       repairToolCalls,
       todoListMiddleware(),
+      // Notes before facts in the prompt: they change less often.
+      notesMiddleware,
       factsMiddleware,
       humanInTheLoopMiddleware({
         interruptOn: {
@@ -267,8 +270,8 @@ export function resume(setup: Setup, threadId: string, decisions: Decision[], si
 }
 
 // A saved thread's whole conversation, compacted messages included, the actions it's
-// paused on if any, and the agent's key facts and to-do list. running: a run is going
-// on it now.
+// paused on if any, the agent's key facts and to-do list, and its project notes (shared
+// by every chat). running: a run is going on it now.
 export async function loadThread(setup: Setup, threadId: string, running: boolean) {
   const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
@@ -278,6 +281,7 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
     messages: toChatMessages(messages, running || pending.length > 0),
     pending,
     facts: (state.values.facts ?? []) as string[],
+    notes: readNotes(),
     todos: (state.values.todos ?? []) as Todo[],
   };
 }

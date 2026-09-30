@@ -11,7 +11,8 @@ const FACTS_PROMPT = `## Key facts
 Record what must not be forgotten with write_facts: decisions the user made, constraints
 they stated, names and identifiers (issues, files, packages) the work depends on. Older
 messages are eventually replaced by a summary that may lose details, but these facts
-stay in this prompt. Keep them short, and drop facts that are no longer true.`;
+stay in this prompt. Keep them short, and drop facts that are no longer true. They're
+for this chat only: what should shape future chats goes in the project notes.`;
 
 const writeFacts = tool(
   ({ facts }, config) =>

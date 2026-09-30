@@ -18,9 +18,10 @@ export type ChatState = {
   messages: ChatMessage[];
   // Actions waiting on approval.
   pending: PendingAction[];
-  // The agent's key facts and to-do list.
+  // The agent's key facts and to-do list, and its project notes (markdown).
   facts: string[];
   todos: Todo[];
+  notes: string;
   // The conversation is loading for the first time.
   loading: boolean;
   // Changes whenever the conversation does, for auto-scroll.
@@ -81,6 +82,7 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
     pending,
     facts,
     todos,
+    notes,
     draft,
     setDraft,
     sending,
@@ -127,7 +129,7 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
           scrollbarWidth: "none",
         }}
       >
-        <ChatHeader src={avatar.src} label={avatar.label} facts={facts} todos={todos} showChatlistButton={showChatlistButton} onChatlistButtonClick={onChatlistButtonClick} />
+        <ChatHeader src={avatar.src} label={avatar.label} facts={facts} todos={todos} notes={notes} showChatlistButton={showChatlistButton} onChatlistButtonClick={onChatlistButtonClick} />
         <Container maxWidth={false} sx={{ maxWidth: 750 }}>
           <Stack spacing={2} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (
