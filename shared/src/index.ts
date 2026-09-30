@@ -62,6 +62,13 @@ export type Workspace = {
   unpushed: boolean;
 };
 
+// A pull request on GitHub from a workspace's branch.
+export type PullRequest = { number: number; url: string; state: "open" | "closed" | "merged" };
+
+// As returned by GET /api/workspaces/:issueId/pull-request: whether the branch is on
+// GitHub, and its newest pull request (whatever its state), if it has one.
+export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | null };
+
 // One turn of the product manager chat, as shown in the webapp: a message, one of
 // the agent's tool calls (without its result), or where the conversation was
 // compacted (the messages before it are replaced by a summary for the model). A call is pending while it runs or
@@ -201,9 +208,9 @@ export type Provider = (typeof PROVIDERS)[number];
 type IntegrationStatus = { connected: boolean; keyHint?: string };
 export type Integrations = Record<Provider, IntegrationStatus>;
 
-// Whose run a log is: a pipeline subagent's, or the committer's (it writes a commit
-// message for the workspace's changes, outside the pipeline).
-export type LogRole = AgentRole | "committer";
+// Whose run a log is: a pipeline subagent's, or, outside the pipeline, the committer's
+// (it writes a commit message) or the PR writer's (a pull request's title and body).
+export type LogRole = AgentRole | "committer" | "pr_writer";
 
 // A subagent run's log, for debugging: one entry per line of its log file, written as
 // the run goes. A model call or tool call logs when it starts and when it ends, so

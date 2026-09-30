@@ -7,7 +7,7 @@ import {
   startPipeline,
   type Setup,
 } from "../coordinator.js";
-import { writeCommitMessage } from "../coordinator/committer.js";
+import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { sendEvent } from "../events.js";
 import { getLinearClient } from "../linear.js";
@@ -15,7 +15,7 @@ import { getKey } from "../models/Integration.js";
 import { Workspace } from "../models/Workspace.js";
 import { beginRun, isRunning } from "../runs.js";
 import { getSetting } from "../settings.js";
-import { hasUncommitted } from "../workspaceFiles.js";
+import { branchCommits, hasUncommitted } from "../workspaceFiles.js";
 import { isIssueId } from "../workspaces.js";
 
 // An issue's coordinator pipeline, at /api/coordinator/:issueId (see coordinator.ts).
@@ -163,6 +163,32 @@ coordinator.post("/:issueId/commit-message", async (req, res) => {
     console.error(`Writing the commit message for ${issueId} failed:`, err);
     res.status(500).json({
       error: `Couldn't write the commit message: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+});
+
+// Writes a pull request's { title, body } for the branch's commits (see writers.ts),
+// for you to read and edit before opening it. Not while the pipeline is running.
+coordinator.post("/:issueId/pull-request-text", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (isRunning(coordinatorThreadId(issueId))) {
+    res.status(409).json({ error: "The coordinator is still working in this workspace" });
+    return;
+  }
+  if ((await branchCommits(issueId)).length === 0) {
+    res.status(409).json({ error: "The branch has no commits to open a pull request for" });
+    return;
+  }
+  const setup = await loadSetup(res);
+  if (!setup) return;
+  try {
+    res.json(await writePullRequest(setup, issueId));
+  } catch (err) {
+    console.error(`Writing the pull request for ${issueId} failed:`, err);
+    res.status(500).json({
+      error: `Couldn't write the pull request: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 });

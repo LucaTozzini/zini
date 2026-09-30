@@ -165,20 +165,38 @@ export async function branchCommits(issueId: string) {
   return out.split("\n").filter(Boolean);
 }
 
+// The whole messages (subject and body) of the commits on the workspace's branch since
+// it branched, oldest first.
+export async function branchCommitMessages(issueId: string) {
+  const base = await diffBase(issueId);
+  // Each message ends with a NUL, since a body can hold blank lines.
+  const out = await inWorkspace(issueId, ["log", "--reverse", "--format=%B%x00", `${base}..HEAD`]);
+  return out.split("\0").map((message) => message.trim()).filter(Boolean);
+}
+
 // Whether anything isn't committed yet: changed, deleted or new files, not ignored ones.
 export async function hasUncommitted(issueId: string) {
   return (await inWorkspace(issueId, ["status", "--porcelain"])).trim() !== "";
 }
 
+// The branch's copy of GitHub's branch (origin/<branch>), or null if it's never been
+// pushed. A push moves it; a fetch updates it, and removes it once the branch is
+// deleted on GitHub.
+async function remoteBranch(issueId: string) {
+  const branch = (await inWorkspace(issueId, ["branch", "--show-current"])).trim();
+  const remote = `refs/remotes/origin/${branch}`;
+  return inWorkspace(issueId, ["rev-parse", "--verify", "--quiet", remote])
+    .then(() => remote)
+    .catch(() => null);
+}
+
+// Whether the branch is on GitHub.
+export const isPushed = async (issueId: string) => (await remoteBranch(issueId)) !== null;
+
 // Whether the branch has commits GitHub doesn't: past origin/<branch> if it's been
 // pushed, otherwise any since the workspace branched.
 export async function hasUnpushed(issueId: string) {
-  const branch = (await inWorkspace(issueId, ["branch", "--show-current"])).trim();
-  const remote = `refs/remotes/origin/${branch}`;
-  const pushed = await inWorkspace(issueId, ["rev-parse", "--verify", "--quiet", remote])
-    .then(() => true)
-    .catch(() => false);
-  const from = pushed ? remote : await diffBase(issueId);
+  const from = (await remoteBranch(issueId)) ?? (await diffBase(issueId));
   return Number(await inWorkspace(issueId, ["rev-list", "--count", `${from}..HEAD`])) > 0;
 }
 

@@ -54,7 +54,17 @@ line in the imperative mood (under 72 characters), then, only if it helps, a bla
 and a body of a few lines on what changed and why. Reply with the message alone: no
 preamble, quotes or code fences.`;
 
-export const REVIEWER_PROMPT =`You review the changes in your workspace (git_diff) against the
+// A one-shot like the committer: the first line of its reply is the title.
+export const PR_WRITER_PROMPT = `You write the pull request for the changes on your
+workspace's branch: "The changes on this branch" (its whole diff), and its commits. The
+issue, the plan, and the user's answers and feedback are context for why, including
+where the changes depart from the issue. Reply with the title on the first line: short,
+in the imperative mood, without the issue's identifier (it's added for you). Then a
+blank line and the body, in markdown: what the change does and why, then the main
+changes, briefly. Don't write "Fixes", "Closes" or similar before the issue's
+identifier. Reply with the pull request alone: no preamble or code fences around it.`;
+
+export const REVIEWER_PROMPT = `You review the changes in your workspace (git_diff) against the
 approved plan, the user's answers and their feedback. Review every changed file: if the
 diff is too long to show at once, get the files it leaves out with git_diff and a path.
 Check that every step is done as the plan says, and that nothing is changed that no
