@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
 import { cleanPath, formatMatches, git, numberedLines, workspacePath } from "./git.js";
+import { replaceOnce } from "./textEdit.js";
 
 // The files of an issue's workspace, as the pipeline's subagents see and change them:
 // the checkout on disk, uncommitted edits included. Paths are relative to the
@@ -70,17 +71,7 @@ export async function writeWorkspaceFile(issueId: string, path: string, content:
 export async function editWorkspaceFile(issueId: string, path: string, oldText: string, newText: string) {
   const { full, rel } = resolveIn(issueId, path);
   if (!existsSync(full)) throw new Error(`No file at ${rel}`);
-  let content = await readFile(full, "utf8");
-  // A file with Windows line endings: match and write them too.
-  if (content.includes("\r\n")) {
-    oldText = oldText.replace(/\r?\n/g, "\r\n");
-    newText = newText.replace(/\r?\n/g, "\r\n");
-  }
-  const count = content.split(oldText).length - 1;
-  if (count === 0) throw new Error(`oldText isn't in ${rel}; read the file and copy the text exactly`);
-  if (count > 1) throw new Error(`oldText appears ${count} times in ${rel}; include more lines around it`);
-  content = content.replace(oldText, () => newText);
-  await writeFile(full, content);
+  await writeFile(full, replaceOnce(await readFile(full, "utf8"), oldText, newText, rel));
   return `Edited ${rel}`;
 }
 
