@@ -5,7 +5,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, toolStrategy } from "langchain";
 import type { AgentRole, PipelineResume, PipelineState, PipelineWaiting } from "shared";
 import { z } from "zod";
-import { checkpointer, streamConfig, threadConfig, toolErrors } from "./agents.js";
+import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "./agents.js";
 import {
   IMPLEMENTATION_SCHEMA,
   PLAN_SCHEMA,
@@ -76,7 +76,8 @@ async function runSubagent<S extends z.ZodObject>(
     tools,
     systemPrompt: prompt,
     responseFormat: toolStrategy(schema),
-    middleware: [logTo(log), toolErrors],
+    // Outside logTo, so the log shows each failed attempt.
+    middleware: [modelRetry, logTo(log), toolErrors],
   });
   try {
     // Plenty of steps: the coder may read and edit many files.

@@ -22,7 +22,14 @@ import {
   searchLinearIssues,
   updateLinearIssue,
 } from "./linear.js";
-import { checkpointer, streamConfig, threadConfig, toChatMessages, toolErrors } from "./agents.js";
+import {
+  checkpointer,
+  modelRetry,
+  streamConfig,
+  threadConfig,
+  toChatMessages,
+  toolErrors,
+} from "./agents.js";
 import { compactionMiddleware } from "./compaction.js";
 import { factsMiddleware } from "./facts.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
@@ -216,6 +223,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
       // Outermost, so it also covers fetchRepoMiddleware's tools.
       toolErrors,
       compactionMiddleware(chatModel),
+      modelRetry,
       repairToolCalls,
       todoListMiddleware(),
       factsMiddleware,

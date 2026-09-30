@@ -1,7 +1,8 @@
 import { dirname, join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+import { getRetryable } from "@langchain/core/errors";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
-import { toolErrorMiddleware } from "langchain";
+import { modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "./db.js";
@@ -37,6 +38,16 @@ export const streamConfig = (threadId: string, recursionLimit?: number, signal?:
 // run. Interrupts for approval still pass through.
 export const toolErrors = toolErrorMiddleware({
   onError: (error) => `${error instanceof Error ? error.message : String(error)}\nPlease fix your mistakes.`,
+});
+
+// A failed model call is tried twice more (after 1s, then 2s) before the run fails:
+// OpenRouter's providers now and then answer with an error instead of a reply. A call
+// that fails every time fails the run as before, rather than being turned into a reply.
+export const modelRetry = modelRetryMiddleware({
+  onFailure: "error",
+  // A stopped run's aborted call isn't worth trying again; anything else is retried
+  // unless LangChain has marked it as not retryable (its default).
+  retryOn: (error) => error.name !== "AbortError" && (getRetryable(error) ?? true),
 });
 
 // The user's messages, the agent's written replies and its tool calls, each with its
