@@ -2,7 +2,7 @@ import { appendFile, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { createMiddleware } from "langchain";
-import type { AgentRole, RunLogEntry, RunLogEvent, RunLogSummary } from "shared";
+import type { LogRole, RunLogEntry, RunLogEvent, RunLogSummary } from "shared";
 import { storage } from "../db.js";
 import { sendEvent } from "../events.js";
 
@@ -18,13 +18,13 @@ const LOG_DIR = resolve(dirname(storage), "coordinator-logs");
 
 // A run id, split into the time it started (its ISO string, with : and . as -) and
 // its role. Checked before an id is used in a file path.
-const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer)$/;
+const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|committer)$/;
 
 const runLogPath = (issueId: string, runId: string) => join(LOG_DIR, issueId, `${runId}.jsonl`);
 
 export type RunLog = { write: (entry: RunLogEntry) => Promise<void> };
 
-export async function openRunLog(issueId: string, role: AgentRole): Promise<RunLog> {
+export async function openRunLog(issueId: string, role: LogRole): Promise<RunLog> {
   await mkdir(join(LOG_DIR, issueId), { recursive: true });
   const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${role}`;
   const file = runLogPath(issueId, runId);
@@ -82,7 +82,7 @@ export async function listRunLogs(issueId: string): Promise<RunLogSummary[]> {
       const last = (await readRunLog(issueId, id))?.at(-1);
       return {
         id,
-        role: role as AgentRole,
+        role: role as LogRole,
         startedAt: `${dayAndHour}:${minute}:${second}.${ms}`,
         outcome: last?.event === "end" ? last.outcome : null,
       };

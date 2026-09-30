@@ -16,7 +16,7 @@ import { errorMessage, useRunLog, useRunLogs } from "../../api.ts";
 import LogEvents from "./LogEvents.tsx";
 import { time } from "./time.ts";
 
-const ROLE_TITLE = { planner: "Planner", coder: "Coder", reviewer: "Reviewer" };
+const ROLE_TITLE = { planner: "Planner", coder: "Coder", reviewer: "Reviewer", committer: "Committer" };
 
 // What a running run is doing, from its last line, and for how long.
 function currentActivity(last: RunLogEvent | undefined, now: number) {

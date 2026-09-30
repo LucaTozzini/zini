@@ -56,6 +56,10 @@ export type Workspace = {
   setupError: string | null;
   // The issue's coordinator is working; the workspace can't be deleted until it's done.
   coordinatorRunning: boolean;
+  // Changes not committed yet (new files included, ignored ones not).
+  uncommitted: boolean;
+  // Commits on the branch that aren't on GitHub yet.
+  unpushed: boolean;
 };
 
 // One turn of the product manager chat, as shown in the webapp: a message, one of
@@ -197,11 +201,15 @@ export type Provider = (typeof PROVIDERS)[number];
 type IntegrationStatus = { connected: boolean; keyHint?: string };
 export type Integrations = Record<Provider, IntegrationStatus>;
 
+// Whose run a log is: a pipeline subagent's, or the committer's (it writes a commit
+// message for the workspace's changes, outside the pipeline).
+export type LogRole = AgentRole | "committer";
+
 // A subagent run's log, for debugging: one entry per line of its log file, written as
 // the run goes. A model call or tool call logs when it starts and when it ends, so
 // the last entry says what the run is doing (e.g. model_call: waiting on the model).
 export type RunLogEntry =
-  | { event: "start"; role: AgentRole; model: string; prompt: string; input: string }
+  | { event: "start"; role: LogRole; model: string; prompt: string; input: string }
   | { event: "model_call" }
   | {
       event: "model_reply";
@@ -227,7 +235,7 @@ export type RunLogEvent = RunLogEntry & { t: string };
 // outcome is null while it runs, or if the server stopped before it ended.
 export type RunLogSummary = {
   id: string;
-  role: AgentRole;
+  role: LogRole;
   startedAt: string;
   outcome: "done" | "error" | null;
 };
