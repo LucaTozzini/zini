@@ -6,6 +6,7 @@ import { createAgent, toolStrategy } from "langchain";
 import type { AgentRole, PipelineResume, PipelineState, PipelineWaiting } from "shared";
 import { z } from "zod";
 import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "./agents.js";
+import { compactionMiddleware } from "./compaction.js";
 import {
   IMPLEMENTATION_SCHEMA,
   PLAN_SCHEMA,
@@ -13,6 +14,7 @@ import {
 } from "./coordinator/documents.js";
 import { PipelineGraphState, type State } from "./coordinator/graphState.js";
 import {
+  answersText,
   clarificationsText,
   inputText,
   listText,
@@ -47,8 +49,10 @@ export type Setup = {
 export const coordinatorThreadId = (issueId: string) =>
   `coordinator:${issueId}`;
 
-// Runs a subagent to completion and returns its document. Not checkpointed: only the
-// document is kept, in the pipeline's state. Each run is logged (see runLog.ts).
+// Runs a subagent to completion and returns its document, which the pipeline's state
+// keeps. With remember, the subagent remembers its earlier runs: each run adds input to
+// its messages, and long ones are compacted. Without, it starts fresh every time. Each
+// run is logged (see runLog.ts).
 async function runSubagent<S extends z.ZodObject>(
   { setup, issueId }: Run,
   {
@@ -57,27 +61,37 @@ async function runSubagent<S extends z.ZodObject>(
     tools,
     schema,
     input,
+    remember = false,
   }: {
     role: AgentRole;
     prompt: string;
     tools: StructuredToolInterface[];
     schema: S;
     input: string;
+    remember?: boolean;
   },
 ): Promise<z.infer<S>> {
   const log = await openRunLog(issueId, role);
   await log.write({ event: "start", role, model: setup.model, prompt, input });
+  const model = new ChatOpenAI({
+    model: setup.model,
+    apiKey: setup.openRouterKey,
+    configuration: { baseURL: OPENROUTER_URL },
+  });
   const agent = createAgent({
-    model: new ChatOpenAI({
-      model: setup.model,
-      apiKey: setup.openRouterKey,
-      configuration: { baseURL: OPENROUTER_URL },
-    }),
+    model,
     tools,
     systemPrompt: prompt,
     responseFormat: toolStrategy(schema),
-    // Outside logTo, so the log shows each failed attempt.
-    middleware: [modelRetry, logTo(log), toolErrors],
+    // modelRetry is outside logTo, so the log shows each failed attempt.
+    middleware: remember
+      ? [modelRetry, logTo(log), toolErrors, compactionMiddleware(model)]
+      : [modelRetry, logTo(log), toolErrors],
+    // Run inside a pipeline node, the agent saves with the pipeline's checkpointer, on
+    // its thread, under a namespace of the node's name and task id. The task id is new
+    // every run; true leaves it out, so every run of the node (e.g. "coder") shares one
+    // conversation.
+    ...(remember ? { checkpointer: true } : {}),
   });
   try {
     // Plenty of steps: the coder may read and edit many files.
@@ -110,32 +124,52 @@ function buildPipeline(run: Run | null) {
   };
   const issue = () => fetchLinearIssue(need().setup.linear, need().issueId);
 
+  // The planner and coder remember their earlier runs (see runSubagent). Their system
+  // prompt has the whole context, rebuilt from the state every run, so it's always
+  // current and survives compaction; their input says only why they run again.
+
   async function planner(state: State) {
     const { issueId } = need();
+    const { plan: previous } = state;
     const plan = await runSubagent(need(), {
       role: "planner",
-      prompt: PLANNER_PROMPT,
-      tools: [...readTools(issueId), ...npmTools],
-      schema: PLAN_SCHEMA,
-      input: inputText(await issue(), [
+      prompt: `${PLANNER_PROMPT}\n\n${inputText(await issue(), [
         ["Note from the user", state.note],
-        ["Your previous plan", state.plan && planText(state.plan)],
+        ["Your previous plan", previous && planText(previous)],
         ["The user's answers", clarificationsText(state.clarifications)],
         [
           "The user's feedback on your plan (address it)",
           state.planFeedback.length > 0 && listText(state.planFeedback),
         ],
-      ]),
+      ])}`,
+      tools: [...readTools(issueId), ...npmTools],
+      schema: PLAN_SCHEMA,
+      // Runs after its questions are answered, or after feedback on its plan.
+      input: !previous
+        ? "Write the plan."
+        : hasQuestions(previous)
+          ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
+          : `The user's feedback on your plan:\n\n${state.planFeedback.at(-1)}`,
+      remember: true,
     });
     return { plan, planApproved: false };
   }
 
   async function coder(state: State) {
     const { issueId, notify } = need();
+    const { implementation: previous } = state;
     const changes = state.review?.requiredChanges ?? [];
     const implementation = await runSubagent(need(), {
       role: "coder",
-      prompt: CODER_PROMPT,
+      prompt: `${CODER_PROMPT}\n\n${inputText(await issue(), [
+        ["The approved plan", state.plan && planText(state.plan)],
+        ["The user's answers", clarificationsText(state.clarifications)],
+        [
+          "The user's feedback on the changes (apply it)",
+          state.implementationFeedback.length > 0 &&
+            listText(state.implementationFeedback),
+        ],
+      ])}`,
       tools: [
         ...readTools(issueId),
         ...writeTools(issueId, notify),
@@ -143,19 +177,16 @@ function buildPipeline(run: Run | null) {
         ...npmTools,
       ],
       schema: IMPLEMENTATION_SCHEMA,
-      input: inputText(await issue(), [
-        ["The approved plan", state.plan && planText(state.plan)],
-        ["The user's answers", clarificationsText(state.clarifications)],
-        [
-          "Required changes from the review (make these)",
-          changes.length > 0 && listText(changes),
-        ],
-        [
-          "The user's feedback on the changes (apply it)",
-          state.implementationFeedback.length > 0 &&
-            listText(state.implementationFeedback),
-        ],
-      ]),
+      // Runs after its questions are answered, after a review that requires changes,
+      // or after feedback on the finished changes.
+      input: !previous
+        ? "Implement the approved plan."
+        : hasQuestions(previous)
+          ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
+          : changes.length > 0
+            ? `The review asks for these changes:\n\n${listText(changes)}`
+            : `The user's feedback on your changes:\n\n${state.implementationFeedback.at(-1)}`,
+      remember: true,
     });
     return { implementation };
   }
@@ -323,7 +354,8 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   };
 }
 
-// Deletes the issue's pipeline, e.g. with its workspace.
+// Deletes the issue's pipeline, with its planner's and coder's conversations (saved on
+// its thread), e.g. with its workspace.
 export async function deleteConversation(issueId: string) {
   await checkpointer.deleteThread(coordinatorThreadId(issueId));
 }
