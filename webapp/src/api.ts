@@ -368,6 +368,27 @@ export function useResumePipeline(issueId: string) {
   })
 }
 
+// Writes a commit message for the workspace's uncommitted changes; a model call, so no
+// timeout.
+export function useWriteCommitMessage(issueId: string) {
+  return useMutation({
+    mutationFn: () =>
+      api
+        .post(`coordinator/${issueId}/commit-message`, { timeout: false })
+        .json<{ commitMessage: string }>(),
+  })
+}
+
+// Commits the uncommitted changes with message (if any), then pushes the branch.
+export function useCommitAndPush(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (message: string) =>
+      api.post(`workspaces/${issueId}/commit`, { json: { message }, timeout: false }).json<Workspace>(),
+    onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(issueId), workspace),
+  })
+}
+
 // Deletes a chat and its saved conversation.
 export function useDeleteThread() {
   const queryClient = useQueryClient()

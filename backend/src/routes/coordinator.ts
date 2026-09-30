@@ -7,13 +7,15 @@ import {
   startPipeline,
   type Setup,
 } from "../coordinator.js";
+import { writeCommitMessage } from "../coordinator/committer.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { sendEvent } from "../events.js";
 import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { Workspace } from "../models/Workspace.js";
-import { beginRun } from "../runs.js";
+import { beginRun, isRunning } from "../runs.js";
 import { getSetting } from "../settings.js";
+import { hasUncommitted } from "../workspaceFiles.js";
 import { isIssueId } from "../workspaces.js";
 
 // An issue's coordinator pipeline, at /api/coordinator/:issueId (see coordinator.ts).
@@ -136,6 +138,33 @@ coordinator.post("/:issueId/resume", async (req, res) => {
   const run = { setup, issueId, notify: () => notify(issueId) };
   const started = await beginRun(res, coordinatorThreadId(issueId), () => resumePipeline(run, reply), run.notify);
   if (started) res.status(202).end();
+});
+
+// Writes a commit message for the workspace's uncommitted changes (see committer.ts),
+// for you to read and edit before committing. Answers { commitMessage } once written.
+// Not while the pipeline is running.
+coordinator.post("/:issueId/commit-message", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (isRunning(coordinatorThreadId(issueId))) {
+    res.status(409).json({ error: "The coordinator is still working in this workspace" });
+    return;
+  }
+  if (!(await hasUncommitted(issueId))) {
+    res.status(409).json({ error: "There's nothing to commit" });
+    return;
+  }
+  const setup = await loadSetup(res);
+  if (!setup) return;
+  try {
+    res.json({ commitMessage: await writeCommitMessage(setup, issueId) });
+  } catch (err) {
+    console.error(`Writing the commit message for ${issueId} failed:`, err);
+    res.status(500).json({
+      error: `Couldn't write the commit message: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
 });
 
 // The issue's subagent runs, oldest first, for inspecting their logs (see runLog.ts).

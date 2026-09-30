@@ -49,6 +49,14 @@ export type Setup = {
 export const coordinatorThreadId = (issueId: string) =>
   `coordinator:${issueId}`;
 
+// The coordinator's model, on OpenRouter: every subagent's, and the committer's.
+export const coordinatorModel = (setup: Setup) =>
+  new ChatOpenAI({
+    model: setup.model,
+    apiKey: setup.openRouterKey,
+    configuration: { baseURL: OPENROUTER_URL },
+  });
+
 // Runs a subagent to completion and returns its document, which the pipeline's state
 // keeps. With remember, the subagent remembers its earlier runs: each run adds input to
 // its messages, and long ones are compacted. Without, it starts fresh every time. Each
@@ -73,11 +81,7 @@ async function runSubagent<S extends z.ZodObject>(
 ): Promise<z.infer<S>> {
   const log = await openRunLog(issueId, role);
   await log.write({ event: "start", role, model: setup.model, prompt, input });
-  const model = new ChatOpenAI({
-    model: setup.model,
-    apiKey: setup.openRouterKey,
-    configuration: { baseURL: OPENROUTER_URL },
-  });
+  const model = coordinatorModel(setup);
   const agent = createAgent({
     model,
     tools,
@@ -351,6 +355,19 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
     clarifications: values.clarifications ?? [],
     finished: values.finished ?? false,
     error,
+  };
+}
+
+// What the committer is told about the pipeline: the approved plan, and your answers
+// and feedback, which explain the changes.
+export async function commitContext(issueId: string) {
+  const snapshot = await buildPipeline(null).getState(threadConfig(coordinatorThreadId(issueId)));
+  const values = snapshot.values as Partial<State>;
+  return {
+    plan: values.planApproved ? (values.plan ?? null) : null,
+    clarifications: values.clarifications ?? [],
+    planFeedback: values.planFeedback ?? [],
+    implementationFeedback: values.implementationFeedback ?? [],
   };
 }
 

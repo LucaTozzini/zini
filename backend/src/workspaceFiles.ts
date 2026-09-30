@@ -108,13 +108,19 @@ async function untrackedFiles(issueId: string) {
 
 const isIn = (file: string, path: string) => !path || file === path || file.startsWith(`${path}/`);
 
+// What a diff compares against: where the workspace branched, or, for only what's not
+// committed yet, its last commit.
+const baseFor = async (issueId: string, uncommitted: boolean) =>
+  uncommitted ? "HEAD" : diffBase(issueId);
+
 // Everything changed in the workspace since it branched from the default branch, as a
 // unified diff: changes to tracked files (committed or not), then each new untracked
 // file diffed against nothing, so it shows as a new file. Ignored files are left out.
-// With a path, only the changes to that file or folder. Nothing is staged or committed.
-export async function workspaceDiff(issueId: string, path = ""): Promise<WorkspaceDiff> {
+// With a path, only the changes to that file or folder; with uncommitted, only the
+// changes since the last commit. Nothing is staged or committed.
+export async function workspaceDiff(issueId: string, path = "", uncommitted = false): Promise<WorkspaceDiff> {
   const rel = path && resolveIn(issueId, path).rel;
-  const base = await diffBase(issueId);
+  const base = await baseFor(issueId, uncommitted);
   let diff = await inWorkspace(issueId, ["diff", "--no-color", "--no-renames", base, "--", ...(rel ? [rel] : [])]);
 
   for (const file of (await untrackedFiles(issueId)).filter((file) => isIn(file, rel))) {
@@ -127,10 +133,11 @@ export async function workspaceDiff(issueId: string, path = ""): Promise<Workspa
   return { diff, truncated };
 }
 
-// Each file changed since the workspace branched, as in workspaceDiff, with its lines
-// added and removed ("-" for a binary file), in path order.
-export async function workspaceChanges(issueId: string) {
-  const base = await diffBase(issueId);
+// Each file changed since the workspace branched (or, with uncommitted, since its last
+// commit), as in workspaceDiff, with its lines added and removed ("-" for a binary
+// file), in path order.
+export async function workspaceChanges(issueId: string, uncommitted = false) {
+  const base = await baseFor(issueId, uncommitted);
   // Each record is "added\tremoved\tpath".
   const numstat = await inWorkspace(issueId, ["diff", "--numstat", "-z", "--no-renames", base]);
   const changes = numstat
@@ -147,4 +154,37 @@ export async function workspaceChanges(issueId: string) {
     changes.push({ path: file, added: binary ? "-" : String(lines), removed: binary ? "-" : "0", isNew: true });
   }
   return changes.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+// ---- Committing ----------------------------------------------------------------------
+
+// The subjects of the commits on the workspace's branch since it branched, oldest first.
+export async function branchCommits(issueId: string) {
+  const base = await diffBase(issueId);
+  const out = await inWorkspace(issueId, ["log", "--reverse", "--format=%s", `${base}..HEAD`]);
+  return out.split("\n").filter(Boolean);
+}
+
+// Whether anything isn't committed yet: changed, deleted or new files, not ignored ones.
+export async function hasUncommitted(issueId: string) {
+  return (await inWorkspace(issueId, ["status", "--porcelain"])).trim() !== "";
+}
+
+// Whether the branch has commits GitHub doesn't: past origin/<branch> if it's been
+// pushed, otherwise any since the workspace branched.
+export async function hasUnpushed(issueId: string) {
+  const branch = (await inWorkspace(issueId, ["branch", "--show-current"])).trim();
+  const remote = `refs/remotes/origin/${branch}`;
+  const pushed = await inWorkspace(issueId, ["rev-parse", "--verify", "--quiet", remote])
+    .then(() => true)
+    .catch(() => false);
+  const from = pushed ? remote : await diffBase(issueId);
+  return Number(await inWorkspace(issueId, ["rev-list", "--count", `${from}..HEAD`])) > 0;
+}
+
+// Commits everything not committed yet (new files included, ignored ones not), as the
+// machine's git user.
+export async function commitAll(issueId: string, message: string) {
+  await inWorkspace(issueId, ["add", "-A"]);
+  await inWorkspace(issueId, ["commit", "--quiet", "-m", message]);
 }

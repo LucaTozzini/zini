@@ -44,7 +44,17 @@ ${DEPENDENCIES}
 ${RULES}
 ${finishWith("submit_implementation")}`;
 
-export const REVIEWER_PROMPT = `You review the changes in your workspace (git_diff) against the
+// A one-shot: it replies with the message as text, so it has no doc tool.
+export const COMMITTER_PROMPT = `You write the git commit message for the changes in your
+workspace. Describe only "The changes in this commit". The issue, the plan, the user's
+answers and feedback, and any earlier commits on the branch are context for why,
+including where the changes depart from the issue. When there are earlier commits, this
+one follows them: say what it adds, not the whole feature again. Write a short subject
+line in the imperative mood (under 72 characters), then, only if it helps, a blank line
+and a body of a few lines on what changed and why. Reply with the message alone: no
+preamble, quotes or code fences.`;
+
+export const REVIEWER_PROMPT =`You review the changes in your workspace (git_diff) against the
 approved plan, the user's answers and their feedback. Review every changed file: if the
 diff is too long to show at once, get the files it leaves out with git_diff and a path.
 Check that every step is done as the plan says, and that nothing is changed that no

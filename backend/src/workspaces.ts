@@ -2,6 +2,7 @@ import type { LinearClient } from "@linear/sdk";
 import type { Workspace as WorkspaceResponse } from "shared";
 import { addWorktree, fetchRepo, removeWorktree, workspacePath, worktreeBranch } from "./git.js";
 import { fetchLinearIssue } from "./linear.js";
+import { hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "./models/Workspace.js";
 import { deleteSetupLog, startSetup } from "./workspaceSetup.js";
 import { coordinatorThreadId, deleteConversation } from "./coordinator.js";
@@ -12,14 +13,21 @@ import { forgetRun, isRunning } from "./runs.js";
 export const isIssueId = (id: string) => /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
 
 async function toResponse(row: Workspace): Promise<WorkspaceResponse> {
+  const [branch, uncommitted, unpushed] = await Promise.all([
+    worktreeBranch(row.issueId),
+    hasUncommitted(row.issueId),
+    hasUnpushed(row.issueId),
+  ]);
   return {
     issueId: row.issueId,
-    branch: await worktreeBranch(row.issueId),
+    branch,
     path: workspacePath(row.issueId),
     createdAt: row.createdAt.toISOString(),
     setupStatus: row.setupStatus,
     setupError: row.setupError,
     coordinatorRunning: isCoordinatorRunning(row.issueId),
+    uncommitted,
+    unpushed,
   };
 }
 

@@ -159,6 +159,16 @@ export async function worktreeBranch(issueId: string) {
   return (await git(["-C", path, "branch", "--show-current"])).trim();
 }
 
+// Pushes the worktree's branch to GitHub, under the same name.
+export async function pushBranch(issueId: string) {
+  const branch = await worktreeBranch(issueId);
+  const token = await requireToken();
+  // Updates origin/<branch> too, which the clone's fetch shares, so one at a time.
+  await exclusive(() =>
+    git(["-C", workspacePath(issueId), "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`], token),
+  );
+}
+
 // Deletes the issue's worktree, including uncommitted changes, and its local branch.
 // The branch on GitHub is left alone. Works on a folder that's already half-deleted
 // or gone too.

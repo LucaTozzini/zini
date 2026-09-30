@@ -3,7 +3,7 @@ import { Box, Button, Paper, Stack, TextField, Typography } from "@mui/material"
 
 // The cards the pipeline shows when it's waiting on you.
 
-function CardFrame({ title, children }: { title: string; children: React.ReactNode }) {
+export function CardFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Paper variant="outlined" sx={{ p: 2, mt: 2, borderColor: "warning.main" }}>
       <Typography variant="subtitle2" sx={{ mb: 3 }} gutterBottom>

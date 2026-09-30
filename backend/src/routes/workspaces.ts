@@ -1,9 +1,11 @@
 import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
+import { sendEvent } from "../events.js";
+import { pushBranch } from "../git.js";
 import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../settings.js";
-import { workspaceDiff } from "../workspaceFiles.js";
+import { commitAll, workspaceDiff } from "../workspaceFiles.js";
 import { isSettingUp, readSetupLog } from "../workspaceSetup.js";
 import {
   createWorkspace,
@@ -72,6 +74,49 @@ workspaces.get("/:issueId/diff", async (req, res) => {
   } catch (err) {
     console.error(`Reading the diff for ${issueId} failed:`, err);
     res.status(500).json({ error: `Couldn't read the changes: ${lastLine(err)}` });
+  }
+});
+
+// Commits the uncommitted changes, if any, with { message }, then pushes the branch to
+// GitHub, and answers with the workspace. With nothing uncommitted it only pushes (e.g.
+// after a push that failed). Not while setup or the coordinator is running in it.
+workspaces.post("/:issueId/commit", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (isSettingUp(issueId)) {
+    stillSettingUp(res);
+    return;
+  }
+  if (isCoordinatorRunning(issueId)) {
+    res.status(409).json({ error: "The coordinator is still working in this workspace" });
+    return;
+  }
+  const workspace = await getWorkspace(issueId);
+  if (!workspace) {
+    res.status(404).json({ error: "This issue has no workspace" });
+    return;
+  }
+  const { message } = (req.body ?? {}) as { message?: unknown };
+  const text = typeof message === "string" ? message.trim() : "";
+  if (workspace.uncommitted && !text) {
+    res.status(400).json({ error: "Expected a commit message" });
+    return;
+  }
+  if (!workspace.uncommitted && !workspace.unpushed) {
+    res.status(409).json({ error: "There's nothing to commit or push" });
+    return;
+  }
+
+  try {
+    if (workspace.uncommitted) await commitAll(issueId, text);
+    await pushBranch(issueId);
+    res.json(await getWorkspace(issueId));
+  } catch (err) {
+    console.error(`Committing and pushing ${issueId} failed:`, err);
+    res.status(500).json({ error: `Couldn't commit and push: ${lastLine(err)}` });
+  } finally {
+    // Committed, pushed, or partly: the webapp refetches what's left to do.
+    sendEvent({ type: "workspace.updated", issueId });
   }
 });
 
