@@ -159,6 +159,12 @@ export async function worktreeBranch(issueId: string) {
   return (await git(["-C", path, "branch", "--show-current"])).trim();
 }
 
+// The name of GitHub's default branch, e.g. "main", which REF follows.
+export async function defaultBranch() {
+  const ref = (await git(["-C", REPO_DIR, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).trim();
+  return ref.replace(/^origin\//, "");
+}
+
 // Pushes the worktree's branch to GitHub, under the same name.
 export async function pushBranch(issueId: string) {
   const branch = await worktreeBranch(issueId);

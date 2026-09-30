@@ -1,11 +1,14 @@
 import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
+import type { PullRequestStatus } from "shared";
+import { withIdentifier } from "../coordinator/writers.js";
 import { sendEvent } from "../events.js";
-import { pushBranch } from "../git.js";
-import { getLinearClient } from "../linear.js";
+import { defaultBranch, pushBranch } from "../git.js";
+import { createPullRequest, findPullRequest } from "../github.js";
+import { fetchLinearIssue, getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../settings.js";
-import { commitAll, workspaceDiff } from "../workspaceFiles.js";
+import { commitAll, isPushed, workspaceDiff } from "../workspaceFiles.js";
 import { isSettingUp, readSetupLog } from "../workspaceSetup.js";
 import {
   createWorkspace,
@@ -117,6 +120,90 @@ workspaces.post("/:issueId/commit", async (req, res) => {
   } finally {
     // Committed, pushed, or partly: the webapp refetches what's left to do.
     sendEvent({ type: "workspace.updated", issueId });
+  }
+});
+
+// GitHub's token and the repo ("owner/name"), or null after sending a 409.
+async function loadGitHub(res: Response) {
+  const [token, repo] = await Promise.all([getKey("github"), getSetting("githubRepo")]);
+  if (token && repo) return { token, repo };
+  res.status(409).json({ error: "Connect GitHub and set a repository first" });
+  return null;
+}
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// Whether the branch is on GitHub, and its newest pull request, whatever its state (see
+// PullRequestStatus). Asks GitHub each time, so it's current.
+workspaces.get("/:issueId/pull-request", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  const workspace = await getWorkspace(issueId);
+  if (!workspace) {
+    res.status(404).json({ error: "This issue has no workspace" });
+    return;
+  }
+  const github = await loadGitHub(res);
+  if (!github) return;
+  try {
+    const pushed = await isPushed(issueId);
+    const pullRequest = pushed ? await findPullRequest(github.token, github.repo, workspace.branch) : null;
+    res.json({ pushed, pullRequest } satisfies PullRequestStatus);
+  } catch (err) {
+    console.error(`Looking up the pull request for ${issueId} failed:`, err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+// Opens a pull request from the branch into the default branch, with { title, body },
+// and answers with it. The title always starts with the issue's identifier (see
+// withIdentifier). Only once everything is committed and pushed, so it has all the
+// changes.
+workspaces.post("/:issueId/pull-request", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (isSettingUp(issueId)) {
+    stillSettingUp(res);
+    return;
+  }
+  if (isCoordinatorRunning(issueId)) {
+    res.status(409).json({ error: "The coordinator is still working in this workspace" });
+    return;
+  }
+  const workspace = await getWorkspace(issueId);
+  if (!workspace) {
+    res.status(404).json({ error: "This issue has no workspace" });
+    return;
+  }
+  const { title, body } = (req.body ?? {}) as { title?: unknown; body?: unknown };
+  const titleText = typeof title === "string" ? title.trim() : "";
+  if (!titleText) {
+    res.status(400).json({ error: "Expected a title" });
+    return;
+  }
+  if (workspace.uncommitted || workspace.unpushed || !(await isPushed(issueId))) {
+    res.status(409).json({ error: "Commit and push the changes first" });
+    return;
+  }
+  const github = await loadGitHub(res);
+  if (!github) return;
+  const linear = await getLinearClient();
+  if (!linear) {
+    res.status(409).json({ error: "Linear isn't connected" });
+    return;
+  }
+  try {
+    const issue = await fetchLinearIssue(linear, issueId);
+    const pullRequest = await createPullRequest(github.token, github.repo, {
+      title: withIdentifier(issue, titleText),
+      body: typeof body === "string" ? body.trim() : "",
+      branch: workspace.branch,
+      base: await defaultBranch(),
+    });
+    res.status(201).json(pullRequest);
+  } catch (err) {
+    console.error(`Opening the pull request for ${issueId} failed:`, err);
+    res.status(500).json({ error: message(err) });
   }
 });
 

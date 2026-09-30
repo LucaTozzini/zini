@@ -55,9 +55,14 @@ const filesIn = (diff: string) =>
 // Without a path: the list of changed files, then the diff, cut between files once it
 // passes MAX_DIFF_FOR_MODEL, with a note naming the files left out, so they can be
 // asked for by path. With a path: just that file's (or folder's) diff. With
-// uncommitted: only the changes since the last commit, for the committer, which has no
-// tools to ask for the files left out.
-export async function diffForModel(issueId: string, path?: string, uncommitted = false) {
+// uncommitted: only the changes since the last commit. Without tools: for a model that
+// can't ask for the files left out (the committer, the PR writer), so the note only
+// names them.
+export async function diffForModel(
+  issueId: string,
+  path?: string,
+  { uncommitted = false, tools = true } = {},
+) {
   if (path) {
     const { diff } = await workspaceDiff(issueId, path);
     if (!diff) return `No changes in ${path}.`;
@@ -83,7 +88,7 @@ export async function diffForModel(issueId: string, path?: string, uncommitted =
   const shown = end > 0 ? diff.slice(0, end + 1) : diff.slice(0, MAX_DIFF_FOR_MODEL);
   const shownFiles = filesIn(shown);
   const left = changes.filter((change) => !shownFiles.has(change.path)).map((change) => change.path);
-  if (uncommitted) {
+  if (!tools) {
     const cut = end > 0 ? "" : "The first file is cut off. ";
     return `Changed files:\n${list}\n\n${shown}\n[The diff is too long to show. ${cut}Not shown: ${left.join(", ")}.]`;
   }

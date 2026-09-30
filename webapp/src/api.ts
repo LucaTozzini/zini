@@ -12,6 +12,8 @@ import type {
   Thread,
   PipelineResume,
   PipelineState,
+  PullRequest,
+  PullRequestStatus,
   RunLogEvent,
   RunLogSummary,
   WorkspaceDiff,
@@ -386,6 +388,39 @@ export function useCommitAndPush(issueId: string) {
     mutationFn: (message: string) =>
       api.post(`workspaces/${issueId}/commit`, { json: { message }, timeout: false }).json<Workspace>(),
     onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(issueId), workspace),
+  })
+}
+
+const pullRequestKey = (issueId: string) => [...workspaceKey(issueId), 'pull-request']
+
+// Whether the branch is on GitHub, and its pull request, fetched while enabled (e.g.
+// everything is pushed). Under the workspace's key, so a push refetches it.
+export function usePullRequest(issueId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: pullRequestKey(issueId),
+    queryFn: () => api.get(`workspaces/${issueId}/pull-request`).json<PullRequestStatus>(),
+    enabled,
+  })
+}
+
+// Writes a pull request's title and body for the branch; a model call, so no timeout.
+export function useWritePullRequest(issueId: string) {
+  return useMutation({
+    mutationFn: () =>
+      api
+        .post(`coordinator/${issueId}/pull-request-text`, { timeout: false })
+        .json<{ title: string; body: string }>(),
+  })
+}
+
+// Opens the pull request, which then shows in place of the form.
+export function useOpenPullRequest(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (pull: { title: string; body: string }) =>
+      api.post(`workspaces/${issueId}/pull-request`, { json: pull, timeout: false }).json<PullRequest>(),
+    onSuccess: (pullRequest) =>
+      queryClient.setQueryData<PullRequestStatus>(pullRequestKey(issueId), { pushed: true, pullRequest }),
   })
 }
 

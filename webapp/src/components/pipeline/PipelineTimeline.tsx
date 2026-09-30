@@ -27,18 +27,18 @@ function stageStatus(pipeline: PipelineState, role: AgentRole, hasDocument: bool
 
 // The pipeline as a timeline: a section per subagent with its latest document, and
 // below the current one the card that's waiting on you. diff is the workspace's changes
-// so far (the coder's work, over all its rounds). commit is shown once it's finished,
-// for committing and pushing the changes.
+// so far (the coder's work, over all its rounds). ship is shown once it's finished,
+// for committing and pushing the changes and opening a pull request.
 function PipelineTimeline({
   pipeline,
   diff,
   actions,
-  commit,
+  ship,
 }: {
   pipeline: PipelineState;
   diff: WorkspaceDiff | undefined;
   actions: PipelineActions;
-  commit?: ReactNode;
+  ship?: ReactNode;
 }) {
   const { waiting, clarifications } = pipeline;
   const askedBy = (role: AgentRole) => clarifications.filter((c) => c.from === role);
@@ -127,7 +127,7 @@ function PipelineTimeline({
 
       {pipeline.finished && (
         <StageSection title="Finished" status="done" active>
-          {commit}
+          {ship}
           {waiting?.kind === "feedback" && (
             <FeedbackCard
               title="Anything to change?"

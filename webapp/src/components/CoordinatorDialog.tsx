@@ -23,6 +23,7 @@ import {
 import RunLogs from "./coordinator-logs/RunLogs.tsx";
 import CommitCard from "./pipeline/CommitCard.tsx";
 import PipelineTimeline from "./pipeline/PipelineTimeline.tsx";
+import PullRequestCard from "./pipeline/PullRequestCard.tsx";
 
 // The issue's pipeline. Only rendered while the dialog is open, so it's fetched then.
 function CoordinatorPipeline({ issueId }: { issueId: string }) {
@@ -52,7 +53,12 @@ function CoordinatorPipeline({ issueId }: { issueId: string }) {
           onImplementationFeedback: (feedback) => reply({ feedback }),
           sending: start.isPending || resume.isPending,
         }}
-        commit={<CommitCard issueId={issueId} />}
+        ship={
+          <>
+            <CommitCard issueId={issueId} />
+            <PullRequestCard issueId={issueId} />
+          </>
+        }
       />
     </Stack>
   );
