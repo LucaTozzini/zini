@@ -31,11 +31,26 @@ import {
   toolErrors,
 } from "./agents.js";
 import { compactionMiddleware } from "./compaction.js";
+import { diffForModel } from "./coordinator/tools.js";
+import {
+  coordinatorThreadId,
+  getPipeline,
+  loadSetup as loadPipelineSetup,
+  outsideAgentRun,
+  pipelineRun,
+  readReply,
+  replyFits,
+  resumePipeline,
+  startPipeline,
+} from "./coordinator.js";
 import { factsMiddleware } from "./facts.js";
 import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
 import { notesMiddleware, readNotes } from "./notes.js";
+import { Workspace } from "./models/Workspace.js";
 import { npmTools } from "./npmTools.js";
 import { OPENROUTER_URL } from "./openrouter.js";
+import { startRun } from "./runs.js";
+import { commitAndPush, createWorkspace, isIssueId } from "./workspaces.js";
 
 // {repo} is the githubRepo setting.
 const SYSTEM_PROMPT = `You are a product manager with access to the user's Linear workspace
@@ -55,7 +70,15 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   issues about it.
 - Mention the relevant files in issue descriptions when it helps whoever picks it up.
 - The repo's files don't include its dependencies. To see what a package offers, read
-  it with the npm_ tools, at the version in the repo's package.json or lockfile.`;
+  it with the npm_ tools, at the version in the repo's package.json or lockfile.
+- When the user asks you to build an issue, use start_coordinator: it sets up the
+  issue's workspace and starts the coordinator pipeline (planner, coder, reviewer). Use
+  coordinator_status to report its progress; never call start_coordinator just to check.
+  Use git_diff to see the code changes in the issue's workspace. When the user asks you to
+  commit them, use commit_and_push, with a message you write from the diff (and the plan).
+  Use reply_to_pipeline to answer the pipeline's questions, approve its plan or send it
+  feedback, from this chat. Only send what the user said: never answer the pipeline's
+  questions or approve its plan yourself. The user approves every reply before it's sent.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -120,6 +143,154 @@ function buildTools(linear: LinearClient) {
         assignee: ASSIGNEE.nullable().optional(),
       }),
     }),
+  ];
+}
+
+// The issue's id: workspaces and pipelines are keyed by it, not by its identifier.
+const toIssueId = async (linear: LinearClient, id: string) =>
+  isIssueId(id) ? id : (await fetchLinearIssue(linear, id)).id;
+
+const ISSUE_ID = z.string().describe("Linear issue id or identifier, e.g. ENG-123");
+
+// Drive the coordinator pipeline (see coordinator.ts) from chat. None of them waits on
+// the workspace's setup or the pipeline's work: they start it, or say where it's at.
+function coordinatorTools(linear: LinearClient) {
+  return [
+    tool(
+      async ({ issueId }) => {
+        const { workspace } = await createWorkspace(linear, await toIssueId(linear, issueId));
+        if (workspace.setupStatus === "running") return JSON.stringify({ status: "setting_up" });
+        if (workspace.setupStatus === "failed") {
+          return JSON.stringify({ status: "setup_failed", error: workspace.setupError });
+        }
+        const pipeline = await getPipeline(workspace.issueId);
+        if (pipeline.finished) return JSON.stringify({ status: "finished" });
+        if (pipeline.started) return JSON.stringify({ status: "already_running" });
+        const setup = await loadPipelineSetup();
+        if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
+        const run = pipelineRun(setup, workspace.issueId);
+        const started = await outsideAgentRun(() =>
+          startRun(coordinatorThreadId(workspace.issueId), () => startPipeline(run, ""), run.notify),
+        );
+        return JSON.stringify({ status: started ? "started" : "already_running" });
+      },
+      {
+        name: "start_coordinator",
+        description:
+          "Build an issue: create its workspace if it has none, and start the coordinator " +
+          "pipeline once the workspace is set up. Returns straight away with a status: " +
+          "setting_up (call again later), setup_failed, started, already_running, " +
+          "finished (send feedback with reply_to_pipeline instead) or error.",
+        schema: z.object({ issueId: ISSUE_ID }),
+      },
+    ),
+    tool(
+      async ({ issueId }) => {
+        const id = await toIssueId(linear, issueId);
+        const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getPipeline(id)]);
+        return JSON.stringify({
+          hasWorkspace: Boolean(workspace),
+          setupStatus: workspace?.setupStatus ?? null,
+          setupError: workspace?.setupError ?? null,
+          ...pipeline,
+        });
+      },
+      {
+        name: "coordinator_status",
+        description:
+          "Where an issue's workspace setup and coordinator pipeline are at: running is the " +
+          "subagent working now, waiting what the pipeline needs from the user (questions to " +
+          "answer, a plan to approve, or feedback once finished). Also the subagents' " +
+          "documents so far: the plan, the review's required changes, and every question " +
+          "asked with its answer (clarifications). Not the code changes.",
+        schema: z.object({ issueId: ISSUE_ID }),
+      },
+    ),
+    tool(
+      async ({ issueId, path }) => {
+        const id = await toIssueId(linear, issueId);
+        if (!(await Workspace.findByPk(id))) return "This issue has no workspace.";
+        return diffForModel(id, path);
+      },
+      {
+        name: "git_diff",
+        description:
+          "The changes in an issue's workspace since it branched, uncommitted ones and new " +
+          "files included: the list of changed files, then a unified diff. Not the default " +
+          "branch that read_file reads. A long diff is cut between files, with a note naming " +
+          "the rest; pass a path for one file's (or folder's) diff.",
+        schema: z.object({ issueId: ISSUE_ID, path: z.string().optional() }),
+      },
+    ),
+    tool(
+      async ({ issueId, message }) => {
+        const result = await commitAndPush(await toIssueId(linear, issueId), message ?? "");
+        if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
+        return JSON.stringify({ status: "pushed", branch: result.workspace.branch });
+      },
+      {
+        name: "commit_and_push",
+        description:
+          "Commit all of an issue's workspace's uncommitted changes with message, then push " +
+          "its branch to GitHub. With nothing uncommitted it only pushes, and message can " +
+          "be left out. Not while the coordinator is working in the workspace. The user " +
+          "approves the call before it runs.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          message: z
+            .string()
+            .optional()
+            .describe("Commit message: a short summary line, then a blank line and the details"),
+        }),
+      },
+    ),
+    tool(
+      async ({ issueId, ...input }) => {
+        // Exactly one, so nothing the user approved on the card is left out.
+        if (Object.values(input).filter((value) => value !== undefined).length !== 1) {
+          return JSON.stringify({
+            status: "error",
+            error: "Pass exactly one of answers, approve or feedback",
+          });
+        }
+        const id = await toIssueId(linear, issueId);
+        const { waiting } = await getPipeline(id);
+        if (!waiting) return JSON.stringify({ status: "not_waiting" });
+        const reply = readReply(input);
+        if (!reply || !replyFits(waiting, reply)) {
+          return JSON.stringify({
+            status: "error",
+            error: "That reply doesn't fit what the pipeline is waiting on",
+            waiting,
+          });
+        }
+        const workspace = await Workspace.findByPk(id);
+        if (workspace?.setupStatus !== "ready") {
+          return JSON.stringify({ status: "error", error: "The workspace isn't set up" });
+        }
+        const setup = await loadPipelineSetup();
+        if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
+        const run = pipelineRun(setup, id);
+        const started = await outsideAgentRun(() =>
+          startRun(coordinatorThreadId(id), () => resumePipeline(run, reply), run.notify),
+        );
+        return JSON.stringify(started ? { status: "resumed" } : { status: "error", error: "The pipeline is still running" });
+      },
+      {
+        name: "reply_to_pipeline",
+        description:
+          "Reply to what an issue's coordinator pipeline is waiting on, with exactly one of: " +
+          "answers (one per question, in order), approve: true (approve the plan), or " +
+          "feedback (on the plan, or on the changes once finished). The user approves the " +
+          "call before it runs.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          answers: z.array(z.string()).optional(),
+          approve: z.boolean().optional(),
+          feedback: z.string().optional(),
+        }),
+      },
+    ),
   ];
 }
 
@@ -217,7 +388,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
   });
   return createAgent({
     model: chatModel,
-    tools: [...buildTools(linear), ...codeTools, ...npmTools],
+    tools: [...buildTools(linear), ...coordinatorTools(linear), ...codeTools, ...npmTools],
     systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [
@@ -234,6 +405,8 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
           update_issue: { allowedDecisions: ["approve", "reject"] },
+          reply_to_pipeline: { allowedDecisions: ["approve", "reject"] },
+          commit_and_push: { allowedDecisions: ["approve", "reject"] },
         },
       }),
       fetchRepoMiddleware,
@@ -276,7 +449,7 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
   const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
   const messages: BaseMessage[] = [...(state.values.compacted ?? []), ...(state.values.messages ?? [])];
-  const pending = toPending(state.tasks.flatMap((task) => task.interrupts));
+  const pending = await toPending(setup.linear, state.tasks.flatMap((task) => task.interrupts));
   return {
     messages: toChatMessages(messages, running || pending.length > 0),
     pending,
@@ -286,9 +459,31 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
   };
 }
 
-function toPending(interrupts: { value?: unknown }[] = []): PendingAction[] {
+async function toPending(
+  linear: LinearClient,
+  interrupts: { value?: unknown }[] = [],
+): Promise<PendingAction[]> {
   const request = interrupts[0]?.value as HITLRequest | undefined;
-  return request?.actionRequests.map(({ name, args }) => ({ name, args })) ?? [];
+  return Promise.all(
+    (request?.actionRequests ?? []).map(async ({ name, args }) =>
+      name === "reply_to_pipeline"
+        ? { name, args, questions: await pipelineQuestions(linear, String(args.issueId)) }
+        : { name, args },
+    ),
+  );
+}
+
+// The questions the issue's pipeline is waiting on, for showing a reply's answers next
+// to them. undefined if it isn't waiting on questions, or the issue can't be found:
+// the reply is still shown, just without them.
+async function pipelineQuestions(linear: LinearClient, issueId: string) {
+  try {
+    const { waiting } = await getPipeline(await toIssueId(linear, issueId));
+    return waiting?.kind === "questions" ? waiting.questions : undefined;
+  } catch (err) {
+    console.error(`Reading the pipeline's questions for ${issueId} failed:`, err);
+    return undefined;
+  }
 }
 
 // Removes a thread's saved conversation from the checkpointer.

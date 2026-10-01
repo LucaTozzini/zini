@@ -85,8 +85,10 @@ export type ChatMessage =
     }
   | { role: "compaction"; summary: string };
 
-// A tool call the agent is waiting on the user to approve, e.g. create_issue.
-export type PendingAction = { name: string; args: Record<string, unknown> };
+// A tool call the agent is waiting on the user to approve, e.g. create_issue. For a
+// reply_to_pipeline call, questions are the ones the pipeline is waiting on, which its
+// answers are for, in order.
+export type PendingAction = { name: string; args: Record<string, unknown>; questions?: string[] };
 
 // The user's answer to one pending action. A reject message is passed to the agent.
 export type Decision = { type: "approve" } | { type: "reject"; message?: string };

@@ -1,10 +1,11 @@
 import type { LinearClient } from "@linear/sdk";
 import type { Workspace as WorkspaceResponse } from "shared";
-import { addWorktree, fetchRepo, removeWorktree, workspacePath, worktreeBranch } from "./git.js";
+import { sendEvent } from "./events.js";
+import { addWorktree, fetchRepo, pushBranch, removeWorktree, workspacePath, worktreeBranch } from "./git.js";
 import { fetchLinearIssue } from "./linear.js";
-import { hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
+import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "./models/Workspace.js";
-import { deleteSetupLog, startSetup } from "./workspaceSetup.js";
+import { deleteSetupLog, isSettingUp, startSetup } from "./workspaceSetup.js";
 import { coordinatorThreadId, deleteConversation } from "./coordinator.js";
 import { deleteRunLogs } from "./coordinator/runLog.js";
 import { forgetRun, isRunning } from "./runs.js";
@@ -96,3 +97,38 @@ export async function deleteWorkspace(issueId: string) {
 }
 
 export const isCoordinatorRunning = (issueId: string) => isRunning(coordinatorThreadId(issueId));
+
+// Commits the workspace's uncommitted changes, if any, with message, then pushes its
+// branch to GitHub. With nothing uncommitted it only pushes (e.g. after a push that
+// failed). Not while setup or the coordinator is running in it. Answers with the
+// workspace, or with what stopped it and the HTTP status that goes with it.
+export async function commitAndPush(
+  issueId: string,
+  message: string,
+): Promise<{ workspace: WorkspaceResponse } | { status: number; error: string }> {
+  if (isSettingUp(issueId)) return { status: 409, error: "The workspace is still being set up" };
+  if (isCoordinatorRunning(issueId)) {
+    return { status: 409, error: "The coordinator is still working in this workspace" };
+  }
+  const workspace = await getWorkspace(issueId);
+  if (!workspace) return { status: 404, error: "This issue has no workspace" };
+  const text = message.trim();
+  if (workspace.uncommitted && !text) return { status: 400, error: "Expected a commit message" };
+  if (!workspace.uncommitted && !workspace.unpushed) {
+    return { status: 409, error: "There's nothing to commit or push" };
+  }
+
+  try {
+    if (workspace.uncommitted) await commitAll(issueId, text);
+    await pushBranch(issueId);
+    return { workspace: (await getWorkspace(issueId))! };
+  } catch (err) {
+    console.error(`Committing and pushing ${issueId} failed:`, err);
+    // A failed git command's message ends with its "fatal: ..." line.
+    const reason = err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
+    return { status: 500, error: `Couldn't commit and push: ${reason}` };
+  } finally {
+    // Committed, pushed, or partly: the webapp refetches what's left to do.
+    sendEvent({ type: "workspace.updated", issueId });
+  }
+}

@@ -1,20 +1,18 @@
 import { Router, type Response } from "express";
-import type { PipelineResume } from "shared";
 import {
   coordinatorThreadId,
   getPipeline,
+  loadSetup as loadPipelineSetup,
+  pipelineRun,
+  readReply,
+  replyFits,
   resumePipeline,
   startPipeline,
-  type Setup,
 } from "../coordinator.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
-import { sendEvent } from "../events.js";
-import { getLinearClient } from "../linear.js";
-import { getKey } from "../models/Integration.js";
 import { Workspace } from "../models/Workspace.js";
 import { beginRun, isRunning } from "../runs.js";
-import { getSetting } from "../settings.js";
 import { branchCommits, hasUncommitted } from "../workspaceFiles.js";
 import { isIssueId } from "../workspaces.js";
 
@@ -29,20 +27,11 @@ function readIssueId(value: string, res: Response) {
 }
 
 // What the pipeline needs to run, or null after sending a 409 naming what's missing.
-async function loadSetup(res: Response): Promise<Setup | null> {
-  const [linear, openRouterKey, model] = await Promise.all([
-    getLinearClient(),
-    getKey("openrouter"),
-    getSetting("coordinatorModel"),
-  ]);
-  const missing = (error: string) => {
-    res.status(409).json({ error });
-    return null;
-  };
-  if (!linear) return missing("Linear isn't connected");
-  if (!openRouterKey) return missing("OpenRouter isn't connected");
-  if (!model) return missing("No coordinator model set");
-  return { linear, openRouterKey, model };
+async function loadSetup(res: Response) {
+  const setup = await loadPipelineSetup();
+  if (typeof setup !== "string") return setup;
+  res.status(409).json({ error: setup });
+  return null;
 }
 
 // The pipeline works in the issue's workspace, so it needs one that's set up. false
@@ -59,21 +48,6 @@ async function requireReadyWorkspace(issueId: string, res: Response) {
   }
   return true;
 }
-
-// Checks, and narrows, a reply to what the pipeline is waiting on.
-function readReply(body: unknown): PipelineResume | null {
-  if (typeof body !== "object" || body === null) return null;
-  const b = body as Record<string, unknown>;
-  if (Array.isArray(b.answers) && b.answers.every((a) => typeof a === "string")) {
-    return { answers: b.answers as string[] };
-  }
-  if (b.approve === true) return { approve: true };
-  if (typeof b.feedback === "string" && b.feedback.trim()) return { feedback: b.feedback.trim() };
-  return null;
-}
-
-// Tells every connected webapp that the pipeline changed.
-const notify = (issueId: string) => sendEvent({ type: "coordinator.updated", issueId });
 
 coordinator.get("/:issueId", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
@@ -99,7 +73,7 @@ coordinator.post("/:issueId/start", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = { setup, issueId, notify: () => notify(issueId) };
+  const run = pipelineRun(setup, issueId);
   const started = await beginRun(
     res,
     coordinatorThreadId(issueId),
@@ -122,11 +96,7 @@ coordinator.post("/:issueId/resume", async (req, res) => {
   if (!(await requireReadyWorkspace(issueId, res))) return;
 
   const { waiting } = await getPipeline(issueId);
-  const fits =
-    (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
-    (waiting?.kind === "approve_plan" && !("answers" in reply)) ||
-    (waiting?.kind === "feedback" && "feedback" in reply);
-  if (!fits) {
+  if (!replyFits(waiting, reply)) {
     res.status(409).json({
       error: waiting ? "That reply doesn't fit what the pipeline is waiting on" : "The pipeline isn't waiting on you",
     });
@@ -135,7 +105,7 @@ coordinator.post("/:issueId/resume", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = { setup, issueId, notify: () => notify(issueId) };
+  const run = pipelineRun(setup, issueId);
   const started = await beginRun(res, coordinatorThreadId(issueId), () => resumePipeline(run, reply), run.notify);
   if (started) res.status(202).end();
 });
