@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -n backend,webapp -c blue,magenta \"npm run dev -w backend\" \"npm run dev -w webapp\"",
     "build": "npm run build --workspaces --if-present",
+    "start": "npm run start -w backend",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
