@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from "react";
-import { IconButton, InputAdornment, TextField } from "@mui/material";
+import { IconButton, InputAdornment, Paper, TextField } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import StopRounded from "@mui/icons-material/StopRounded";
 
@@ -31,6 +31,8 @@ const ChatInput = ({
   onSubmit,
 }: ChatInputProps) => {
   return (
+    <Paper sx={{borderRadius: 8}}>
+
       <TextField
         component="form"
         onSubmit={onSubmit}
@@ -60,9 +62,7 @@ const ChatInput = ({
           input: {
             sx: {
               borderRadius: 8,
-              bgcolor: "background.paper",
               display: "flex",
-              boxShadow: 5,
             },
             endAdornment: (
               <InputAdornment position="end" sx={{ alignSelf: "flex-end" }}>
@@ -108,6 +108,7 @@ const ChatInput = ({
           },
         }}
       />
+    </Paper>
   );
 };
 
