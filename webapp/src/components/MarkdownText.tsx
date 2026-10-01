@@ -29,6 +29,9 @@ const markdownComponents: Components = {
   code: ({ node: _node, ...props }) => (
     <Box component="code" {...props} sx={{ color: "secondary.main" }} />
   ),
+  // A fenced block scrolls sideways for its long lines, instead of running out of the
+  // bubble.
+  pre: ({ node: _node, ...props }) => <Box component="pre" {...props} sx={{ overflowX: "auto" }} />,
   // Links open in a new tab instead of replacing the chat. noreferrer also stops the
   // new page from reaching back into this one through window.opener.
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
@@ -42,7 +45,9 @@ function MarkdownText({ children, ...props }: { children: string } & TypographyP
       component="div"
       {...props}
       sx={[
-        { "& > :first-child": { mt: 0 }, "& > :last-child": { mb: 0 } },
+        // overflowWrap: long words with nowhere to break (paths, URLs, inline code) break
+        // anywhere rather than overflow.
+        { overflowWrap: "anywhere", "& > :first-child": { mt: 0 }, "& > :last-child": { mb: 0 } },
         ...(Array.isArray(props.sx) ? props.sx : [props.sx]),
       ]}
     >

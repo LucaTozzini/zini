@@ -111,6 +111,9 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
     <Box
       sx={{
         flex: 1,
+        // A flex item can't shrink below its content's widest unbreakable part, e.g. a
+        // code block's longest line, which would widen the whole chat past the screen.
+        minWidth: 0,
         display: "flex",
         flexDirection: "column",
         height: "100%",
