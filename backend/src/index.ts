@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { initDb } from "./db.js";
 import { subscribe } from "./events.js";
@@ -27,6 +29,18 @@ app.use("/api/integrations", integrations);
 app.use("/api/product-manager", productManager);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);
+
+// The built webapp (npm run build), so one server runs the whole app. Any other GET
+// gets its index.html, so the webapp's own routes work on reload. In development the
+// webapp is served by Vite instead, which sends /api here.
+const webapp = fileURLToPath(new URL("../../webapp/dist", import.meta.url));
+if (existsSync(webapp)) {
+  app.use(express.static(webapp));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api/")) return next();
+    res.sendFile("index.html", { root: webapp });
+  });
+}
 
 await initDb();
 await failInterruptedSetups();
