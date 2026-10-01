@@ -2,15 +2,15 @@ import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
 import type { PullRequestStatus } from "shared";
 import { withIdentifier } from "../coordinator/writers.js";
-import { sendEvent } from "../events.js";
-import { defaultBranch, pushBranch } from "../git.js";
+import { defaultBranch } from "../git.js";
 import { createPullRequest, findPullRequest } from "../github.js";
 import { fetchLinearIssue, getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../settings.js";
-import { commitAll, isPushed, workspaceDiff } from "../workspaceFiles.js";
+import { isPushed, workspaceDiff } from "../workspaceFiles.js";
 import { isSettingUp, readSetupLog } from "../workspaceSetup.js";
 import {
+  commitAndPush,
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
@@ -86,41 +86,13 @@ workspaces.get("/:issueId/diff", async (req, res) => {
 workspaces.post("/:issueId/commit", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (isSettingUp(issueId)) {
-    stillSettingUp(res);
-    return;
-  }
-  if (isCoordinatorRunning(issueId)) {
-    res.status(409).json({ error: "The coordinator is still working in this workspace" });
-    return;
-  }
-  const workspace = await getWorkspace(issueId);
-  if (!workspace) {
-    res.status(404).json({ error: "This issue has no workspace" });
-    return;
-  }
   const { message } = (req.body ?? {}) as { message?: unknown };
-  const text = typeof message === "string" ? message.trim() : "";
-  if (workspace.uncommitted && !text) {
-    res.status(400).json({ error: "Expected a commit message" });
+  const result = await commitAndPush(issueId, typeof message === "string" ? message : "");
+  if ("error" in result) {
+    res.status(result.status).json({ error: result.error });
     return;
   }
-  if (!workspace.uncommitted && !workspace.unpushed) {
-    res.status(409).json({ error: "There's nothing to commit or push" });
-    return;
-  }
-
-  try {
-    if (workspace.uncommitted) await commitAll(issueId, text);
-    await pushBranch(issueId);
-    res.json(await getWorkspace(issueId));
-  } catch (err) {
-    console.error(`Committing and pushing ${issueId} failed:`, err);
-    res.status(500).json({ error: `Couldn't commit and push: ${lastLine(err)}` });
-  } finally {
-    // Committed, pushed, or partly: the webapp refetches what's left to do.
-    sendEvent({ type: "workspace.updated", issueId });
-  }
+  res.json(result.workspace);
 });
 
 // GitHub's token and the repo ("owner/name"), or null after sending a 409.

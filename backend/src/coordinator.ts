@@ -1,5 +1,6 @@
 import type { LinearClient } from "@linear/sdk";
 import { Command, START, StateGraph, interrupt } from "@langchain/langgraph";
+import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, toolStrategy } from "langchain";
@@ -27,10 +28,13 @@ import {
   REVIEWER_PROMPT,
 } from "./coordinator/systemPrompts.js";
 import { diffTool, readTools, writeTools } from "./coordinator/tools.js";
+import { sendEvent } from "./events.js";
 import { npmTools } from "./npmTools.js";
-import { fetchLinearIssue } from "./linear.js";
+import { fetchLinearIssue, getLinearClient } from "./linear.js";
+import { getKey } from "./models/Integration.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 import { isRunning, runStatus } from "./runs.js";
+import { getSetting } from "./settings.js";
 
 // The coordinator: a fixed pipeline per issue, run as a LangGraph graph in the issue's
 // workspace. The planner plans (it can ask you questions), you approve the plan (or
@@ -44,6 +48,19 @@ export type Setup = {
   openRouterKey: string;
   model: string;
 };
+
+// What the pipeline needs to run, or what's missing.
+export async function loadSetup(): Promise<Setup | string> {
+  const [linear, openRouterKey, model] = await Promise.all([
+    getLinearClient(),
+    getKey("openrouter"),
+    getSetting("coordinatorModel"),
+  ]);
+  if (!linear) return "Linear isn't connected";
+  if (!openRouterKey) return "OpenRouter isn't connected";
+  if (!model) return "No coordinator model set";
+  return { linear, openRouterKey, model };
+}
 
 // One pipeline per issue, so the issue id is enough to find it.
 export const coordinatorThreadId = (issueId: string) =>
@@ -120,6 +137,13 @@ async function runSubagent<S extends z.ZodObject>(
 
 // What running a node needs. Absent when the graph is only read (getPipeline).
 type Run = { setup: Setup; issueId: string; notify: () => void };
+
+// A run of the issue's pipeline, which tells every connected webapp whenever it changes.
+export const pipelineRun = (setup: Setup, issueId: string): Run => ({
+  setup,
+  issueId,
+  notify: () => sendEvent({ type: "coordinator.updated", issueId }),
+});
 
 function buildPipeline(run: Run | null) {
   const need = () => {
@@ -314,6 +338,33 @@ export function startPipeline(run: Run, note: string) {
   return buildPipeline(run).stream(
     { note },
     streamConfig(coordinatorThreadId(run.issueId)),
+  );
+}
+
+// Runs start outside whatever LangGraph run calls it, e.g. a product manager tool's.
+// Inside one, the pipeline would join it as a subgraph, saving its checkpoints under
+// that run's namespace (where getPipeline doesn't look) and sharing its callbacks.
+export const outsideAgentRun = <T>(start: () => T) =>
+  AsyncLocalStorageProviderSingleton.getInstance().run(undefined, start);
+
+// Checks, and narrows, a reply to what the pipeline is waiting on.
+export function readReply(body: unknown): PipelineResume | null {
+  if (typeof body !== "object" || body === null) return null;
+  const b = body as Record<string, unknown>;
+  if (Array.isArray(b.answers) && b.answers.every((a) => typeof a === "string")) {
+    return { answers: b.answers as string[] };
+  }
+  if (b.approve === true) return { approve: true };
+  if (typeof b.feedback === "string" && b.feedback.trim()) return { feedback: b.feedback.trim() };
+  return null;
+}
+
+// Whether a reply answers what the pipeline is waiting on.
+export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume) {
+  return (
+    (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
+    (waiting?.kind === "approve_plan" && !("answers" in reply)) ||
+    (waiting?.kind === "feedback" && "feedback" in reply)
   );
 }
 
