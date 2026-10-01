@@ -28,7 +28,7 @@ function App() {
     ) : null;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: {xs: "column-reverse", md: "row"}, overflow: "hidden", height: "100vh" }}>
+    <Box sx={{ display: "flex", flexDirection: {xs: "column-reverse", md: "row"}, overflow: "hidden", height: "100dvh" }}>
       <NavBar direction={isSmallScreen ? "row": "column"} />
 
       <Box sx={{ flex: 1, overflow: "auto" }}>
