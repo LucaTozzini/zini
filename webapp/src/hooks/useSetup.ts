@@ -1,4 +1,5 @@
-import { useIntegrations, useSettings } from "../api.ts";
+import { useIntegrations } from "../api/integrations.ts";
+import { useSettings } from "../api/settings.ts";
 
 // The one place that works out what's set up. The banner lists what's missing and
 // the routes decide what to render, both from this, so they can't disagree.

@@ -13,13 +13,9 @@ import {
   Tooltip,
 } from "@mui/material";
 import type { PipelineResume } from "shared";
-import {
-  errorMessage,
-  useCoordinator,
-  useResumePipeline,
-  useStartPipeline,
-  useWorkspaceDiff,
-} from "../api.ts";
+import { errorMessage } from "../api/client.ts";
+import { useCoordinator, useResumePipeline, useStartPipeline } from "../api/coordinator.ts";
+import { useWorkspaceDiff } from "../api/workspaces.ts";
 import RunLogs from "./coordinator-logs/RunLogs.tsx";
 import CommitCard from "./pipeline/CommitCard.tsx";
 import PipelineTimeline from "./pipeline/PipelineTimeline.tsx";

@@ -3,6 +3,7 @@ import { Command } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   AIMessage,
+  HumanMessage,
   createAgent,
   createMiddleware,
   humanInTheLoopMiddleware,
@@ -57,6 +58,9 @@ const SYSTEM_PROMPT = `You are a product manager with access to the user's Linea
 and to the code of the product's GitHub repository ({repo}).
 Help the user think through ideas, bugs and features, and turn them into clear Linear issues.
 
+- Several people may use this chat. User messages start with the sender's name in brackets,
+  e.g. "[Alice]: ..."; one without a name is from someone who hasn't set one. Don't start
+  your own replies with a name.
 - Look at existing issues before proposing new ones (search_issues finds them by keyword),
   and point out likely duplicates.
 - The user approves every create_issue and update_issue call before it runs. If they
@@ -378,6 +382,25 @@ const repairToolCalls = createMiddleware({
     handler({ ...request, messages: withMissingToolResults(request.messages) }),
 });
 
+// Shows the model who sent each message, from the username saved with it. Only in
+// what the model reads: the saved message, and so the chat, stays as it was written.
+const senderNames = createMiddleware({
+  name: "SenderNames",
+  wrapModelCall: (request, handler) =>
+    handler({
+      ...request,
+      messages: request.messages.map((m) => {
+        const username = m.additional_kwargs.username;
+        if (m.type !== "human" || typeof username !== "string") return m;
+        return new HumanMessage({
+          id: m.id,
+          content: `[${username}]: ${m.text}`,
+          additional_kwargs: m.additional_kwargs,
+        });
+      }),
+    }),
+});
+
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
 function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
@@ -397,6 +420,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
       compactionMiddleware(chatModel),
       modelRetry,
       repairToolCalls,
+      senderNames,
       todoListMiddleware(),
       // Notes before facts in the prompt: they change less often.
       notesMiddleware,
@@ -425,10 +449,17 @@ const RECURSION_LIMIT = 250;
 
 // Sends the user's next message on a thread. The run ends with a reply, or paused
 // on actions to approve. Aborting it stops the run in flight, leaving the checkpoint
-// its finished steps were saved to, which the next turn carries on from.
-export function chat(setup: Setup, threadId: string, message: string, signal?: AbortSignal) {
+// its finished steps were saved to, which the next turn carries on from. The sender's
+// username (null if they haven't set one) is saved with the message.
+export function chat(
+  setup: Setup,
+  threadId: string,
+  message: string,
+  username: string | null,
+  signal?: AbortSignal,
+) {
   return buildAgent(setup).stream(
-    { messages: [{ role: "user", content: message }] },
+    { messages: [new HumanMessage({ content: message, additional_kwargs: { username } })] },
     streamConfig(threadId, RECURSION_LIMIT, signal),
   );
 }

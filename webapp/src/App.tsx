@@ -2,7 +2,7 @@ import { Box, useMediaQuery, useTheme } from "@mui/material";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
 import { Route, Routes } from "react-router";
-import { useServerEvents } from "./api.ts";
+import { useServerEvents } from "./api/events.ts";
 import { useSetup } from "./hooks/useSetup.ts";
 import HomePage from "./pages/HomePage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";

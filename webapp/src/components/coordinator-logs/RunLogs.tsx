@@ -12,7 +12,8 @@ import {
   Typography,
 } from "@mui/material";
 import type { RunLogEvent, RunLogSummary } from "shared";
-import { errorMessage, useRunLog, useRunLogs } from "../../api.ts";
+import { errorMessage } from "../../api/client.ts";
+import { useRunLog, useRunLogs } from "../../api/coordinator.ts";
 import LogEvents from "./LogEvents.tsx";
 import { time } from "./time.ts";
 

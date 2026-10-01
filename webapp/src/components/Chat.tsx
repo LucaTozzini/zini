@@ -2,7 +2,7 @@ import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { FormEvent, KeyboardEvent } from "react";
 import type { ChatMessage, Decision, PendingAction, Todo } from "shared";
-import { errorMessage } from "../api.ts";
+import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
 import ChatInput from "./ChatInput.tsx";

@@ -62,7 +62,16 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
   const lastReply = messages.findLast(AIMessage.isInstance);
   return messages.flatMap((message): ChatMessage[] => {
     if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
-    if (message.type === "human") return [{ role: "user", content: message.text }];
+    if (message.type === "human") {
+      const username = message.additional_kwargs.username;
+      return [
+        {
+          role: "user",
+          content: message.text,
+          ...(typeof username === "string" && { username }),
+        },
+      ];
+    }
     if (!AIMessage.isInstance(message)) return [];
     const calls = (message.tool_calls ?? []).map((call): ChatMessage => {
       const result = call.id ? results.get(call.id) : undefined;

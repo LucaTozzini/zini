@@ -12,7 +12,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import { Link } from "react-router";
 import type { ThreadSummary } from "shared";
-import { errorMessage } from "../api.ts";
+import { errorMessage } from "../api/client.ts";
 import { useState } from "react";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 

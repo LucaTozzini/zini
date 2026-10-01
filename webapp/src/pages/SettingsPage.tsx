@@ -6,14 +6,13 @@ import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { errorMessage } from "../api/client.ts";
 import {
-  errorMessage,
   useConnectIntegration,
   useDisconnectIntegration,
   useIntegrations,
-  useSaveSettings,
-  useSettings,
-} from "../api.ts";
+} from "../api/integrations.ts";
+import { useSaveSettings, useSettings } from "../api/settings.ts";
 import type { Provider, Settings } from "shared";
 import { Container, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";

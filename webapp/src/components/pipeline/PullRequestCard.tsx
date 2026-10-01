@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { Alert, Button, Link, Stack, TextField, Typography } from "@mui/material";
-import {
-  errorMessage,
-  useOpenPullRequest,
-  usePullRequest,
-  useWorkspace,
-  useWritePullRequest,
-} from "../../api.ts";
+import { errorMessage } from "../../api/client.ts";
+import { useOpenPullRequest, usePullRequest, useWorkspace } from "../../api/workspaces.ts";
+import { useWritePullRequest } from "../../api/coordinator.ts";
 import { CardFrame } from "./Cards.tsx";
 
 // Opens a pull request for the workspace's branch, once everything is committed and
