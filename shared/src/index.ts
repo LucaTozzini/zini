@@ -75,7 +75,8 @@ export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | nu
 // waits on approval, and never_ran when it can't get a result anymore (e.g. the run
 // failed first); error is set when it failed or was rejected.
 export type ChatMessage =
-  | { role: "user" | "assistant"; content: string }
+  | { role: "user"; content: string; username?: string }
+  | { role: "assistant"; content: string }
   | {
       role: "tool";
       name: string;

@@ -16,16 +16,16 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import { GridLoader } from "react-spinners";
 import { PRIORITY_NAMES, type PipelineState, type Workspace } from "shared";
+import { errorMessage } from "../api/client.ts";
+import { useCoordinator } from "../api/coordinator.ts";
 import {
-  errorMessage,
-  useCoordinator,
   useCreateWorkspace,
   useDeleteWorkspace,
-  useLinearIssue,
   useRerunSetup,
   useSetupLog,
   useWorkspace,
-} from "../api.ts";
+} from "../api/workspaces.ts";
+import { useLinearIssue } from "../api/integrations.ts";
 import PriorityIcon from "./icons/PriorityIcon.tsx";
 import StatusIcon from "./icons/StatusIcon.tsx";
 import VSCodeIcon from "./icons/VSCodeIcon.tsx";

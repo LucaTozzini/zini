@@ -8,7 +8,7 @@ import {
   useSteerThread,
   useStopThread,
   useThread,
-} from "../api.ts";
+} from "../api/productManager.ts";
 import type { ChatState } from "../components/Chat.tsx";
 
 // Navigation state when a new chat's first message creates it: the page keeps the

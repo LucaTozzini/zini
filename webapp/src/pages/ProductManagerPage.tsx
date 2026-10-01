@@ -1,6 +1,6 @@
 import { Box, Drawer, Paper, useMediaQuery, useTheme } from "@mui/material";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { useDeleteThread, useThreads } from "../api.ts";
+import { useDeleteThread, useThreads } from "../api/productManager.ts";
 import Chat from "../components/Chat.tsx";
 import ThreadList from "../components/ThreadList.tsx";
 import { useChat, type CreatedChatState } from "../hooks/useChat.ts";

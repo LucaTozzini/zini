@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import type { Decision } from "shared";
 import { getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
@@ -12,6 +12,10 @@ import { getSetting } from "../settings.js";
 export const productManager = Router();
 
 const nonEmptyString = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+
+// The sender's username, from the cookie their profile sets; null if they haven't set one.
+const username = (req: Request): string | null =>
+  nonEmptyString(req.cookies?.username) ? req.cookies.username : null;
 
 const isDecision = (d: unknown): d is Decision =>
   typeof d === "object" &&
@@ -63,7 +67,12 @@ productManager.get("/threads", async (_req, res) => {
     order: [["createdAt", "DESC"]],
   });
   res.json(
-    threads.map(({ id, title, createdAt }) => ({ id, title, createdAt, running: isRunning(id) })),
+    threads.map(({ id, title, createdAt }) => ({
+      id,
+      title,
+      createdAt,
+      running: isRunning(id),
+    })),
   );
 });
 
@@ -81,14 +90,17 @@ productManager.post("/threads", async (req, res) => {
 
   const title = message.trim().replace(/\s+/g, " ").slice(0, 60);
   const thread = await PmThread.create({ id: randomUUID(), title });
-  const start = (signal: AbortSignal) => chat(setup, thread.id, message, signal);
+  const start = (signal: AbortSignal) =>
+    chat(setup, thread.id, message, username(req), signal);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
     forgetRun(thread.id);
     return;
   }
-  res.status(201).json({ id: thread.id, title, createdAt: thread.createdAt, running: true });
+  res
+    .status(201)
+    .json({ id: thread.id, title, createdAt: thread.createdAt, running: true });
 });
 
 productManager.get("/threads/:id", async (req, res) => {
@@ -119,7 +131,7 @@ productManager.post("/threads/:id/messages", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  if (await begin(res, id, (signal) => chat(setup, id, message, signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
 });
 
 // Stops the run going on the chat. It shows as stopped straight away, while the run
@@ -156,7 +168,7 @@ productManager.post("/threads/:id/steer", async (req, res) => {
   // is still unwinding. Unlike /messages, which answers 409 while the agent works (which
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
 });
 
 // Approves or rejects the actions a thread is paused on, one decision per action.

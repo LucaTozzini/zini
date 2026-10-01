@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Alert, Button, Stack, TextField } from "@mui/material";
-import { errorMessage, useCommitAndPush, useWorkspace, useWriteCommitMessage } from "../../api.ts";
+import { errorMessage } from "../../api/client.ts";
+import { useCommitAndPush, useWorkspace } from "../../api/workspaces.ts";
+import { useWriteCommitMessage } from "../../api/coordinator.ts";
 import { CardFrame } from "./Cards.tsx";
 
 // Commits the workspace's changes and pushes its branch. The committer writes the
