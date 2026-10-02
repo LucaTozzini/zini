@@ -46,7 +46,7 @@ export function MessageBubble({
         sx={{
           px: 2,
           py: 1,
-          maxWidth: isUser ? "85%" : undefined,
+          maxWidth: isUser ? "85%" : "97%",
           // User messages are plain text, so keep their line breaks. Replies are
           // markdown, which handles its own.
           whiteSpace: isUser ? "pre-wrap" : undefined,
