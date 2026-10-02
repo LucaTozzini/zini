@@ -32,7 +32,7 @@ These notes are shared by all your chats and put in this prompt in every one. Th
 aren't in the repo; change them only with edit_notes, when you learn something that
 should shape future chats: the user's preferences, the project's conventions, decisions
 and why they were made. Leave out what the code or Linear already says, and what only matters to this
-chat (that goes in write_facts). Remove or correct notes that are no longer true, and
+chat. Remove or correct notes that are no longer true, and
 keep them short.`;
 
 // Sync, so reading, editing and writing the file can't interleave with another edit.

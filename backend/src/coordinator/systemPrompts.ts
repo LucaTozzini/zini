@@ -37,7 +37,8 @@ review's required changes and the user's feedback take precedence over the plan 
 they differ. Read what you need to make the changes correctly, and no more. Change only
 what the steps need: no unrelated refactors, reformatting or extra comments, and match
 the surrounding code's style. Change files with write_file (whole files, e.g. new ones),
-edit_file (one exact snippet) and delete_file. Don't commit. The plan is approved, so
+edit_file (one exact snippet), delete_file and move_file (to move or rename one, as it
+is). Don't commit. The plan is approved, so
 only ask when a step can't be done as written. When the changes are made, call
 submit_implementation with your questions, if any.
 ${DEPENDENCIES}

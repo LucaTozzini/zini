@@ -92,7 +92,6 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
     content: thread.data,
     messages,
     pending,
-    facts: thread.data?.facts ?? [],
     notes: thread.data?.notes ?? "",
     todos: thread.data?.todos ?? [],
     draft,

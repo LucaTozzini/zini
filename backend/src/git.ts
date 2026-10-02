@@ -258,13 +258,21 @@ export function numberedLines(path: string, content: string, startLine = 1, endL
   return out.join("\n");
 }
 
-// Lines on the default branch containing query (plain text, any case), as
-// "path:line:text", up to MAX_MATCHES.
-export async function searchRepoCode(query: string) {
+// Lockfiles, left out of searches: they name every package, so common words match
+// hundreds of their lines, crowding out the code.
+const LOCKFILES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock"];
+
+// Lines on the default branch matching query (any case), as "path:line:text", up to
+// MAX_MATCHES. query is plain text, or with regex an extended regex (e.g. "a|b").
+// Lockfiles aren't searched.
+export async function searchRepoCode(query: string, regex = false) {
+  const exclude = LOCKFILES.map((name) => `:(exclude,glob)**/${name}`);
   // git grep exits with 1 when nothing matches. Its lines start with "origin/HEAD:".
-  const out = await git(["-C", REPO_DIR, "grep", "-n", "-I", "-i", "-F", "-e", query, REF], undefined, {
-    exit1Ok: true,
-  });
+  const out = await git(
+    ["-C", REPO_DIR, "grep", "-n", "-I", "-i", regex ? "-E" : "-F", "-e", query, REF, "--", ".", ...exclude],
+    undefined,
+    { exit1Ok: true },
+  );
   return formatMatches(out.split("\n").map((line) => line.slice(REF.length + 1)));
 }
 

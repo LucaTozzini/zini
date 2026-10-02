@@ -18,7 +18,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import TextSnippetIcon from "@mui/icons-material/TextSnippet";
 import FormatListNumberedRtlIcon from "@mui/icons-material/FormatListNumberedRtl";
 import CloseIcon from "@mui/icons-material/Close";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
@@ -91,14 +90,13 @@ const MyDialog = ({
 type ChatHeaderProps = {
   src: string;
   label: string;
-  // The agent's key facts, to-do list and project notes (markdown), for the dialogs.
-  facts: string[];
+  // The agent's to-do list and project notes (markdown), for the dialogs.
   todos: Todo[];
   notes: string;
   showChatlistButton: boolean;
   onChatlistButtonClick: () => void;
 };
-const ChatHeader = ({ src, label, facts, todos, notes, showChatlistButton, onChatlistButtonClick }: ChatHeaderProps) => {
+const ChatHeader = ({ src, label, todos, notes, showChatlistButton, onChatlistButtonClick }: ChatHeaderProps) => {
   const [showModal, setShowModal] = useState(0);
   const openTodos = todos.filter((todo) => todo.status !== "completed").length;
 
@@ -142,12 +140,6 @@ const ChatHeader = ({ src, label, facts, todos, notes, showChatlistButton, onCha
           <MyAvatar src={src} label={label} />
 
           <ButtonGroup>
-            <Tooltip title="Facts">
-              <IconButton onClick={() => setShowModal(1)}>
-                <TextSnippetIcon />
-              </IconButton>
-            </Tooltip>
-
             <Tooltip title="To-Do">
               <IconButton onClick={() => setShowModal(2)}>
                 {/* Hidden when there are none. */}
@@ -167,21 +159,6 @@ const ChatHeader = ({ src, label, facts, todos, notes, showChatlistButton, onCha
         <Box sx={{ flex: 1 }}></Box>
       </Box>
 
-      <MyDialog
-        open={showModal === 1}
-        title="Facts"
-        setShowModal={setShowModal}
-      >
-        {facts.length > 0 && (
-          <List>
-            {facts.map((fact, i) => (
-              <ListItem key={i}>
-                <ListItemText primary={fact} />
-              </ListItem>
-            ))}
-          </List>
-        )}
-      </MyDialog>
       <MyDialog
         open={showModal === 2}
         title="To-Do"

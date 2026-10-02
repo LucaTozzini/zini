@@ -102,16 +102,14 @@ export type ThreadSummary = { id: string; title: string; createdAt: string; runn
 export type Todo = { content: string; status: "pending" | "in_progress" | "completed" };
 
 // A chat reopened with GET /api/product-manager/threads/:id. pending is non-empty
-// when the agent is paused on actions to approve. facts are the key facts the agent
-// recorded, kept through compaction. notes are the agent's project notes (markdown),
-// shared by every chat. error is why the last run failed, until the next one starts;
+// when the agent is paused on actions to approve. notes are the agent's project notes
+// (markdown), shared by every chat. error is why the last run failed, until the next one starts;
 // it's lost if the server restarts.
 export type Thread = {
   id: string;
   title: string;
   messages: ChatMessage[];
   pending: PendingAction[];
-  facts: string[];
   notes: string;
   todos: Todo[];
   running: boolean;
