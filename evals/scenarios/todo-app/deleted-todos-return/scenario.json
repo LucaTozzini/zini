@@ -1,0 +1,5 @@
+{
+  "title": "Deleted to-dos come back after the server restarts",
+  "description": "If I delete a to-do and then restart the server, the to-do is back. Adding and ticking to-dos survive a restart fine, so deleting should too.",
+  "patch": "bug.patch"
+}

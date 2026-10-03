@@ -1,0 +1,7 @@
+# What the eval image leaves out of the repo (Docker reads <Dockerfile>.dockerignore).
+**/node_modules
+**/dist
+.git
+backend/data
+evals/results
+evals/repos/*/data

@@ -1,0 +1,3 @@
+# The test repos and scenario patches are copied into a Linux container as they are, and
+# patches only apply with the line endings they were made with: keep them LF everywhere.
+* text=auto eol=lf

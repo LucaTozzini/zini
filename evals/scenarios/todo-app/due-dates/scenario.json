@@ -1,0 +1,4 @@
+{
+  "title": "Add due dates to to-dos",
+  "description": "To-dos can have an optional due date.\n\n## API\n\n- `POST /api/todos` and `PATCH /api/todos/:id` accept `dueDate` as a `YYYY-MM-DD` string. Anything else is a 400 with an `error` message. On `PATCH`, `dueDate: null` removes it.\n- To-dos are returned with their `dueDate` (`null` when there isn't one).\n\n## App\n\n- The form has an optional date field next to the title.\n- Each to-do shows its due date. Ones that are overdue (before today, and not done) are highlighted."
+}

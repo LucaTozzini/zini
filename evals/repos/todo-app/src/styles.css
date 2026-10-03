@@ -1,0 +1,44 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  background: #f6f6f4;
+  color: #222;
+}
+main {
+  max-width: 32rem;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+.todo-form {
+  display: flex;
+  gap: 0.5rem;
+}
+.todo-form input {
+  flex: 1;
+  padding: 0.5rem;
+}
+.filter-bar {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+}
+.filter-bar button[aria-pressed="true"] {
+  font-weight: 600;
+}
+.todo-list {
+  list-style: none;
+  padding: 0;
+}
+.todo-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+.todo-list li.done label {
+  text-decoration: line-through;
+  color: #888;
+}
+.empty {
+  color: #888;
+}

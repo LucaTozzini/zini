@@ -3,6 +3,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import HomeIcon from "@mui/icons-material/Home";
 import SearchIcon from "@mui/icons-material/Search";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import ScienceIcon from "@mui/icons-material/Science";
 import { Link } from "react-router";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useState } from "react";
@@ -26,6 +27,11 @@ const mainItems = (tooltipPlacement: "right" | "top") => [
   >
     <IconButton component={Link} to="/product-manager">
       <PsychologyIcon />
+    </IconButton>
+  </Tooltip>,
+  <Tooltip key="evals" title="evals" placement={tooltipPlacement}>
+    <IconButton component={Link} to="/evals">
+      <ScienceIcon />
     </IconButton>
   </Tooltip>,
 ];

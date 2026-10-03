@@ -7,6 +7,7 @@ import { failInterruptedSetups } from "./workspaceSetup.js";
 import { coordinator } from "./routes/coordinator.js";
 import { integrations } from "./routes/integrations.js";
 import { productManager } from "./routes/productManager.js";
+import { evals } from "./routes/evals.js";
 import { profileRouter } from "./routes/profile.js";
 import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
@@ -49,6 +50,7 @@ app.use("/api/product-manager", productManager);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);
 app.use("/api/profile", profileRouter);
+app.use("/api/evals", evals);
 
 // The built webapp (npm run build), so one server runs the whole app. Any other GET
 // gets its index.html, so the webapp's own routes work on reload. In development the
