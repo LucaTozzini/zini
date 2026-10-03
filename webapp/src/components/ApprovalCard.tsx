@@ -5,11 +5,12 @@ import MarkdownText from "./MarkdownText.tsx";
 
 // One reply_to_pipeline call: what will be sent to the issue's coordinator.
 function PipelineReplyDetails({ action }: { action: PendingAction }) {
-  const { issueId, answers, approve, feedback } = action.args as {
+  const { issueId, answers, approve, feedback, decisions } = action.args as {
     issueId: string;
     answers?: string[];
     approve?: boolean;
     feedback?: string;
+    decisions?: Decision[];
   };
   return (
     <Stack spacing={0.5}>
@@ -21,6 +22,23 @@ function PipelineReplyDetails({ action }: { action: PendingAction }) {
             <li key={i}>
               {action.questions?.[i] && <MarkdownText>{action.questions[i]}</MarkdownText>}
               <MarkdownText color="text.secondary">{answer}</MarkdownText>
+            </li>
+          ))}
+        </Stack>
+      )}
+      {decisions && (
+        // Each decision under the QA's command it's for (when known), matched by position.
+        <Stack component="ol" sx={{ m: 0, pl: 3 }}>
+          {decisions.map((decision, i) => (
+            <li key={i}>
+              {action.questions?.[i] && (
+                <Typography sx={{ fontFamily: "monospace" }}>{action.questions[i]}</Typography>
+              )}
+              <Typography color="text.secondary">
+                {decision.type === "approve"
+                  ? "Run it"
+                  : `Don't run it${decision.message ? `: ${decision.message}` : ""}`}
+              </Typography>
             </li>
           ))}
         </Stack>

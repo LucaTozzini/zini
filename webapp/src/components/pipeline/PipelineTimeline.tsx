@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { Stack } from "@mui/material";
-import type { AgentRole, PipelineState, WorkspaceDiff } from "shared";
-import { FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
+import type { AgentRole, Decision, PipelineState, WorkspaceDiff } from "shared";
+import { CommandsCard, FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
 import DiffView from "./DiffView.tsx";
-import { ClarificationList, PlanView, ReviewView } from "./Documents.tsx";
+import { ClarificationList, PlanView, QaView, ReviewView } from "./Documents.tsx";
 import StageSection, { type StageStatus } from "./StageSection.tsx";
 
 export type PipelineActions = {
@@ -12,6 +12,8 @@ export type PipelineActions = {
   onApprovePlan: () => void;
   onPlanFeedback: (feedback: string) => void;
   onImplementationFeedback: (feedback: string) => void;
+  // The same decision for every command the QA is waiting to run.
+  onCommandsDecision: (decision: Decision) => void;
   // A reply is being sent: its card shows it's loading.
   sending: boolean;
 };
@@ -20,24 +22,29 @@ function stageStatus(pipeline: PipelineState, role: AgentRole, hasDocument: bool
   if (pipeline.running === role) return "working";
   if (pipeline.waiting?.kind === "questions" && pipeline.waiting.from === role) return "needs_you";
   if (role === "planner" && pipeline.waiting?.kind === "approve_plan") return "needs_you";
+  if (role === "qa" && pipeline.waiting?.kind === "approve_commands") return "needs_you";
   if (role === "planner" && pipeline.planApproved) return "approved";
   if (role === "reviewer" && pipeline.review?.requiredChanges.length) return "changes_requested";
+  if (role === "qa" && pipeline.qa?.verdict === "fail") return "failed";
   return hasDocument ? "done" : "waiting";
 }
 
 // The pipeline as a timeline: a section per subagent with its latest document, and
 // below the current one the card that's waiting on you. diff is the workspace's changes
-// so far (the coder's work, over all its rounds). ship is shown once it's finished,
-// for committing and pushing the changes and opening a pull request.
+// so far (the coder's work, over all its rounds). browser is the QA's browser, live,
+// while it's open. ship is shown once it's finished, for committing and pushing the
+// changes and opening a pull request.
 function PipelineTimeline({
   pipeline,
   diff,
   actions,
+  browser,
   ship,
 }: {
   pipeline: PipelineState;
   diff: WorkspaceDiff | undefined;
   actions: PipelineActions;
+  browser?: ReactNode;
   ship?: ReactNode;
 }) {
   const { waiting, clarifications } = pipeline;
@@ -64,6 +71,7 @@ function PipelineTimeline({
   const planner = stageStatus(pipeline, "planner", Boolean(pipeline.plan));
   const coder = stageStatus(pipeline, "coder", Boolean(pipeline.implementation));
   const reviewer = stageStatus(pipeline, "reviewer", Boolean(pipeline.review));
+  const qa = stageStatus(pipeline, "qa", Boolean(pipeline.qa));
   // The stage that's working or waiting on you starts open; the others start closed.
   // Once the pipeline is done, the coder (its changes) and Finished are open.
   const isActive = (status: StageStatus) =>
@@ -125,13 +133,35 @@ function PipelineTimeline({
         </StageSection>
       )}
 
+      {(pipeline.qa || qa === "working" || qa === "needs_you") && (
+        <StageSection key={`qa-${isActive(qa)}`} title="QA" status={qa} active={isActive(qa)}>
+          {content(
+            "qa",
+            <>
+              {/* Its latest report, while it tests again too. */}
+              {pipeline.qa && <QaView qa={pipeline.qa} />}
+              {browser}
+              {waiting?.kind === "approve_commands" && (
+                <CommandsCard
+                  // New commands start with an empty note.
+                  key={waiting.commands.map((c) => c.command).join("\n")}
+                  commands={waiting.commands}
+                  onDecide={actions.onCommandsDecision}
+                  loading={actions.sending}
+                />
+              )}
+            </>,
+          )}
+        </StageSection>
+      )}
+
       {pipeline.finished && (
         <StageSection title="Finished" status="done" active>
           {ship}
           {waiting?.kind === "feedback" && (
             <FeedbackCard
               title="Anything to change?"
-              placeholder="Describe what to change, and the coder will make it (the reviewer checks it too)"
+              placeholder="Describe what to change, and the coder will make it (the reviewer and QA check it too)"
               feedbackLabel="Send to coder"
               onFeedback={actions.onImplementationFeedback}
               loading={actions.sending}

@@ -83,13 +83,15 @@ Help the user think through ideas, bugs and features, and turn them into clear L
 - The repo's files don't include its dependencies. The npm_ tools read packages
   directly, for quick look-ups: use the version in the repo's package.json or lockfile.
 - When the user asks you to build an issue, use start_coordinator: it sets up the
-  issue's workspace and starts the coordinator pipeline (planner, coder, reviewer). Use
-  coordinator_status to report its progress; never call start_coordinator just to check.
-  Use git_diff to see the code changes in the issue's workspace. When the user asks you to
-  commit them, use commit_and_push, with a message you write from the diff (and the plan).
-  Use reply_to_pipeline to answer the pipeline's questions, approve its plan or send it
-  feedback, from this chat. Only send what the user said: never answer the pipeline's
-  questions or approve its plan yourself. The user approves every reply before it's sent.`;
+  issue's workspace and starts the coordinator pipeline (planner, coder, reviewer, then a
+  QA that runs the software to test the changes). Use coordinator_status to report its
+  progress; never call start_coordinator just to check. Use git_diff to see the code
+  changes in the issue's workspace. When the user asks you to commit them, use
+  commit_and_push, with a message you write from the diff (and the plan). Use
+  reply_to_pipeline to answer the pipeline's questions, approve its plan, approve or
+  reject the commands the QA wants to run, or send it feedback, from this chat. Only send
+  what the user said: never answer the pipeline's questions, approve its plan or its
+  commands yourself. The user approves every reply before it's sent.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -211,9 +213,10 @@ function coordinatorTools(linear: LinearClient) {
         description:
           "Where an issue's workspace setup and coordinator pipeline are at: running is the " +
           "subagent working now, waiting what the pipeline needs from the user (questions to " +
-          "answer, a plan to approve, or feedback once finished). Also the subagents' " +
-          "documents so far: the plan, the review's required changes, and every question " +
-          "asked with its answer (clarifications). Not the code changes.",
+          "answer, a plan to approve, the QA's commands to approve, or feedback once " +
+          "finished). Also the subagents' documents so far: the plan, the review's required " +
+          "changes, the QA's report, and every question asked with its answer " +
+          "(clarifications). Not the code changes.",
         schema: z.object({ issueId: ISSUE_ID }),
       },
     ),
@@ -261,7 +264,7 @@ function coordinatorTools(linear: LinearClient) {
         if (Object.values(input).filter((value) => value !== undefined).length !== 1) {
           return JSON.stringify({
             status: "error",
-            error: "Pass exactly one of answers, approve or feedback",
+            error: "Pass exactly one of answers, approve, feedback or decisions",
           });
         }
         const id = await toIssueId(linear, issueId);
@@ -291,14 +294,22 @@ function coordinatorTools(linear: LinearClient) {
         name: "reply_to_pipeline",
         description:
           "Reply to what an issue's coordinator pipeline is waiting on, with exactly one of: " +
-          "answers (one per question, in order), approve: true (approve the plan), or " +
-          "feedback (on the plan, or on the changes once finished). The user approves the " +
-          "call before it runs.",
+          "answers (one per question, in order), approve: true (approve the plan), " +
+          "feedback (on the plan, or on the changes once finished), or decisions (one per " +
+          "command the QA wants to run, in order). The user approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
           answers: z.array(z.string()).optional(),
           approve: z.boolean().optional(),
           feedback: z.string().optional(),
+          decisions: z
+            .array(
+              z.object({
+                type: z.enum(["approve", "reject"]),
+                message: z.string().optional().describe("Why it's rejected, for the QA"),
+              }),
+            )
+            .optional(),
         }),
       },
     ),
@@ -479,12 +490,13 @@ async function toPending(
   );
 }
 
-// The questions the issue's pipeline is waiting on, for showing a reply's answers next
-// to them. undefined if it isn't waiting on questions, or the issue can't be found:
-// the reply is still shown, just without them.
+// The questions the issue's pipeline is waiting on, or the QA's commands, for showing a
+// reply's answers or decisions next to them. undefined if it isn't waiting on either, or
+// the issue can't be found: the reply is still shown, just without them.
 async function pipelineQuestions(linear: LinearClient, issueId: string) {
   try {
     const { waiting } = await getPipeline(await toIssueId(linear, issueId));
+    if (waiting?.kind === "approve_commands") return waiting.commands.map((c) => c.command);
     return waiting?.kind === "questions" ? waiting.questions : undefined;
   } catch (err) {
     console.error(`Reading the pipeline's questions for ${issueId} failed:`, err);

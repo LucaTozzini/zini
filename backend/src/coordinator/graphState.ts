@@ -3,6 +3,7 @@ import type {
   Clarification,
   ImplementationDocument,
   PlanDocument,
+  QaDocument,
   ReviewDocument,
 } from "shared";
 
@@ -21,6 +22,9 @@ export const PipelineGraphState = Annotation.Root({
   planApproved: latest(false),
   implementation: latest<ImplementationDocument | null>(null),
   review: latest<ReviewDocument | null>(null),
+  // The QA's latest report. Not "qa": that's its node's name, and a graph can't use one
+  // name for both.
+  qaReport: latest<QaDocument | null>(null),
   // Every question a subagent asked and your answer; given to every subagent.
   clarifications: appended<Clarification>(),
   // Your notes on the plan (for the planner), and on the finished changes (for the

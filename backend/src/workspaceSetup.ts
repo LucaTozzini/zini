@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, open, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -7,6 +7,7 @@ import { storage } from "./db.js";
 import { sendEvent } from "./events.js";
 import { workspacePath } from "./git.js";
 import { Workspace } from "./models/Workspace.js";
+import { killTree, spawnShell } from "./processes.js";
 import { getSetting } from "./settings.js";
 
 // Each new workspace runs the workspaceSetupCommand setting (e.g. "npm ci") so it's
@@ -30,16 +31,6 @@ async function setStatus(issueId: string, setupStatus: SetupStatus, setupError: 
   sendEvent({ type: "workspace.updated", issueId });
 }
 
-// Stops the shell and everything it started (e.g. npm and its children).
-function killTree(child: ChildProcess) {
-  if (!child.pid) return;
-  if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
-  } else {
-    process.kill(-child.pid, "SIGKILL");
-  }
-}
-
 // Runs the setup command in the issue's workspace. Resolves once it has started (or
 // straight away as ready, with no command set); the outcome is saved on the row.
 export async function startSetup(issueId: string) {
@@ -55,13 +46,7 @@ export async function startSetup(issueId: string) {
   log.write(`$ ${command}\n`);
   await setStatus(issueId, "running", null);
 
-  const child = spawn(command, {
-    cwd: workspacePath(issueId),
-    shell: true,
-    windowsHide: true,
-    // Its own process group on macOS/Linux, so a timeout can stop all of it.
-    detached: process.platform !== "win32",
-  });
+  const child = spawnShell(command, workspacePath(issueId));
   running.set(issueId, child);
   child.stdout?.pipe(log, { end: false });
   child.stderr?.pipe(log, { end: false });

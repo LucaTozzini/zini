@@ -1,5 +1,5 @@
 import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
-import type { Clarification, PlanDocument, ReviewDocument } from "shared";
+import type { Clarification, PlanDocument, QaDocument, ReviewDocument } from "shared";
 
 // How the subagents' documents are shown in the timeline. blockingQuestions aren't
 // shown here: they're asked in a QuestionsCard below the document. The coder's
@@ -52,6 +52,43 @@ export function ReviewView({ review }: { review: ReviewDocument }) {
     <Alert severity="success" variant="outlined">
       No changes required.
     </Alert>
+  );
+}
+
+// The QA's report: the verdict with what's broken, then what it checked and what it
+// couldn't.
+export function QaView({ qa }: { qa: QaDocument }) {
+  return (
+    <Stack spacing={1.5}>
+      {qa.verdict === "fail" ? (
+        <Alert severity="error" variant="outlined">
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Failures
+          </Typography>
+          <Items items={qa.failures} />
+        </Alert>
+      ) : (
+        <Alert severity="success" variant="outlined">
+          Passed.
+        </Alert>
+      )}
+      {qa.couldNotTest.length > 0 && (
+        <Alert severity="warning" variant="outlined">
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Couldn't test
+          </Typography>
+          <Items items={qa.couldNotTest} />
+        </Alert>
+      )}
+      {qa.checks.length > 0 && (
+        <>
+          <Typography variant="overline" color="text.secondary">
+            Checks
+          </Typography>
+          <Items items={qa.checks} />
+        </>
+      )}
+    </Stack>
   );
 }
 

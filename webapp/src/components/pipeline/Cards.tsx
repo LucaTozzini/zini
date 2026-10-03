@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Box, Button, Paper, Stack, TextField, Typography } from "@mui/material";
+import type { Decision, PendingCommand } from "shared";
 
 // The cards the pipeline shows when it's waiting on you.
 
@@ -25,7 +26,8 @@ export function StartCard({ onStart, loading }: { onStart: (note: string) => voi
     <Stack component="form" spacing={1.5} onSubmit={handleSubmit}>
       <Typography variant="body2" color="text.secondary">
         The planner plans the issue in this workspace. You answer its questions and approve the
-        plan, then the coder implements it and the reviewer checks it.
+        plan, then the coder implements it, the reviewer checks it, and the QA runs it to test
+        the changes (you approve each command it runs).
       </Typography>
       <TextField
         size="small"
@@ -84,6 +86,54 @@ export function QuestionsCard({
         <Stack direction="row">
           <Button type="submit" variant="contained" disabled={!complete} loading={loading}>
             Submit answers
+          </Button>
+        </Stack>
+      </Stack>
+    </CardFrame>
+  );
+}
+
+// The commands the QA wants to run on this machine. Approve or reject applies to all of
+// them; a reject's note tells the QA why (e.g. what to run instead).
+export function CommandsCard({
+  commands,
+  onDecide,
+  loading,
+}: {
+  commands: PendingCommand[];
+  onDecide: (decision: Decision) => void;
+  loading?: boolean;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <CardFrame title={commands.length === 1 ? "Run this command?" : "Run these commands?"}>
+      <Stack spacing={2}>
+        {commands.map((command, i) => (
+          <Box key={i}>
+            <Typography variant="caption" color="text.secondary">
+              {command.tool === "start_process" ? "Start, and leave running" : "Run"}
+            </Typography>
+            <Typography component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+              {command.command}
+            </Typography>
+          </Box>
+        ))}
+        <TextField
+          size="small"
+          placeholder="Optional note if rejecting, e.g. use npm test -- --run instead"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <Stack direction="row" spacing={1}>
+          <Button variant="contained" loading={loading} onClick={() => onDecide({ type: "approve" })}>
+            Approve
+          </Button>
+          <Button
+            color="error"
+            disabled={loading}
+            onClick={() => onDecide({ type: "reject", message: note.trim() || undefined })}
+          >
+            Reject
           </Button>
         </Stack>
       </Stack>

@@ -148,10 +148,11 @@ export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | Coor
 
 // The coordinator's pipeline for an issue: the planner plans (you answer its questions
 // and approve the plan), then the coder and reviewer loop until the review requires no
-// changes. Each subagent returns a document with only what it needs to say. Every one
+// changes, and the QA runs the software to test them (a failure sends the coder back to
+// work). Each subagent returns a document with only what it needs to say. Every one
 // has blockingQuestions: what it couldn't decide without you (empty if nothing), which
 // pauses the pipeline to ask you.
-export type AgentRole = "planner" | "coder" | "reviewer";
+export type AgentRole = "planner" | "coder" | "reviewer" | "qa";
 
 // summary: the approach, in a few sentences. steps: plain instructions, each naming
 // the files it touches.
@@ -165,6 +166,17 @@ export type ImplementationDocument = { blockingQuestions: string[] };
 // means approved.
 export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: string[] };
 
+// The QA's report. checks: what it ran or tried, each with its result. failures: what
+// doesn't work, each with how to reproduce it and the evidence (fail means there's at
+// least one). couldNotTest: what it couldn't check, and why (e.g. a missing .env).
+export type QaDocument = {
+  verdict: "pass" | "fail";
+  checks: string[];
+  failures: string[];
+  couldNotTest: string[];
+  blockingQuestions: string[];
+};
+
 // A question a subagent asked, and your answer. Kept for the whole pipeline and given
 // to every subagent.
 export type Clarification = { from: AgentRole; question: string; answer: string };
@@ -173,17 +185,27 @@ export type Clarification = { from: AgentRole; question: string; answer: string 
 // GET /api/workspaces/:issueId/diff: a unified diff, new files included.
 export type WorkspaceDiff = { diff: string; truncated: boolean };
 
+// A command the QA wants to run on this machine (run_command or start_process), which
+// you approve or reject first.
+export type PendingCommand = { tool: string; command: string };
+
 // What the pipeline is paused on, waiting for you: a subagent's questions, approving the
-// plan, or (once finished) feedback on the changes.
+// plan, approving the QA's commands, or (once finished) feedback on the changes.
 export type PipelineWaiting =
   | { kind: "questions"; from: AgentRole; questions: string[] }
   | { kind: "approve_plan" }
+  | { kind: "approve_commands"; commands: PendingCommand[] }
   | { kind: "feedback" };
 
 // Your reply to what the pipeline is waiting on, as POSTed to
 // /api/coordinator/:issueId/resume: answers to the questions (in order), approving the
-// plan, or feedback (on the plan, or on the finished changes).
-export type PipelineResume = { answers: string[] } | { approve: true } | { feedback: string };
+// plan, feedback (on the plan, or on the finished changes), or a decision on each of
+// the QA's commands (in order; a reject's message goes to the QA).
+export type PipelineResume =
+  | { answers: string[] }
+  | { approve: true }
+  | { feedback: string }
+  | { decisions: Decision[] };
 
 // An issue's pipeline, as returned by GET /api/coordinator/:issueId. One per issue.
 export type PipelineState = {
@@ -195,8 +217,12 @@ export type PipelineState = {
   planApproved: boolean;
   implementation: ImplementationDocument | null;
   review: ReviewDocument | null;
+  qa: QaDocument | null;
   clarifications: Clarification[];
-  // The review required no changes; the pipeline waits for your feedback, if any.
+  // The page the QA's browser is on, while it's open: it can be watched live, at
+  // GET /api/coordinator/:issueId/browser.
+  browserUrl: string | null;
+  // The QA passed the changes; the pipeline waits for your feedback, if any.
   finished: boolean;
   // Why the last run failed, until the next one starts; lost if the server restarts.
   error: string | null;

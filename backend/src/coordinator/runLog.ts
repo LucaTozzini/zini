@@ -18,7 +18,7 @@ const LOG_DIR = resolve(dirname(storage), "coordinator-logs");
 
 // A run id, split into the time it started (its ISO string, with : and . as -) and
 // its role. Checked before an id is used in a file path.
-const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|committer|pr_writer)$/;
+const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|qa|committer|pr_writer)$/;
 
 const runLogPath = (issueId: string, runId: string) => join(LOG_DIR, issueId, `${runId}.jsonl`);
 

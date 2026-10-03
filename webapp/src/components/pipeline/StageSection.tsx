@@ -10,9 +10,13 @@ export type StageStatus =
   | "needs_you"
   | "done"
   | "approved"
-  | "changes_requested";
+  | "changes_requested"
+  | "failed";
 
-const STATUS: Record<StageStatus, { label: string; color: "default" | "info" | "warning" | "success" }> = {
+const STATUS: Record<
+  StageStatus,
+  { label: string; color: "default" | "info" | "warning" | "success" | "error" }
+> = {
   waiting: { label: "Waiting", color: "default" },
   working: { label: "Working…", color: "info" },
   needs_you: { label: "Needs you", color: "warning" },
@@ -20,9 +24,11 @@ const STATUS: Record<StageStatus, { label: string; color: "default" | "info" | "
   approved: { label: "Approved", color: "success" },
   // The reviewer, while the coder fixes what it found.
   changes_requested: { label: "Changes requested", color: "warning" },
+  // The QA, while the coder fixes what it found broken.
+  failed: { label: "Failed", color: "error" },
 };
 
-// One stage of the timeline (planner, coder, reviewer, finished): its title and
+// One stage of the timeline (planner, coder, reviewer, QA, finished): its title and
 // status, then its document and any card waiting on you. Only the active stage starts
 // open; clicking the header opens or closes any of them. Give it a key that changes
 // with active, so a stage opens or closes by itself when the pipeline moves on.

@@ -6,7 +6,7 @@ import { fetchLinearIssue } from "./linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "./models/Workspace.js";
 import { deleteSetupLog, isSettingUp, startSetup } from "./workspaceSetup.js";
-import { coordinatorThreadId, deleteConversation } from "./coordinator.js";
+import { coordinatorThreadId, deleteConversation, stopQa } from "./coordinator.js";
 import { deleteRunLogs } from "./coordinator/runLog.js";
 import { forgetRun, isRunning } from "./runs.js";
 
@@ -84,9 +84,12 @@ export async function rerunSetup(issueId: string) {
 // Removes the issue's worktree and local branch, its setup log, its coordinator
 // conversation (which was about this workspace), then its row. false if it had none.
 // Not while setup or the coordinator is running (see isSettingUp, isCoordinatorRunning).
+// What the QA left running while it waits on you is stopped first: its files would
+// otherwise be in use.
 export async function deleteWorkspace(issueId: string) {
   const row = await Workspace.findByPk(issueId);
   if (!row) return false;
+  await stopQa(issueId);
   await removeWorktree(issueId);
   await deleteSetupLog(issueId);
   await deleteConversation(issueId);

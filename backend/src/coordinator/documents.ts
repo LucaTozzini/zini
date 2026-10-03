@@ -46,3 +46,29 @@ export const REVIEW_SCHEMA = z
     description:
       "Hand in your review. Call it once, when you're done checking the changes: it ends your turn.",
   });
+
+export const QA_SCHEMA = z
+  .object({
+    verdict: z
+      .enum(["pass", "fail"])
+      .describe("fail if anything in failures; pass otherwise"),
+    checks: z
+      .array(z.string())
+      .describe("What you ran or tried, each with its result"),
+    failures: z
+      .array(z.string())
+      .describe(
+        "What doesn't work because of the changes, each with how to reproduce it and the evidence (e.g. the error); empty if none",
+      ),
+    couldNotTest: z
+      .array(z.string())
+      .describe(
+        "What you couldn't check, and why (e.g. a missing .env, a command the user rejected); empty if none",
+      ),
+    blockingQuestions: questions,
+  })
+  .meta({
+    title: "submit_qa_report",
+    description:
+      "Hand in your QA report. Call it once, when you're done testing: it ends your turn.",
+  });
