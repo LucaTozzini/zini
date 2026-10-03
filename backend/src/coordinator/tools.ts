@@ -4,6 +4,7 @@ import {
   deleteWorkspaceFile,
   editWorkspaceFile,
   listWorkspaceFiles,
+  moveWorkspaceFile,
   readWorkspaceFile,
   searchWorkspace,
   workspaceChanges,
@@ -162,6 +163,19 @@ export function writeTools(issueId: string, notify: () => void) {
         name: "delete_file",
         description: "Delete a file.",
         schema: z.object({ path: z.string() }),
+      },
+    ),
+    tool(
+      changing(({ from, to }: { from: string; to: string }) =>
+        moveWorkspaceFile(issueId, from, to),
+      ),
+      {
+        name: "move_file",
+        description:
+          "Move or rename a file, as it is, creating the folders it goes in. Fails if " +
+          "to already exists. Update what refers to the old path (e.g. imports) " +
+          "yourself: search_code finds it.",
+        schema: z.object({ from: z.string(), to: z.string() }),
       },
     ),
   ];

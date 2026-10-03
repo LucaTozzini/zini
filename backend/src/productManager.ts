@@ -44,8 +44,8 @@ import {
   resumePipeline,
   startPipeline,
 } from "./coordinator.js";
-import { factsMiddleware } from "./facts.js";
-import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
+import { codeTools, fetchRepoMiddleware } from "./codeTools.js";
+import { exploreCode } from "./codeExplorer.js";
 import { notesMiddleware, readNotes } from "./notes.js";
 import { Workspace } from "./models/Workspace.js";
 import { npmTools } from "./npmTools.js";
@@ -69,20 +69,29 @@ Help the user think through ideas, bugs and features, and turn them into clear L
 - Statuses and assignees are per team: use list_teams to see a team's status names and
   members. "Me" is the list_teams viewer.
 - After creating or updating an issue, share its identifier and link.
-- list_files, read_file and search_code read the repo's default branch, always up to date.
-  Check the code before saying what the product does or doesn't do, and before proposing
-  issues about it.
+- Check the code before saying what the product does or doesn't do, and before proposing
+  issues about it. It's the repo's default branch, always up to date.
+- For questions about the code or about npm packages, the repo's dependencies or others
+  (how something works, where it's handled, whether it exists, what a package offers), use
+  explore_code: a code explorer looks through the repo, and reads packages as published on
+  npm, and answers with path:line references, so the files it reads stay out of this
+  chat. It doesn't see this conversation and remembers nothing between questions, so make
+  each question complete on its own: name the feature, file, term or package@version you
+  mean. Ask several at once when they're independent. Use list_files, read_file and
+  search_code directly for quick look-ups, when you already know where to look.
 - Mention the relevant files in issue descriptions when it helps whoever picks it up.
-- The repo's files don't include its dependencies. To see what a package offers, read
-  it with the npm_ tools, at the version in the repo's package.json or lockfile.
+- The repo's files don't include its dependencies. The npm_ tools read packages
+  directly, for quick look-ups: use the version in the repo's package.json or lockfile.
 - When the user asks you to build an issue, use start_coordinator: it sets up the
-  issue's workspace and starts the coordinator pipeline (planner, coder, reviewer). Use
-  coordinator_status to report its progress; never call start_coordinator just to check.
-  Use git_diff to see the code changes in the issue's workspace. When the user asks you to
-  commit them, use commit_and_push, with a message you write from the diff (and the plan).
-  Use reply_to_pipeline to answer the pipeline's questions, approve its plan or send it
-  feedback, from this chat. Only send what the user said: never answer the pipeline's
-  questions or approve its plan yourself. The user approves every reply before it's sent.`;
+  issue's workspace and starts the coordinator pipeline (planner, coder, reviewer, then a
+  QA that runs the software to test the changes). Use coordinator_status to report its
+  progress; never call start_coordinator just to check. Use git_diff to see the code
+  changes in the issue's workspace. When the user asks you to commit them, use
+  commit_and_push, with a message you write from the diff (and the plan). Use
+  reply_to_pipeline to answer the pipeline's questions, approve its plan, approve or
+  reject the commands the QA wants to run, or send it feedback, from this chat. Only send
+  what the user said: never answer the pipeline's questions, approve its plan or its
+  commands yourself. The user approves every reply before it's sent.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -204,9 +213,10 @@ function coordinatorTools(linear: LinearClient) {
         description:
           "Where an issue's workspace setup and coordinator pipeline are at: running is the " +
           "subagent working now, waiting what the pipeline needs from the user (questions to " +
-          "answer, a plan to approve, or feedback once finished). Also the subagents' " +
-          "documents so far: the plan, the review's required changes, and every question " +
-          "asked with its answer (clarifications). Not the code changes.",
+          "answer, a plan to approve, the QA's commands to approve, or feedback once " +
+          "finished). Also the subagents' documents so far: the plan, the review's required " +
+          "changes, the QA's report, and every question asked with its answer " +
+          "(clarifications). Not the code changes.",
         schema: z.object({ issueId: ISSUE_ID }),
       },
     ),
@@ -254,7 +264,7 @@ function coordinatorTools(linear: LinearClient) {
         if (Object.values(input).filter((value) => value !== undefined).length !== 1) {
           return JSON.stringify({
             status: "error",
-            error: "Pass exactly one of answers, approve or feedback",
+            error: "Pass exactly one of answers, approve, feedback or decisions",
           });
         }
         const id = await toIssueId(linear, issueId);
@@ -284,72 +294,27 @@ function coordinatorTools(linear: LinearClient) {
         name: "reply_to_pipeline",
         description:
           "Reply to what an issue's coordinator pipeline is waiting on, with exactly one of: " +
-          "answers (one per question, in order), approve: true (approve the plan), or " +
-          "feedback (on the plan, or on the changes once finished). The user approves the " +
-          "call before it runs.",
+          "answers (one per question, in order), approve: true (approve the plan), " +
+          "feedback (on the plan, or on the changes once finished), or decisions (one per " +
+          "command the QA wants to run, in order). The user approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
           answers: z.array(z.string()).optional(),
           approve: z.boolean().optional(),
           feedback: z.string().optional(),
+          decisions: z
+            .array(
+              z.object({
+                type: z.enum(["approve", "reject"]),
+                message: z.string().optional().describe("Why it's rejected, for the QA"),
+              }),
+            )
+            .optional(),
         }),
       },
     ),
   ];
 }
-
-// Read-only tools over the repo's default branch. Fetching is left to fetchRepoMiddleware.
-const codeTools = [
-  tool(async ({ path }) => listRepoFiles(path ?? ""), {
-    name: "list_files",
-    description: "List a folder's files and subfolders (subfolders end in /). Omit path for the root.",
-    schema: z.object({ path: z.string().optional().describe('e.g. "src/components"') }),
-  }),
-  tool(async ({ path, startLine, endLine }) => readRepoFile(path, startLine, endLine), {
-    name: "read_file",
-    description:
-      "Read a file, with line numbers. Long files are cut off with a note saying which " +
-      "startLine to read on from; pass a line range to read just part of a file.",
-    schema: z.object({
-      path: z.string().describe('e.g. "src/App.tsx"'),
-      startLine: z.number().int().min(1).optional().describe("First line to read, from 1"),
-      endLine: z.number().int().min(1).optional().describe("Last line to read, inclusive"),
-    }),
-  }),
-  tool(async ({ query }) => searchRepoCode(query), {
-    name: "search_code",
-    description:
-      "Find lines containing some text (plain text, any case), as path:line:text. " +
-      "Up to 100 matches; use a more specific term if there are more.",
-    schema: z.object({ query: z.string().min(1) }),
-  }),
-];
-const CODE_TOOL_NAMES = new Set<string>(codeTools.map((t) => t.name));
-
-// Brings the clone up to date before each code tool runs; other tools pass straight
-// through. Parallel code tools share one fetch (see fetchRepo). If the fetch fails,
-// the tool doesn't run on stale code: the model gets the error as its result.
-const fetchRepoMiddleware = createMiddleware({
-  name: "FetchRepo",
-  wrapToolCall: async (request, handler) => {
-    if (!CODE_TOOL_NAMES.has(request.toolCall.name)) return handler(request);
-    try {
-      await fetchRepo();
-    } catch (err) {
-      console.error("Fetching the repo failed:", err);
-      // A failed git command's message ends with its "fatal: ..." line.
-      const reason = err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
-      return new ToolMessage({
-        tool_call_id: request.toolCall.id ?? "",
-        name: request.toolCall.name,
-        status: "error",
-        content: `Couldn't update the code from GitHub: ${reason}. Tell the user.`,
-      });
-    }
-    return handler(request);
-  },
-});
-
 
 // Tool calls that never got a result, because the run died while they ran (a crash, a
 // server restart), make the model API reject the whole conversation, leaving the chat
@@ -409,9 +374,33 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
     apiKey: openRouterKey,
     configuration: { baseURL: OPENROUTER_URL },
   });
+  // The run's signal reaches the tool, so stopping the chat stops the explorer too.
+  // The chat's id goes in the explorer's log.
+  const exploreCodeTool = tool(
+    async ({ question }, config) =>
+      exploreCode(chatModel, question, {
+        signal: config.signal,
+        caller: config.configurable?.thread_id,
+      }),
+    {
+      name: "explore_code",
+      description:
+        "Ask a code explorer a question about the repo's code or about any npm package (a " +
+        "dependency or one you're considering). It explores the repo's default branch and " +
+        "reads packages as published on npm, and answers with path:line references. It " +
+        "doesn't see this conversation, so make the question complete on its own.",
+      schema: z.object({ question: z.string().min(1) }),
+    },
+  );
   return createAgent({
     model: chatModel,
-    tools: [...buildTools(linear), ...coordinatorTools(linear), ...codeTools, ...npmTools],
+    tools: [
+      ...buildTools(linear),
+      ...coordinatorTools(linear),
+      ...codeTools,
+      exploreCodeTool,
+      ...npmTools,
+    ],
     systemPrompt: SYSTEM_PROMPT.replace("{repo}", repo),
     checkpointer,
     middleware: [
@@ -422,9 +411,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
       repairToolCalls,
       senderNames,
       todoListMiddleware(),
-      // Notes before facts in the prompt: they change less often.
       notesMiddleware,
-      factsMiddleware,
       humanInTheLoopMiddleware({
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
@@ -474,8 +461,8 @@ export function resume(setup: Setup, threadId: string, decisions: Decision[], si
 }
 
 // A saved thread's whole conversation, compacted messages included, the actions it's
-// paused on if any, the agent's key facts and to-do list, and its project notes (shared
-// by every chat). running: a run is going on it now.
+// paused on if any, the agent's to-do list, and its project notes (shared by every
+// chat). running: a run is going on it now.
 export async function loadThread(setup: Setup, threadId: string, running: boolean) {
   const agent = buildAgent(setup);
   const state = await agent.graph.getState(threadConfig(threadId));
@@ -484,7 +471,6 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
   return {
     messages: toChatMessages(messages, running || pending.length > 0),
     pending,
-    facts: (state.values.facts ?? []) as string[],
     notes: readNotes(),
     todos: (state.values.todos ?? []) as Todo[],
   };
@@ -504,12 +490,13 @@ async function toPending(
   );
 }
 
-// The questions the issue's pipeline is waiting on, for showing a reply's answers next
-// to them. undefined if it isn't waiting on questions, or the issue can't be found:
-// the reply is still shown, just without them.
+// The questions the issue's pipeline is waiting on, or the QA's commands, for showing a
+// reply's answers or decisions next to them. undefined if it isn't waiting on either, or
+// the issue can't be found: the reply is still shown, just without them.
 async function pipelineQuestions(linear: LinearClient, issueId: string) {
   try {
     const { waiting } = await getPipeline(await toIssueId(linear, issueId));
+    if (waiting?.kind === "approve_commands") return waiting.commands.map((c) => c.command);
     return waiting?.kind === "questions" ? waiting.questions : undefined;
   } catch (err) {
     console.error(`Reading the pipeline's questions for ${issueId} failed:`, err);

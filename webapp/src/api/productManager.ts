@@ -54,7 +54,6 @@ export function useCreateThread() {
         title,
         messages: [userMessage(queryClient, message)],
         pending: [],
-        facts: [],
         notes: '',
         todos: [],
         running: true,

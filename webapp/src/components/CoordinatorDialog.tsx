@@ -17,6 +17,7 @@ import { errorMessage } from "../api/client.ts";
 import { useCoordinator, useResumePipeline, useStartPipeline } from "../api/coordinator.ts";
 import { useWorkspaceDiff } from "../api/workspaces.ts";
 import RunLogs from "./coordinator-logs/RunLogs.tsx";
+import BrowserView from "./pipeline/BrowserView.tsx";
 import CommitCard from "./pipeline/CommitCard.tsx";
 import PipelineTimeline from "./pipeline/PipelineTimeline.tsx";
 import PullRequestCard from "./pipeline/PullRequestCard.tsx";
@@ -47,8 +48,19 @@ function CoordinatorPipeline({ issueId }: { issueId: string }) {
           onApprovePlan: () => reply({ approve: true }),
           onPlanFeedback: (feedback) => reply({ feedback }),
           onImplementationFeedback: (feedback) => reply({ feedback }),
+          onCommandsDecision: (decision) => {
+            const { waiting } = pipeline.data;
+            if (waiting?.kind === "approve_commands") {
+              reply({ decisions: waiting.commands.map(() => decision) });
+            }
+          },
           sending: start.isPending || resume.isPending,
         }}
+        browser={
+          pipeline.data.browserUrl && (
+            <BrowserView issueId={issueId} url={pipeline.data.browserUrl} />
+          )
+        }
         ship={
           <>
             <CommitCard issueId={issueId} />

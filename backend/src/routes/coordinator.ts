@@ -9,6 +9,7 @@ import {
   resumePipeline,
   startPipeline,
 } from "../coordinator.js";
+import { addViewer } from "../coordinator/qaBrowser.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { Workspace } from "../models/Workspace.js";
@@ -84,13 +85,14 @@ coordinator.post("/:issueId/start", async (req, res) => {
 });
 
 // Replies to what the pipeline is waiting on: { answers } to questions, { approve: true }
-// or { feedback } for the plan, { feedback } once finished. It then carries on.
+// or { feedback } for the plan, { decisions } on the QA's commands, { feedback } once
+// finished. It then carries on.
 coordinator.post("/:issueId/resume", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   const reply = readReply(req.body);
   if (!reply) {
-    res.status(400).json({ error: "Expected { answers }, { approve: true } or { feedback }" });
+    res.status(400).json({ error: "Expected { answers }, { approve: true }, { feedback } or { decisions }" });
     return;
   }
   if (!(await requireReadyWorkspace(issueId, res))) return;
@@ -161,6 +163,14 @@ coordinator.post("/:issueId/pull-request-text", async (req, res) => {
       error: `Couldn't write the pull request: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
+});
+
+// The QA's browser, live, as MJPEG (an <img> shows it), while it's open; 404 when it
+// isn't. Ends when the browser closes.
+coordinator.get("/:issueId/browser", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (!(await addViewer(issueId, res))) res.status(404).json({ error: "The QA's browser isn't open" });
 });
 
 // The issue's subagent runs, oldest first, for inspecting their logs (see runLog.ts).

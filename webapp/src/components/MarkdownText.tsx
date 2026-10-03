@@ -31,7 +31,7 @@ const markdownComponents: Components = {
   ),
   // A fenced block scrolls sideways for its long lines, instead of running out of the
   // bubble.
-  pre: ({ node: _node, ...props }) => <Box component="pre" {...props} sx={{ overflowX: "auto" }} />,
+  pre: ({ node: _node, ...props }) => <Box component="pre" {...props} sx={{ overflowX: "auto", bgcolor: "background.default", p: 1 }} />,
   // Links open in a new tab instead of replacing the chat. noreferrer also stops the
   // new page from reaching back into this one through window.opener.
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,

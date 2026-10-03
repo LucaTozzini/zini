@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
 import { cleanPath, formatMatches, git, numberedLines, workspacePath } from "./git.js";
@@ -81,6 +81,18 @@ export async function deleteWorkspaceFile(issueId: string, path: string) {
   if ((await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
   await rm(full);
   return `Deleted ${rel}`;
+}
+
+// Moves or renames a file, creating the folders it goes in. Never replaces a file.
+export async function moveWorkspaceFile(issueId: string, from: string, to: string) {
+  const source = resolveIn(issueId, from);
+  const target = resolveIn(issueId, to);
+  if (!existsSync(source.full)) throw new Error(`No file at ${source.rel}`);
+  if ((await stat(source.full)).isDirectory()) throw new Error(`${source.rel} is a folder`);
+  if (existsSync(target.full)) throw new Error(`${target.rel} already exists`);
+  await mkdir(dirname(target.full), { recursive: true });
+  await rename(source.full, target.full);
+  return `Moved ${source.rel} to ${target.rel}`;
 }
 
 // The commit the workspace branched from on the default branch.
