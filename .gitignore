@@ -10,3 +10,6 @@ dist
 backend/data/
 *.sqlite
 *.sqlite-journal
+
+# Eval results (see evals/README.md)
+evals/results/

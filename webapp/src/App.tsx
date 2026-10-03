@@ -6,6 +6,7 @@ import { useServerEvents } from "./api/events.ts";
 import { useSetup } from "./hooks/useSetup.ts";
 import HomePage from "./pages/HomePage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
+import EvalsPage from "./pages/EvalsPage.tsx";
 import ProductManagerPage from "./pages/ProductManagerPage.tsx";
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
         <Routes>
           <Route path="/" element={home} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/evals" element={<EvalsPage />} />
           <Route path="/product-manager" element={productManager} />
           <Route path="/product-manager/:threadId" element={productManager} />
         </Routes>

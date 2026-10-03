@@ -1,0 +1,4 @@
+{
+  "title": "Show how many to-dos are left",
+  "description": "Below the list, show how many to-dos aren't done yet, as \"3 to-dos left\", or \"1 to-do left\" for one. Hide it when there are no to-dos at all.\n\n## Done when\n\n- The count updates as to-dos are added, ticked, unticked and deleted.\n- It counts every to-do that isn't done, whichever filter is selected."
+}

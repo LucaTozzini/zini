@@ -143,8 +143,12 @@ export type CoordinatorEvent = { type: "coordinator.updated"; issueId: string };
 // and the issue's list of runs.
 export type CoordinatorLogEvent = { type: "coordinator.log"; issueId: string; runId: string };
 
+// An eval started, printed a line, or ended: refetch its status (and, once it ends, the
+// results).
+export type EvalEvent = { type: "eval.updated" };
+
 // Everything sent on GET /api/events.
-export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | CoordinatorLogEvent;
+export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | CoordinatorLogEvent | EvalEvent;
 
 // The coordinator's pipeline for an issue: the planner plans (you answer its questions
 // and approve the plan), then the coder and reviewer loop until the review requires no
@@ -275,3 +279,111 @@ export type RunLogSummary = {
   startedAt: string;
   outcome: "done" | "error" | null;
 };
+
+// ---- Evals (see evals/README.md) ---------------------------------------------------
+
+// A scenario the coordinator can be evaluated on: evals/scenarios/<repo>/<name>. id is
+// "<repo>/<name>".
+export type EvalScenario = { id: string; repo: string; name: string; title: string };
+
+// One subagent role's share of an eval run, from its run logs.
+export type RoleMetrics = {
+  // How many times the role ran, e.g. 2 coder runs after a review asked for changes.
+  runs: number;
+  seconds: number;
+  modelCalls: number;
+  toolCalls: number;
+  toolCallsByName: Record<string, number>;
+  inputTokens: number;
+  outputTokens: number;
+  errors: number;
+};
+
+// One eval run's metrics.json.
+export type RunMetrics = {
+  scenario: string;
+  model: string;
+  // Whether the pipeline got to the end (the QA passed, waiting for feedback).
+  finished: boolean;
+  qaVerdict: "pass" | "fail" | null;
+  // Why the run stopped early, if it did.
+  error: string | null;
+  // The scenario's hidden check, if it has one.
+  check: { passed: boolean; details: string } | null;
+  seconds: number;
+  // The pauses the harness answered.
+  questionsAnswered: number;
+  plansApproved: number;
+  commandsApproved: number;
+  roles: Record<string, RoleMetrics>;
+  totals: Omit<RoleMetrics, "runs" | "toolCallsByName">;
+};
+
+// A batch of runs of one scenario, started together, as listed by GET /api/evals/batches
+// (newest first). A run without metrics is still going, or was stopped.
+export type EvalBatch = {
+  scenario: string;
+  id: string;
+  runs: { id: string; metrics: RunMetrics | null }[];
+};
+
+// The eval going on now, if any, and the console output of the latest one, as returned by
+// GET /api/evals/status. One runs at a time.
+export type EvalStatus = {
+  running: { scenario: string; repeat: number; startedAt: string } | null;
+  output: string[];
+  // How the latest one ended: null while it runs, or if there hasn't been one.
+  ended: { ok: boolean; error: string | null } | null;
+};
+
+// A line of a batch summary: a metric's mean across the runs (with its spread, or a rate
+// as a percentage), and with compared runs, theirs and the change.
+export type SummaryRow = { label: string; value: string; was: string | null; change: string | null };
+
+type SummaryMetric = [label: string, value: (run: RunMetrics) => number | null, kind?: "rate"];
+
+const SUMMARY_ROLES = ["planner", "coder", "reviewer", "qa"];
+
+const SUMMARY_METRICS: SummaryMetric[] = [
+  ["finished", (r) => (r.finished ? 1 : 0), "rate"],
+  ["QA passed", (r) => (r.qaVerdict === "pass" ? 1 : 0), "rate"],
+  ["hidden check passed", (r) => (r.check ? (r.check.passed ? 1 : 0) : null), "rate"],
+  ["seconds", (r) => r.seconds],
+  ["model calls", (r) => r.totals.modelCalls],
+  ["tool calls", (r) => r.totals.toolCalls],
+  ["input tokens (k)", (r) => r.totals.inputTokens / 1000],
+  ["output tokens (k)", (r) => r.totals.outputTokens / 1000],
+  ["commands approved", (r) => r.commandsApproved],
+  ["questions answered", (r) => r.questionsAnswered],
+  ...SUMMARY_ROLES.flatMap((role): SummaryMetric[] => [
+    [`${role}: runs`, (r) => r.roles[role]?.runs ?? 0],
+    [`${role}: seconds`, (r) => r.roles[role]?.seconds ?? 0],
+    [`${role}: tool calls`, (r) => r.roles[role]?.toolCalls ?? 0],
+  ]),
+];
+
+// "12.3 ± 2.1", or "67%" for a rate; "-" without values.
+function summaryStat(values: number[], kind?: "rate") {
+  if (values.length === 0) return { mean: null, text: "-" };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  if (kind === "rate") return { mean, text: `${Math.round(mean * 100)}%` };
+  const sd = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+  const round = (n: number) => (Math.abs(n) >= 100 ? Math.round(n) : Math.round(n * 10) / 10);
+  return { mean, text: values.length > 1 ? `${round(mean)} ± ${round(sd)}` : `${round(mean)}` };
+}
+
+// A batch's runs summarised, metric by metric; with compare, against other runs (e.g. a
+// baseline from before a change).
+export function summarizeRuns(runs: RunMetrics[], compare?: RunMetrics[]): SummaryRow[] {
+  return SUMMARY_METRICS.map(([label, value, kind]) => {
+    const values = (list: RunMetrics[]) => list.map(value).filter((v): v is number => v !== null);
+    const here = summaryStat(values(runs), kind);
+    if (!compare) return { label, value: here.text, was: null, change: null };
+    const there = summaryStat(values(compare), kind);
+    const change =
+      here.mean !== null && there.mean !== null && there.mean !== 0 && kind !== "rate"
+        ? `${here.mean >= there.mean ? "+" : ""}${Math.round(((here.mean - there.mean) / there.mean) * 100)}%`
+        : null;
+    return { label, value: here.text, was: there.text, change };
+  });
+}

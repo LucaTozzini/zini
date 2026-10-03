@@ -1,0 +1,10 @@
+--- a/server/store.ts
++++ b/server/store.ts
+@@ -34,7 +34,6 @@ export class TodoStore {
+     const before = this.todos.length;
+     this.todos = this.todos.filter((t) => t.id !== id);
+     if (this.todos.length === before) return false;
+-    this.save();
+     return true;
+   }
+
