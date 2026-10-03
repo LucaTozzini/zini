@@ -3,6 +3,7 @@ import {
   coordinatorThreadId,
   getPipeline,
   loadSetup as loadPipelineSetup,
+  pendingApprovals,
   pipelineRun,
   readReply,
   replyFits,
@@ -49,6 +50,12 @@ async function requireReadyWorkspace(issueId: string, res: Response) {
   }
   return true;
 }
+
+// The issues whose pipeline is waiting for an approval. Before /:issueId, which would
+// otherwise take "approvals" for an issue id.
+coordinator.get("/approvals", async (_req, res) => {
+  res.json(await pendingApprovals());
+});
 
 coordinator.get("/:issueId", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);

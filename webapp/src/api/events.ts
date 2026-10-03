@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ServerEvent } from 'shared'
-import { coordinatorKey, runLogsKey } from './coordinator.ts'
+import { approvalsKey, coordinatorKey, runLogsKey } from './coordinator.ts'
 import { evalsKey } from './evals.ts'
 import { threadKey, threadsKey } from './productManager.ts'
 import { workspaceKey, workspacesKey } from './workspaces.ts'
@@ -32,6 +32,8 @@ export function useServerEvents() {
         queryClient.invalidateQueries({ queryKey: evalsKey })
       } else if (event.type === 'coordinator.updated') {
         queryClient.invalidateQueries({ queryKey: coordinatorKey(event.issueId) })
+        // Whether it's waiting for an approval, for the issue lists.
+        queryClient.invalidateQueries({ queryKey: approvalsKey })
         // The workspace says whether its coordinator is working (it can't be deleted then).
         queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId), exact: true })
       } else {

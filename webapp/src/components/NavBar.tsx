@@ -1,40 +1,56 @@
 import { Box, Container, IconButton, Stack, Tooltip } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import HomeIcon from "@mui/icons-material/Home";
-import SearchIcon from "@mui/icons-material/Search";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import ScienceIcon from "@mui/icons-material/Science";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useState } from "react";
 import ProfileDialog from "./ProfileDialog.tsx";
 
-const mainItems = (tooltipPlacement: "right" | "top") => [
-  <Tooltip key="home" title={"home"} placement={tooltipPlacement}>
-    <IconButton component={Link} to="/">
-      <HomeIcon />
-    </IconButton>
-  </Tooltip>,
-  <Tooltip key="search" title={"search"} placement={tooltipPlacement}>
-    <IconButton>
-      <SearchIcon />
-    </IconButton>
-  </Tooltip>,
-  <Tooltip
-    key="product-manager"
-    title="product manager"
-    placement={tooltipPlacement}
-  >
-    <IconButton component={Link} to="/product-manager">
-      <PsychologyIcon />
-    </IconButton>
-  </Tooltip>,
-  <Tooltip key="evals" title="evals" placement={tooltipPlacement}>
-    <IconButton component={Link} to="/evals">
-      <ScienceIcon />
-    </IconButton>
-  </Tooltip>,
-];
+const MainItems = ({
+  tooltipPlacement,
+}: {
+  tooltipPlacement: "right" | "top";
+}) => {
+  const location = useLocation();
+
+  const style = (pathname: string) => {
+    return {
+      bgcolor: location.pathname === pathname ? "action.hover" : undefined,
+    };
+  };
+
+  return (
+    <>
+      <Tooltip key="home" title={"home"} placement={tooltipPlacement}>
+        <IconButton component={Link} to="/" sx={style("/")}>
+          <HomeIcon />
+        </IconButton>
+      </Tooltip>
+
+      <Tooltip
+        key="product-manager"
+        title="product manager"
+        placement={tooltipPlacement}
+      >
+        <IconButton
+          component={Link}
+          to="/product-manager"
+          sx={style("/product-manager")}
+        >
+          <PsychologyIcon />
+        </IconButton>
+      </Tooltip>
+
+      <Tooltip key="evals" title="evals" placement={tooltipPlacement}>
+        <IconButton component={Link} to="/evals" sx={style("/evals")}>
+          <ScienceIcon />
+        </IconButton>
+      </Tooltip>
+    </>
+  );
+};
 
 const ProfileButton = ({
   tooltipPlacement,
@@ -55,14 +71,30 @@ const ProfileButton = ({
   );
 };
 
-const secondaryItems = (tooltipPlacement: "top" | "right") => [
-  <Tooltip key="settings" title={"settings"} placement={tooltipPlacement}>
-    <IconButton component={Link} to="/settings">
-      <SettingsIcon />
-    </IconButton>
-  </Tooltip>,
-  ProfileButton({ tooltipPlacement }),
-];
+const SecondaryItems = ({
+  tooltipPlacement,
+}: {
+  tooltipPlacement: "top" | "right";
+}) => {
+  const location = useLocation();
+
+  const style = (pathname: string) => {
+    return {
+      bgcolor: location.pathname === pathname ? "action.hover" : undefined,
+    };
+  };
+  
+  return (
+    <>
+      <ProfileButton tooltipPlacement={tooltipPlacement} />
+      <Tooltip key="settings" title={"settings"} placement={tooltipPlacement}>
+        <IconButton component={Link} to="/settings" sx={style("/settings")} >
+          <SettingsIcon />
+        </IconButton>
+      </Tooltip>
+    </>
+  );
+};
 
 const NavBar = ({ direction }: { direction: "row" | "column" }) => {
   return (
@@ -82,10 +114,12 @@ const NavBar = ({ direction }: { direction: "row" | "column" }) => {
       {direction === "column" && (
         <>
           <Box sx={{ display: "flex", flex: 1, alignItems: "center" }}>
-            <Stack spacing={2}>{...mainItems("right")}</Stack>
+            <Stack spacing={2}>
+              <MainItems tooltipPlacement="right" />
+            </Stack>
           </Box>
 
-          <Stack spacing={1}>{...secondaryItems("right")}</Stack>
+          <Stack spacing={1}><SecondaryItems tooltipPlacement="right" /></Stack>
         </>
       )}
       {direction === "row" && (
@@ -97,8 +131,8 @@ const NavBar = ({ direction }: { direction: "row" | "column" }) => {
               justifyContent: "space-between",
             }}
           >
-            {...mainItems("top")}
-            {...secondaryItems("top")}
+            <MainItems tooltipPlacement="top" />
+            <SecondaryItems tooltipPlacement="top" />
           </Box>
         </Container>
       )}

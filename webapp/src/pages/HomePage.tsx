@@ -3,6 +3,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import type { LinearIssue, StatusType } from "shared";
 import { errorMessage } from "../api/client.ts";
+import { usePendingApprovals } from "../api/coordinator.ts";
 import { useLinearIssues } from "../api/integrations.ts";
 import IssuePanel from "../components/IssuePanel.tsx";
 import PriorityIcon from "../components/icons/PriorityIcon.tsx";
@@ -13,6 +14,7 @@ import {
   Card,
   CardActionArea,
   CardContent,
+  Chip,
   Container,
   Divider,
   Stack,
@@ -78,8 +80,11 @@ function IssueList({
   selectedId,
   onSelect,
 }: Selection & { issues: LinearIssue[] }) {
+  const approvals = usePendingApprovals();
   if (issues.length === 0)
     return <Typography color="text.secondary">No issues.</Typography>;
+  // The issues whose coordinator is waiting for an approval.
+  const waiting = new Set((approvals.data ?? []).map((a) => a.issueId));
 
   return (
     <Stack spacing={1}>
@@ -102,6 +107,14 @@ function IssueList({
                 </Typography>
                 <Divider orientation="vertical" flexItem />
                 <Typography noWrap>{issue.title}</Typography>
+                {waiting.has(issue.id) && (
+                  <Chip
+                    size="small"
+                    color="warning"
+                    label="Needs approval"
+                    sx={{ ml: "auto", flexShrink: 0 }}
+                  />
+                )}
               </Box>
             </CardContent>
           </CardActionArea>

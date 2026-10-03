@@ -211,6 +211,10 @@ export type PipelineResume =
   | { feedback: string }
   | { decisions: Decision[] };
 
+// An issue whose pipeline is waiting for you to approve something (its plan, or the QA's
+// commands), as listed by GET /api/coordinator/approvals.
+export type PendingApproval = { issueId: string; kind: "approve_plan" | "approve_commands" };
+
 // An issue's pipeline, as returned by GET /api/coordinator/:issueId. One per issue.
 export type PipelineState = {
   started: boolean;

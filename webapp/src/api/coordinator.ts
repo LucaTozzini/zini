@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PipelineResume, PipelineState, RunLogEvent, RunLogSummary } from 'shared'
+import type { PendingApproval, PipelineResume, PipelineState, RunLogEvent, RunLogSummary } from 'shared'
 import { api } from './client.ts'
 
 export const coordinatorKey = (issueId: string) => ['coordinator', issueId]
@@ -10,6 +10,18 @@ export function useCoordinator(issueId: string) {
   return useQuery({
     queryKey: coordinatorKey(issueId),
     queryFn: () => api.get(`coordinator/${issueId}`).json<PipelineState>(),
+  })
+}
+
+// Under ['coordinator'] like the pipelines, so reconnecting refetches it with them.
+export const approvalsKey = ['coordinator', 'approvals']
+
+// The issues whose pipeline is waiting for an approval; refetched by useServerEvents
+// whenever a pipeline changes.
+export function usePendingApprovals() {
+  return useQuery({
+    queryKey: approvalsKey,
+    queryFn: () => api.get('coordinator/approvals').json<PendingApproval[]>(),
   })
 }
 

@@ -4,7 +4,14 @@ import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, humanInTheLoopMiddleware, toolStrategy, type HITLRequest } from "langchain";
-import type { AgentRole, Decision, PipelineResume, PipelineState, PipelineWaiting } from "shared";
+import type {
+  AgentRole,
+  Decision,
+  PendingApproval,
+  PipelineResume,
+  PipelineState,
+  PipelineWaiting,
+} from "shared";
 import { z } from "zod";
 import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "./agents.js";
 import { compactionMiddleware } from "./compaction.js";
@@ -531,6 +538,18 @@ async function setupText(issueId: string) {
     : (workspace?.setupStatus ?? "unknown");
   const end = log.slice(-3_000).trim();
   return `Command: ${command}\nStatus: ${status}${end ? `\n\nThe end of its output:\n\n${end}` : ""}`;
+}
+
+// The issues whose pipeline is waiting for an approval (its plan, or the QA's commands),
+// for marking them in the webapp's issue lists.
+export async function pendingApprovals(): Promise<PendingApproval[]> {
+  const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
+  const pipelines = await Promise.all(
+    workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getPipeline(issueId)).waiting })),
+  );
+  return pipelines.flatMap(({ issueId, waiting }) =>
+    waiting?.kind === "approve_plan" || waiting?.kind === "approve_commands" ? [{ issueId, kind: waiting.kind }] : [],
+  );
 }
 
 // The issue's pipeline, for the webapp.
