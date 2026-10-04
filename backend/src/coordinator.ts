@@ -46,7 +46,7 @@ import {
 import { browserUrl, closeBrowser } from "./coordinator/qaBrowser.js";
 import { runCommandResult, stopAllProcesses } from "./coordinator/qaProcesses.js";
 import { browserTools, COMMAND_TOOLS, commandTools } from "./coordinator/qaTools.js";
-import { diffTool, readTools, writeTools } from "./coordinator/tools.js";
+import { diffTool, workspaceFilesystem, writeTools } from "./coordinator/tools.js";
 import { sendEvent } from "./events.js";
 import { npmTools } from "./npmTools.js";
 import { fetchLinearIssue, getLinearClient } from "./linear.js";
@@ -109,7 +109,7 @@ const pausedLogs = new Map<string, RunLog>();
 // the user to approve or reject them; invocation memory carries on from the pause:
 // the node runs again once they answer, and the invocation's checkpoint resumes it.
 async function runSubagent<S extends z.ZodObject>(
-  { setup, issueId }: Run,
+  { setup, issueId, notify }: Run,
   {
     role,
     prompt,
@@ -146,6 +146,7 @@ async function runSubagent<S extends z.ZodObject>(
       modelRetry,
       logTo(log),
       toolErrors,
+      workspaceFilesystem(issueId, role === "coder", notify),
       ...(remember ? [compactionMiddleware(model)] : []),
       ...(approve.length > 0
         ? [
@@ -241,7 +242,7 @@ function buildPipeline(run: Run | null) {
           state.planFeedback.length > 0 && listText(state.planFeedback),
         ],
       ])}`,
-      tools: [...readTools(issueId), ...npmTools],
+      tools: [...npmTools],
       schema: PLAN_SCHEMA,
       // Runs after its questions are answered, or after feedback on its plan.
       input: !previous
@@ -280,7 +281,6 @@ function buildPipeline(run: Run | null) {
         ],
       ])}`,
       tools: [
-        ...readTools(issueId),
         ...writeTools(issueId, notify),
         diffTool(issueId),
         ...npmTools,
@@ -320,7 +320,7 @@ function buildPipeline(run: Run | null) {
     // invalidate only the tests/build entries. Discover missing checks rather
     // than silently dropping them, then reuse a complete source-valid selection.
     let selection = validCached && cached ? cached : await runSubagent(need(), {
-          role: "checks", prompt: CHECKS_PROMPT, tools: [...readTools(issueId), diffTool(issueId)],
+          role: "checks", prompt: CHECKS_PROMPT, tools: [diffTool(issueId)],
           schema: CHECKS_SCHEMA,
           input: inputText(await issue(), [
             ["The approved plan", state.plan && planText(state.plan)],
@@ -392,7 +392,7 @@ function buildPipeline(run: Run | null) {
     const { contextUpdates, runbookUpdates, environmentFailures, ...review } = await runSubagent(need(), {
       role: "reviewer",
       prompt: REVIEWER_PROMPT,
-      tools: [...readTools(issueId), diffTool(issueId), ...npmTools],
+      tools: [diffTool(issueId), ...npmTools],
       schema: REVIEW_SCHEMA,
       input: inputText(await issue(), [
         ["The approved plan", state.plan && planText(state.plan)],
@@ -457,7 +457,6 @@ function buildPipeline(run: Run | null) {
           ["The workspace's setup", await setupText(issueId)],
         ])}`,
         tools: [
-          ...readTools(issueId),
           diffTool(issueId),
           // No npm tools: it tests behaviour, and doesn't read libraries' code.
           ...commandTools(issueId, { productOnly: true, completedChecks: state.checksReport?.results.map((entry) => entry.command) ?? [] }),

@@ -13,8 +13,8 @@ export const REPO_COMMAND = z.object({
   kind: z.enum(["check", "start"]),
   command: z.string().min(1).describe("Exact command for the runtime shell; no watch mode for checks"),
   cwd: z.string().describe("Workspace-relative working directory, '.' for the root"),
-  purpose: z.string().min(1).max(300),
-  sources: z.array(z.string().min(1)).min(1).max(5).describe("Repo files supporting this command"),
+  purpose: z.string().min(1).max(800).describe("Purpose; for startup, include known prerequisites, env/port/test-data options and readiness/access instructions so QA can use it directly"),
+  sources: z.array(z.string().min(1)).min(1).max(5).describe("Only repo files defining this command or its required setup; not incidental implementation/test files or docs"),
 });
 const runbookUpdates = z.array(REPO_COMMAND).max(16).default([]);
 export const ACCEPTANCE_CRITERION = z.object({

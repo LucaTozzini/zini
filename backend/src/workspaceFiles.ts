@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
-import { cleanPath, formatMatches, git, numberedLines, workspacePath } from "./git.js";
-import { replaceOnce } from "./textEdit.js";
+import { cleanPath, git, workspacePath } from "./git.js";
 
 // The files of an issue's workspace, as the pipeline's subagents see and change them:
 // the checkout on disk, uncommitted edits included. Paths are relative to the
@@ -26,32 +25,6 @@ function resolveIn(issueId: string, path: string) {
 
 const inWorkspace = (issueId: string, args: string[], exit1Ok = false) =>
   git(["-C", workspacePath(issueId), ...args], undefined, { exit1Ok });
-
-// A folder's files and subfolders (subfolders end in /), skipping what git ignores
-// (e.g. node_modules).
-export async function listWorkspaceFiles(issueId: string, path: string) {
-  const { rel } = resolveIn(issueId, path);
-  const prefix = rel ? `${rel}/` : "";
-  // Tracked and untracked files, minus ignored ones; deleted files are still listed as
-  // tracked, so they're checked for on disk.
-  const out = await inWorkspace(issueId, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
-  const entries = new Set<string>();
-  for (const file of out.split("\0")) {
-    if (!file || !file.startsWith(prefix) || !existsSync(resolve(workspacePath(issueId), file))) continue;
-    const rest = file.slice(prefix.length);
-    const slash = rest.indexOf("/");
-    entries.add(slash === -1 ? rest : `${rest.slice(0, slash)}/`);
-  }
-  if (entries.size === 0) throw new Error(`No folder at ${path || "the workspace root"}, or it's empty`);
-  return [...entries].sort().join("\n");
-}
-
-export async function readWorkspaceFile(issueId: string, path: string, startLine?: number, endLine?: number) {
-  const { full, rel } = resolveIn(issueId, path);
-  if (!existsSync(full)) throw new Error(`No file at ${rel}`);
-  if ((await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
-  return numberedLines(rel, await readFile(full, "utf8"), startLine, endLine);
-}
 
 // A source-backed coordinator fact is usable only while the file it describes is
 // unchanged. Paths go through the same workspace boundary checks as read_file.
@@ -82,29 +55,6 @@ export async function workspaceRevision(issueId: string) {
     hash.update(path).update("\0").update(await fingerprintWorkspaceFile(issueId, path) ?? "missing");
   }
   return hash.digest("hex");
-}
-
-// Lines containing query (plain text, any case), as "path:line:text", in tracked and
-// untracked files but not ignored ones.
-export async function searchWorkspace(issueId: string, query: string) {
-  const out = await inWorkspace(issueId, ["grep", "-n", "-I", "-i", "-F", "--untracked", "-e", query], true);
-  return formatMatches(out.split("\n"));
-}
-
-export async function writeWorkspaceFile(issueId: string, path: string, content: string) {
-  const { full, rel } = resolveIn(issueId, path);
-  if (existsSync(full) && (await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
-  await mkdir(dirname(full), { recursive: true });
-  await writeFile(full, content);
-  return `Wrote ${rel}`;
-}
-
-// Replaces the one place oldText appears in the file with newText.
-export async function editWorkspaceFile(issueId: string, path: string, oldText: string, newText: string) {
-  const { full, rel } = resolveIn(issueId, path);
-  if (!existsSync(full)) throw new Error(`No file at ${rel}`);
-  await writeFile(full, replaceOnce(await readFile(full, "utf8"), oldText, newText, rel));
-  return `Edited ${rel}`;
 }
 
 export async function deleteWorkspaceFile(issueId: string, path: string) {

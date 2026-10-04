@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ChecksDocument, QaDocument, RepoCommand } from "shared";
-import { canReuseCheckSelection, enforceCoverage, freshRunbook, updateRunbook } from "./validation.js";
+import { canReuseCheckSelection, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./validation.js";
+import { REPO_COMMAND } from "./documents.js";
 import { completeDocument } from "./completion.js";
 import { isModelRateLimit } from "../modelErrors.js";
 
@@ -23,6 +24,27 @@ test("runbook preserves commands for different packages and invalidates edited s
   assert.deepEqual(Object.keys(partialBook), ["test"]);
   assert.equal(canReuseCheckSelection(selection, partialBook), false);
   assert.equal(Object.keys(await updateRunbook(book, [{ ...commands[0]!, sources: ["missing"] }], fingerprint)).length, 1);
+});
+
+test("startup handoffs retain operational details and survive unrelated source edits", async () => {
+  const files = new Map([["service/Makefile", "recipe"], ["service/main.py", "implementation"], ["README.md", "docs"]]);
+  const fingerprint = async (path: string) => files.get(path) ?? null;
+  const purpose = "Start the service with the installed Python runtime from service/. " +
+    "Requires the local fixture database from the completed setup. PORT selects the " +
+    "listen port and DATA_DIR selects isolated test data; use a uniquely created " +
+    "temporary directory. Wait for the 'Ready' output and use the printed local URL " +
+    "to access the product; use its public API for acceptance checks.";
+  const command = REPO_COMMAND.parse({ id: "start", kind: "start", command: "make serve", cwd: "service",
+    purpose, sources: ["service/Makefile"] });
+  const book = await updateRunbook({}, [command], fingerprint);
+  files.set("README.md", "changed docs");
+  files.set("service/main.py", "changed implementation");
+  const current = await freshRunbook(book, fingerprint);
+  assert.equal(current.start?.purpose, purpose);
+  assert.ok(runbookText(current).includes(purpose));
+  assert.ok(runbookText(current).includes("cwd: service"));
+  files.set("service/Makefile", "changed recipe");
+  assert.deepEqual(await freshRunbook(current, fingerprint), {});
 });
 
 const report: QaDocument = { verdict: "pass", checks: [], failures: [], couldNotTest: [], blockingQuestions: [], coverage: [] };

@@ -17,8 +17,10 @@
     "@langchain/openai": "^1.5.13",
     "@linear/sdk": "^95.1.0",
     "cookie-parser": "^1.4.7",
+    "deepagents": "^1.14.1",
     "express": "^5.2.1",
     "langchain": "^1.5.12",
+    "micromatch": "^4.0.8",
     "playwright": "^1.63.0",
     "sequelize": "^6.37.8",
     "shared": "*",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
+    "@types/micromatch": "^4.0.10",
     "@types/node": "^24.13.6",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2"
