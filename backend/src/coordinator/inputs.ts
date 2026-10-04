@@ -47,4 +47,7 @@ export const answersText = (clarifications: Clarification[], document: { blockin
   clarificationsText(clarifications.slice(-document.blockingQuestions.length));
 
 export const planText = (plan: PlanDocument) =>
-  `${plan.summary}\n\n${listText(plan.steps, true)}`;
+  `${plan.summary}\n\n${listText(plan.steps, true)}${plan.acceptanceCriteria?.length
+    ? `\n\nAcceptance criteria:\n${plan.acceptanceCriteria.map((criterion) =>
+        `- ${criterion.id}: ${criterion.requirement} (source: ${criterion.source})`).join("\n")}`
+    : ""}`;

@@ -11,7 +11,8 @@ export type StageStatus =
   | "done"
   | "approved"
   | "changes_requested"
-  | "failed";
+  | "failed"
+  | "partial";
 
 const STATUS: Record<
   StageStatus,
@@ -26,6 +27,7 @@ const STATUS: Record<
   changes_requested: { label: "Changes requested", color: "warning" },
   // The QA, while the coder fixes what it found broken.
   failed: { label: "Failed", color: "error" },
+  partial: { label: "Partially verified", color: "warning" },
 };
 
 // One stage of the timeline (planner, coder, reviewer, QA, finished): its title and

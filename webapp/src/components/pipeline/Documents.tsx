@@ -1,5 +1,5 @@
 import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
-import type { Clarification, PlanDocument, QaDocument, ReviewDocument } from "shared";
+import type { ChecksDocument, Clarification, PlanDocument, QaDocument, ReviewDocument } from "shared";
 
 // How the subagents' documents are shown in the timeline. blockingQuestions aren't
 // shown here: they're asked in a QuestionsCard below the document. The coder's
@@ -35,6 +35,10 @@ export function PlanView({ plan }: { plan: PlanDocument }) {
         Steps
       </Typography>
       <Items items={plan.steps} numbered />
+      {!!plan.acceptanceCriteria?.length && <>
+        <Typography variant="overline" color="text.secondary">Acceptance criteria</Typography>
+        <Items items={plan.acceptanceCriteria.map((entry) => `${entry.id}: ${entry.requirement}`)} />
+      </>}
     </Stack>
   );
 }
@@ -67,6 +71,8 @@ export function QaView({ qa }: { qa: QaDocument }) {
           </Typography>
           <Items items={qa.failures} />
         </Alert>
+      ) : qa.verdict === "partial" ? (
+        <Alert severity="warning" variant="outlined">Validation is incomplete.</Alert>
       ) : (
         <Alert severity="success" variant="outlined">
           Passed.
@@ -90,6 +96,18 @@ export function QaView({ qa }: { qa: QaDocument }) {
       )}
     </Stack>
   );
+}
+
+export function ChecksView({ checks }: { checks: ChecksDocument }) {
+  return <Stack spacing={1.5}>
+    {checks.results.map((result, index) => <Alert key={index}
+      severity={result.status === "passed" ? "success" : result.status === "failed" ? "error" : "warning"}
+      variant="outlined">
+      <Typography variant="body2">{result.command} ({result.cwd}): {result.status}</Typography>
+      <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}>{result.output}</Typography>
+    </Alert>)}
+    {!!checks.couldNotTest.length && <Alert severity="warning"><Items items={checks.couldNotTest} /></Alert>}
+  </Stack>;
 }
 
 // The questions a stage asked and how you answered them, shown compactly above its

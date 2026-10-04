@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
 import { cleanPath, formatMatches, git, numberedLines, workspacePath } from "./git.js";
@@ -50,6 +51,37 @@ export async function readWorkspaceFile(issueId: string, path: string, startLine
   if (!existsSync(full)) throw new Error(`No file at ${rel}`);
   if ((await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
   return numberedLines(rel, await readFile(full, "utf8"), startLine, endLine);
+}
+
+// A source-backed coordinator fact is usable only while the file it describes is
+// unchanged. Paths go through the same workspace boundary checks as read_file.
+export async function fingerprintWorkspaceFile(issueId: string, path: string) {
+  const { full } = resolveIn(issueId, path);
+  if (!existsSync(full) || !(await stat(full)).isFile()) return null;
+  return createHash("sha256").update(await readFile(full)).digest("hex");
+}
+
+export async function workspaceWorkingDirectory(issueId: string, path = ".") {
+  const { full } = resolveIn(issueId, path);
+  const [root, target] = await Promise.all([realpath(workspacePath(issueId)), realpath(full)]);
+  const rel = relative(root, target);
+  if (rel.startsWith("..") || isAbsolute(rel) || rel.split(sep)[0] === ".git") throw new Error("Working directory is outside the workspace");
+  if (!(await stat(target)).isDirectory()) throw new Error(`${path} is not a directory`);
+  return target;
+}
+
+// Includes tracked edits, deletions, binary changes, and non-ignored new files.
+export async function workspaceRevision(issueId: string) {
+  const [head, diff, untracked] = await Promise.all([
+    inWorkspace(issueId, ["rev-parse", "HEAD"]),
+    inWorkspace(issueId, ["diff", "HEAD", "--binary"]),
+    inWorkspace(issueId, ["ls-files", "--others", "--exclude-standard", "-z"]),
+  ]);
+  const hash = createHash("sha256").update(head).update(diff);
+  for (const path of untracked.split("\0").filter(Boolean).sort()) {
+    hash.update(path).update("\0").update(await fingerprintWorkspaceFile(issueId, path) ?? "missing");
+  }
+  return hash.digest("hex");
 }
 
 // Lines containing query (plain text, any case), as "path:line:text", in tracked and

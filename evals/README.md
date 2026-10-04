@@ -1,11 +1,11 @@
 # Evals
 
-Runs the coordinator's pipeline (planner, coder, reviewer, QA) on test issues, the same
+Runs the coordinator's pipeline (planner, coder, deterministic checks, reviewer, product QA) on test issues, the same
 way each time, so you can measure how it behaves and compare a change against a baseline.
 
 Each run takes a scenario's issue, works on a fresh copy of a test repo, answers every
 pause by itself (questions with the scenario's answers, then "You decide."; it approves
-the plan and every command the QA runs), and stops when the pipeline finishes. Because
+the plan and every check/product QA command), and stops when the pipeline finishes. Because
 every command is approved, runs only happen in a Docker container, where they can't
 reach your machine.
 
@@ -29,7 +29,19 @@ change). They're kept in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
 - `logs/`: the subagents' run logs, as zini writes them, written live
 - `diff.patch`: what the run changed in the repo
 - `metrics.json`: time, model and tool calls, tokens, per subagent and in total, the
-  pauses answered, the QA's verdict, and the hidden check's result
+  pauses answered, the QA's verdict, and the hidden check's result. New runs include
+  `codeVersion`, a SHA-256 hash of the sources actually copied into the container
+  (including uncommitted changes), and `rateLimited`.
+
+The pipeline runs selected deterministic checks between coding and review, then
+product QA checks acceptance criteria. Check results are recorded directly by the
+executor and tied to the workspace content version. The repo supplies commands and
+working directories; the coordinator does not assume a language or package manager.
+
+A model rate limit saves the interrupted run and stops the batch before subsequent
+runs start. Batch failures and rate limits produce nonzero exits and a failed status
+in the webapp. A hidden check passing is not enough for a successful run: the pipeline
+must complete and return a passing QA report. Partial validation is reported separately.
 
 ## Test repos and scenarios
 

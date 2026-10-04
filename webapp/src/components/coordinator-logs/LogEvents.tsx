@@ -132,6 +132,8 @@ function LogEvents({ events }: { events: RunLogEvent[] }) {
                 <Alert severity="warning">Invalid document, sent back to the model: {e.error}</Alert>
               </Line>
             );
+          case "doc_recovery":
+            return <Line key={i} t={e.t}><Alert severity="warning">Recovering missing report (attempt {e.attempt}).</Alert></Line>;
           case "model_error":
             return (
               <Line key={i} t={e.t}>

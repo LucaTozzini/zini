@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { workspacePath } from "../git.js";
 import { killTree, spawnShell } from "../processes.js";
+import { workspaceWorkingDirectory } from "../workspaceFiles.js";
 
 // The QA's commands, run in the issue's workspace: ones it waits for (run_command), and
 // long-running ones it starts and checks on (start_process, e.g. a dev server). Every
@@ -54,8 +55,13 @@ const spawnInWorkspace = (issueId: string, command: string) =>
 // Runs command to completion (or until it times out), and gives its exit code and the
 // end of its output.
 export function runCommand(issueId: string, command: string, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS) {
+  return runCommandResult(issueId, command, ".", timeoutSeconds).then(({ status, output }) => `${status}\n\n${output}`);
+}
+
+// Capture execution evidence directly rather than asking a model to report it.
+export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds = DEFAULT_TIMEOUT_SECONDS) {
   const seconds = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_SECONDS);
-  const child = spawnInWorkspace(issueId, command);
+  const child = spawnShell(command, await workspaceWorkingDirectory(issueId, cwd), QA_ENV);
   const running = commands.get(issueId) ?? new Set();
   commands.set(issueId, running.add(child));
 
@@ -67,7 +73,7 @@ export function runCommand(issueId: string, command: string, timeoutSeconds = DE
   child.stdout?.on("data", append);
   child.stderr?.on("data", append);
 
-  return new Promise<string>((resolve) => {
+  return new Promise<{ exitCode: number | null; timedOut: boolean; status: string; output: string }>((resolve) => {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -75,16 +81,16 @@ export function runCommand(issueId: string, command: string, timeoutSeconds = DE
     }, seconds * 1000);
     // "error" (it couldn't start) and "close" can both fire; only the first counts.
     let done = false;
-    const finish = (status: string) => {
+    const finish = (status: string, exitCode: number | null = null) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       running.delete(child);
-      resolve(`${status}\n\n${tail(output.trim()) || "(no output)"}`);
+      resolve({ exitCode, timedOut, status, output: tail(output.trim()) || "(no output)" });
     };
     child.on("error", (err) => finish(`Couldn't run it: ${err.message}`));
     child.on("close", (code, signal) =>
-      finish(timedOut ? `Timed out after ${seconds}s, and was stopped` : exitText(code, signal)),
+      finish(timedOut ? `Timed out after ${seconds}s, and was stopped` : exitText(code, signal), code),
     );
   });
 }

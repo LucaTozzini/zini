@@ -3,7 +3,7 @@ import { Stack } from "@mui/material";
 import type { AgentRole, Decision, PipelineState, WorkspaceDiff } from "shared";
 import { CommandsCard, FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
 import DiffView from "./DiffView.tsx";
-import { ClarificationList, PlanView, QaView, ReviewView } from "./Documents.tsx";
+import { ChecksView, ClarificationList, PlanView, QaView, ReviewView } from "./Documents.tsx";
 import StageSection, { type StageStatus } from "./StageSection.tsx";
 
 export type PipelineActions = {
@@ -22,10 +22,12 @@ function stageStatus(pipeline: PipelineState, role: AgentRole, hasDocument: bool
   if (pipeline.running === role) return "working";
   if (pipeline.waiting?.kind === "questions" && pipeline.waiting.from === role) return "needs_you";
   if (role === "planner" && pipeline.waiting?.kind === "approve_plan") return "needs_you";
-  if (role === "qa" && pipeline.waiting?.kind === "approve_commands") return "needs_you";
+  if (pipeline.waiting?.kind === "approve_commands" && role === (pipeline.waiting.from ?? "qa")) return "needs_you";
   if (role === "planner" && pipeline.planApproved) return "approved";
   if (role === "reviewer" && pipeline.review?.requiredChanges.length) return "changes_requested";
   if (role === "qa" && pipeline.qa?.verdict === "fail") return "failed";
+  if (role === "qa" && pipeline.qa?.verdict === "partial") return "partial";
+  if (role === "checks" && pipeline.checks?.results.some((entry) => entry.status === "failed")) return "failed";
   return hasDocument ? "done" : "waiting";
 }
 
@@ -71,6 +73,7 @@ function PipelineTimeline({
   const planner = stageStatus(pipeline, "planner", Boolean(pipeline.plan));
   const coder = stageStatus(pipeline, "coder", Boolean(pipeline.implementation));
   const reviewer = stageStatus(pipeline, "reviewer", Boolean(pipeline.review));
+  const checks = stageStatus(pipeline, "checks", Boolean(pipeline.checks));
   const qa = stageStatus(pipeline, "qa", Boolean(pipeline.qa));
   // The stage that's working or waiting on you starts open; the others start closed.
   // Once the pipeline is done, the coder (its changes) and Finished are open.
@@ -122,6 +125,15 @@ function PipelineTimeline({
         </StageSection>
       )}
 
+      {(pipeline.checks || checks === "working" || checks === "needs_you") && (
+        <StageSection key={`checks-${isActive(checks)}`} title="Checks" status={checks} active={isActive(checks)}>
+          {content("checks", pipeline.checks && <ChecksView checks={pipeline.checks} />)}
+          {waiting?.kind === "approve_commands" && waiting.from === "checks" && <CommandsCard
+            key={waiting.commands.map((entry) => entry.command).join("\n")}
+            commands={waiting.commands} onDecide={actions.onCommandsDecision} loading={actions.sending} />}
+        </StageSection>
+      )}
+
       {(pipeline.review || pipeline.running === "reviewer") && (
         <StageSection
           key={`reviewer-${isActive(reviewer)}`}
@@ -134,14 +146,14 @@ function PipelineTimeline({
       )}
 
       {(pipeline.qa || qa === "working" || qa === "needs_you") && (
-        <StageSection key={`qa-${isActive(qa)}`} title="QA" status={qa} active={isActive(qa)}>
+        <StageSection key={`qa-${isActive(qa)}`} title="Product QA" status={qa} active={isActive(qa)}>
           {content(
             "qa",
             <>
               {/* Its latest report, while it tests again too. */}
               {pipeline.qa && <QaView qa={pipeline.qa} />}
               {browser}
-              {waiting?.kind === "approve_commands" && (
+              {waiting?.kind === "approve_commands" && waiting.from !== "checks" && (
                 <CommandsCard
                   // New commands start with an empty note.
                   key={waiting.commands.map((c) => c.command).join("\n")}
@@ -156,7 +168,7 @@ function PipelineTimeline({
       )}
 
       {pipeline.finished && (
-        <StageSection title="Finished" status="done" active>
+        <StageSection title="Finished" status={pipeline.qa?.verdict === "partial" ? "partial" : "done"} active>
           {ship}
           {waiting?.kind === "feedback" && (
             <FeedbackCard

@@ -6,6 +6,7 @@ import { modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "./db.js";
+import { isModelRateLimit } from "./modelErrors.js";
 
 // What the agents (product manager, coordinator) share.
 
@@ -47,7 +48,7 @@ export const modelRetry = modelRetryMiddleware({
   onFailure: "error",
   // A stopped run's aborted call isn't worth trying again; anything else is retried
   // unless LangChain has marked it as not retryable (its default).
-  retryOn: (error) => error.name !== "AbortError" && (getRetryable(error) ?? true),
+  retryOn: (error) => error.name !== "AbortError" && !isModelRateLimit(error) && (getRetryable(error) ?? true),
 });
 
 // The user's messages, the agent's written replies and its tool calls, each with its

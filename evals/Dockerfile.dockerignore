@@ -2,6 +2,8 @@
 **/node_modules
 **/dist
 .git
+**/.env
+**/.env.*
 backend/data
 evals/results
 evals/repos/*/data

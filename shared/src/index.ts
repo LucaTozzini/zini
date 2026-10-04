@@ -156,11 +156,41 @@ export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | Coor
 // work). Each subagent returns a document with only what it needs to say. Every one
 // has blockingQuestions: what it couldn't decide without you (empty if nothing), which
 // pauses the pipeline to ask you.
-export type AgentRole = "planner" | "coder" | "reviewer" | "qa";
+export type AgentRole = "planner" | "coder" | "checks" | "reviewer" | "qa";
 
 // summary: the approach, in a few sentences. steps: plain instructions, each naming
 // the files it touches.
-export type PlanDocument = { summary: string; steps: string[]; blockingQuestions: string[] };
+export type AcceptanceCriterion = { id: string; requirement: string; source: string };
+export type RepoCommand = {
+  id: string;
+  kind: "check" | "start";
+  command: string;
+  cwd: string;
+  purpose: string;
+  sources: string[];
+};
+export type PlanDocument = {
+  summary: string;
+  steps: string[];
+  blockingQuestions: string[];
+  // Optional for pipelines saved before acceptance criteria were introduced.
+  acceptanceCriteria?: AcceptanceCriterion[];
+};
+export type CheckResult = {
+  command: string;
+  cwd: string;
+  purpose: string;
+  status: "passed" | "failed" | "blocked";
+  exitCode: number | null;
+  output: string;
+};
+export type ChecksDocument = {
+  revision: string;
+  results: CheckResult[];
+  couldNotTest: string[];
+  notApplicable?: string[];
+  complete: boolean;
+};
 
 // The coder follows the approved plan, and its changes are the workspace's diff, so it
 // only reports what it needs you for (e.g. a step it can't follow as written).
@@ -174,11 +204,12 @@ export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: str
 // doesn't work, each with how to reproduce it and the evidence (fail means there's at
 // least one). couldNotTest: what it couldn't check, and why (e.g. a missing .env).
 export type QaDocument = {
-  verdict: "pass" | "fail";
+  verdict: "pass" | "fail" | "partial";
   checks: string[];
   failures: string[];
   couldNotTest: string[];
   blockingQuestions: string[];
+  coverage?: { criterionId: string; status: "pass" | "fail" | "blocked"; evidence: string }[];
 };
 
 // A question a subagent asked, and your answer. Kept for the whole pipeline and given
@@ -198,7 +229,7 @@ export type PendingCommand = { tool: string; command: string };
 export type PipelineWaiting =
   | { kind: "questions"; from: AgentRole; questions: string[] }
   | { kind: "approve_plan" }
-  | { kind: "approve_commands"; commands: PendingCommand[] }
+  | { kind: "approve_commands"; commands: PendingCommand[]; from?: AgentRole }
   | { kind: "feedback" };
 
 // Your reply to what the pipeline is waiting on, as POSTed to
@@ -224,6 +255,7 @@ export type PipelineState = {
   plan: PlanDocument | null;
   planApproved: boolean;
   implementation: ImplementationDocument | null;
+  checks?: ChecksDocument | null;
   review: ReviewDocument | null;
   qa: QaDocument | null;
   clarifications: Clarification[];
@@ -265,6 +297,7 @@ export type RunLogEntry =
   | { event: "model_error"; error: string }
   // A doc tool call that didn't fit its schema; the error went back to the model.
   | { event: "doc_invalid"; error: string }
+  | { event: "doc_recovery"; attempt: number }
   // id pairs a result with its call when tools run in parallel.
   | { event: "tool_call"; id?: string; name: string; args: Record<string, unknown> }
   | { event: "tool_result"; id?: string; name: string; status?: string; result: string }
@@ -309,7 +342,9 @@ export type RunMetrics = {
   model: string;
   // Whether the pipeline got to the end (the QA passed, waiting for feedback).
   finished: boolean;
-  qaVerdict: "pass" | "fail" | null;
+  qaVerdict: "pass" | "fail" | "partial" | null;
+  rateLimited?: boolean;
+  codeVersion?: string;
   // Why the run stopped early, if it did.
   error: string | null;
   // The scenario's hidden check, if it has one.
@@ -346,11 +381,12 @@ export type SummaryRow = { label: string; value: string; was: string | null; cha
 
 type SummaryMetric = [label: string, value: (run: RunMetrics) => number | null, kind?: "rate"];
 
-const SUMMARY_ROLES = ["planner", "coder", "reviewer", "qa"];
+const SUMMARY_ROLES = ["planner", "coder", "checks", "reviewer", "qa"];
 
 const SUMMARY_METRICS: SummaryMetric[] = [
   ["finished", (r) => (r.finished ? 1 : 0), "rate"],
   ["QA passed", (r) => (r.qaVerdict === "pass" ? 1 : 0), "rate"],
+  ["model rate limited", (r) => (r.rateLimited ? 1 : 0), "rate"],
   ["hidden check passed", (r) => (r.check ? (r.check.passed ? 1 : 0) : null), "rate"],
   ["seconds", (r) => r.seconds],
   ["model calls", (r) => r.totals.modelCalls],
