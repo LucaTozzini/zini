@@ -29,6 +29,8 @@ import { startApp } from "./app.js";
 import type { RunMetrics } from "shared";
 import { roleMetrics, totals } from "./metrics.js";
 import type { Check, Scenario } from "./types.js";
+import { isModelRateLimit } from "../../backend/src/modelErrors.js";
+import { codeVersion } from "./version.js";
 
 // One eval run, in its own process (see run.ts): DB_PATH puts all of zini's data (its
 // database, the repo's clone, the workspace, the run logs) in a fresh folder. The run
@@ -240,7 +242,7 @@ async function main() {
 
   let check: RunMetrics["check"] = null;
   const checkFile = join(scenarioDir, "check.ts");
-  if (existsSync(checkFile)) {
+  if (existsSync(checkFile) && !isModelRateLimit(error)) {
     console.log("Running the hidden check…");
     const { default: runCheck } = (await import(pathToFileURL(checkFile).href)) as { default: Check };
     const workspace = workspacePath(issueId);
@@ -257,6 +259,8 @@ async function main() {
     finished: pipeline.finished,
     qaVerdict: pipeline.qa?.verdict ?? null,
     error,
+    rateLimited: isModelRateLimit(error),
+    codeVersion: codeVersion(),
     check,
     seconds: (Date.now() - started) / 1000,
     questionsAnswered,
@@ -268,7 +272,7 @@ async function main() {
   writeFileSync(join(runDir, "metrics.json"), `${JSON.stringify(metrics, null, 2)}\n`);
   console.log(`Done in ${Math.round(metrics.seconds)}s: ${runDir}`);
   // The pipeline's checkpointer and LangChain keep handles open.
-  process.exit(0);
+  process.exit(metrics.rateLimited ? 2 : metrics.finished && metrics.qaVerdict === "pass" && check?.passed !== false ? 0 : 1);
 }
 
 await main();

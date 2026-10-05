@@ -2,51 +2,22 @@ import { tool } from "langchain";
 import { z } from "zod";
 import {
   deleteWorkspaceFile,
-  editWorkspaceFile,
-  listWorkspaceFiles,
   moveWorkspaceFile,
-  readWorkspaceFile,
-  searchWorkspace,
   workspaceChanges,
   workspaceDiff,
-  writeWorkspaceFile,
 } from "../workspaceFiles.js";
+import { git, workspacePath } from "../git.js";
+import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesystem } from "../repositoryFilesystem.js";
 
 // The subagents' tools, each working in the issue's workspace.
 
 // What the diff tool gives a model, at most.
 const MAX_DIFF_FOR_MODEL = 60_000;
 
-export function readTools(issueId: string) {
-  return [
-    tool(async ({ path }) => listWorkspaceFiles(issueId, path ?? ""), {
-      name: "list_files",
-      description:
-        "List a folder's files and subfolders (subfolders end in /). Omit path for the root.",
-      schema: z.object({ path: z.string().optional() }),
-    }),
-    tool(
-      async ({ path, startLine, endLine }) =>
-        readWorkspaceFile(issueId, path, startLine, endLine),
-      {
-        name: "read_file",
-        description:
-          "Read a file, with line numbers. Long files are cut off with a note saying which " +
-          "startLine to read on from; pass a line range to read just part of a file.",
-        schema: z.object({
-          path: z.string(),
-          startLine: z.number().int().min(1).optional(),
-          endLine: z.number().int().min(1).optional(),
-        }),
-      },
-    ),
-    tool(async ({ query }) => searchWorkspace(issueId, query), {
-      name: "search_code",
-      description:
-        "Find lines containing some text (plain text, any case), as path:line:text.",
-      schema: z.object({ query: z.string().min(1) }),
-    }),
-  ];
+export function workspaceFilesystem(issueId: string, writable = false, notify?: () => void) {
+  const root = workspacePath(issueId);
+  return repositoryFilesystem(new RepositoryFilesystemBackend(root,
+    (args, exit1Ok = false) => git(["-C", root, ...args], undefined, { exit1Ok }), writable, notify), writable);
 }
 
 // The files whose diffs start in a diff ("diff --git a/<path> b/<path>" lines).
@@ -122,43 +93,8 @@ export function writeTools(issueId: string, notify: () => void) {
     };
   return [
     tool(
-      changing(({ path, content }: { path: string; content: string }) =>
-        writeWorkspaceFile(issueId, path, content),
-      ),
-      {
-        name: "write_file",
-        description: "Create a file, or replace a whole file, with content.",
-        schema: z.object({ path: z.string(), content: z.string() }),
-      },
-    ),
-    tool(
-      changing(
-        ({
-          path,
-          oldText,
-          newText,
-        }: {
-          path: string;
-          oldText: string;
-          newText: string;
-        }) => editWorkspaceFile(issueId, path, oldText, newText),
-      ),
-      {
-        name: "edit_file",
-        description:
-          "Replace oldText with newText in a file. oldText must appear exactly once: copy it " +
-          "from read_file (without line numbers), with enough lines to be unique.",
-        schema: z.object({
-          path: z.string(),
-          oldText: z.string().min(1),
-          newText: z.string(),
-        }),
-      },
-    ),
-    tool(
-      changing(({ path }: { path: string }) =>
-        deleteWorkspaceFile(issueId, path),
-      ),
+      changing(async ({ path }: { path: string }) =>
+        deleteWorkspaceFile(issueId, await checkedRepositoryPath(workspacePath(issueId), path))),
       {
         name: "delete_file",
         description: "Delete a file.",
@@ -166,15 +102,15 @@ export function writeTools(issueId: string, notify: () => void) {
       },
     ),
     tool(
-      changing(({ from, to }: { from: string; to: string }) =>
-        moveWorkspaceFile(issueId, from, to),
-      ),
+      changing(async ({ from, to }: { from: string; to: string }) =>
+        moveWorkspaceFile(issueId, await checkedRepositoryPath(workspacePath(issueId), from),
+          await checkedRepositoryPath(workspacePath(issueId), to))),
       {
         name: "move_file",
         description:
           "Move or rename a file, as it is, creating the folders it goes in. Fails if " +
           "to already exists. Update what refers to the old path (e.g. imports) " +
-          "yourself: search_code finds it.",
+          "yourself: grep finds it.",
         schema: z.object({ from: z.string(), to: z.string() }),
       },
     ),

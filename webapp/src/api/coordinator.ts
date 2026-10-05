@@ -1,8 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PendingApproval, PipelineResume, PipelineState, RunLogEvent, RunLogSummary } from 'shared'
+import type { CoordinatorMessage, PendingApproval, PipelineResume, PipelineState } from 'shared'
 import { api } from './client.ts'
 
 export const coordinatorKey = (issueId: string) => ['coordinator', issueId]
+export const coordinatorMessagesKey = (issueId: string) => [...coordinatorKey(issueId), 'messages']
+
+export function useCoordinatorMessages(issueId: string) {
+  return useQuery({
+    queryKey: coordinatorMessagesKey(issueId),
+    queryFn: () => api.get(`coordinator/${issueId}/messages`).json<CoordinatorMessage[]>(),
+  })
+}
 
 // The issue's coordinator pipeline (one per issue). Its progress comes through
 // useServerEvents, which refetches it (and the workspace diff) on coordinator.updated.
@@ -25,26 +33,6 @@ export function usePendingApprovals() {
   })
 }
 
-export const runLogsKey = (issueId: string) => [...coordinatorKey(issueId), 'logs']
-
-// The issue's subagent runs, oldest first, kept up to date by useServerEvents.
-export function useRunLogs(issueId: string) {
-  return useQuery({
-    queryKey: runLogsKey(issueId),
-    queryFn: () => api.get(`coordinator/${issueId}/logs`).json<RunLogSummary[]>(),
-  })
-}
-
-// One run's log, fetched while enabled (e.g. its section is open); refetched on each
-// line added.
-export function useRunLog(issueId: string, runId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: [...runLogsKey(issueId), runId],
-    queryFn: () => api.get(`coordinator/${issueId}/logs/${runId}`).json<RunLogEvent[]>(),
-    enabled,
-  })
-}
-
 // Starting and replying answer once the run has started; refetching then shows it.
 export function useStartPipeline(issueId: string) {
   const queryClient = useQueryClient()
@@ -59,6 +47,14 @@ export function useResumePipeline(issueId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (reply: PipelineResume) => api.post(`coordinator/${issueId}/resume`, { json: reply }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: coordinatorKey(issueId) }),
+  })
+}
+
+export function usePipelineControl(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (action: 'pause' | 'continue') => api.post(`coordinator/${issueId}/${action}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: coordinatorKey(issueId) }),
   })
 }

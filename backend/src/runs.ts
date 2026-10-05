@@ -7,7 +7,7 @@ import type { Response } from "express";
 // and why the last one failed) is kept here, in memory, by run id (the thread id), and
 // added to the conversation's GET responses.
 
-type RunStatus = { running: boolean; error: string | null };
+type RunStatus = { running: boolean; error: string | null; pausing?: boolean };
 
 const runs = new Map<string, RunStatus>();
 
@@ -48,11 +48,17 @@ export function stopRun(runId: string): boolean {
   return true;
 }
 
-// Ends a run: its status is freed, and its conversation's event sent. A stopped run
-// does neither: it was freed when it was stopped, its abort throws, which isn't a
-// failure, and it changed nothing since. The status may be another run's by now, and an
-// event could have the webapp refetch the conversation before that run's message is
-// saved, dropping the message it already shows.
+// Pause keeps the workspace locked until cancellation has unwound.
+export function pauseRun(runId: string): boolean {
+  const status = runs.get(runId);
+  const control = controls.get(runId);
+  if (!status?.running || status.pausing || !control) return false;
+  status.pausing = true;
+  control.abort();
+  return true;
+}
+
+// Chat Stop frees the slot immediately; coordinator Pause frees it after draining.
 function endRun(
   runId: string,
   control: AbortController,
@@ -60,6 +66,11 @@ function endRun(
   notify: () => void,
   err?: unknown,
 ) {
+  if (status.pausing) {
+    changeRun(runId, status, { running: false, pausing: false, error: null });
+    notify();
+    return;
+  }
   if (control.signal.aborted) return;
   if (err) console.error(`Agent run ${runId} failed:`, err);
   const error = err ? (err instanceof Error ? err.message : String(err)) : null;

@@ -213,7 +213,7 @@ function RunDetails({ batch, run }: { batch: EvalBatch; run: EvalBatch["runs"][n
       ) : (
         <Stack spacing={0.5}>
           <Typography variant="body2">
-            {m.finished ? "Finished" : "Didn't finish"} · QA {m.qaVerdict ?? "didn't report"} · {Math.round(m.seconds)}s ·{" "}
+            {m.rateLimited ? "Model rate limited" : m.finished ? "Finished" : "Didn't finish"} · QA {m.qaVerdict ?? "didn't report"} · {Math.round(m.seconds)}s ·{" "}
             {m.totals.toolCalls} tool calls · {Math.round(m.totals.inputTokens / 1000)}k tokens in · model {m.model}
           </Typography>
           {m.error && <Alert severity="error">{m.error}</Alert>}

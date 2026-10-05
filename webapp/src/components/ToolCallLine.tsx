@@ -29,7 +29,7 @@ export function ToolCallIcon({ call, busy }: { call: ToolCall; busy: boolean }) 
 
 // One of the agent's tool calls in the chat: its name and arguments on one line,
 // expanded to show them in full (and the error, if it failed, or that it never ran).
-function ToolCallLine({ call, busy }: { call: ToolCall; busy: boolean }) {
+function ToolCallLine({ call, busy, result }: { call: ToolCall; busy: boolean; result?: string }) {
   const [open, setOpen] = useState(false);
   const args = Object.entries(call.args);
 
@@ -86,6 +86,10 @@ function ToolCallLine({ call, busy }: { call: ToolCall; busy: boolean }) {
               {call.error}
             </Typography>
           )}
+          {result && call.status !== "error" && <Typography component="span" variant="caption"
+            sx={{ display: "block", mt: 1, fontFamily: "monospace" }}>
+            {result}
+          </Typography>}
         </Box>
       </Collapse>
     </Box>

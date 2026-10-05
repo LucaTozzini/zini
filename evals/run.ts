@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { summarizeRuns, type RunMetrics } from "shared";
 import { killTree } from "../backend/src/processes.js";
+import { codeVersion } from "./harness/version.js";
 
 // Runs scenarios through the coordinator, each --repeat times, every run in its own
 // process with its own data folder (see harness/run-one.ts), then summarises each
@@ -57,9 +58,10 @@ const results = resolve(process.env.EVAL_RESULTS ?? join(EVALS, "results"));
 const work = resolve(process.env.EVAL_WORK ?? join(tmpdir(), "zini-evals"));
 const timeoutMinutes = Number(process.env.EVAL_TIMEOUT_MINUTES) || 60;
 const batch = new Date().toISOString().replace(/[:.]/g, "-");
+console.log(`Coordinator source version: ${codeVersion()}`);
 
 function runOne(scenario: string, runDir: string, dataDir: string) {
-  return new Promise<void>((done) => {
+  return new Promise<number>((done) => {
     const child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "harness", "run-one.ts")], {
       stdio: "inherit",
       env: {
@@ -73,21 +75,29 @@ function runOne(scenario: string, runDir: string, dataDir: string) {
       console.log(`✗ Stopped after ${timeoutMinutes} minutes`);
       killTree(child);
     }, timeoutMinutes * 60_000);
-    child.on("close", () => {
+    child.on("close", (code) => {
       clearTimeout(timer);
-      done();
+      done(code ?? 1);
     });
+    child.on("error", (error) => { clearTimeout(timer); console.error(error.message); done(1); });
   });
 }
 
+let failed = false;
 for (const scenario of scenarios) {
   const batchDir = join(results, scenario, batch);
   for (let n = 1; n <= repeat; n++) {
     console.log(`\n=== ${scenario}, run ${n} of ${repeat} ===`);
-    await runOne(scenario, join(batchDir, `run-${n}`), join(work, batch, scenario, `run-${n}`));
+    const code = await runOne(scenario, join(batchDir, `run-${n}`), join(work, batch, scenario, `run-${n}`));
+    if (code === 2) {
+      console.log(`MODEL_RATE_LIMIT: stopping the batch before further runs.\n${summarize(batchDir)}`);
+      process.exit(2);
+    }
+    if (code !== 0) failed = true;
   }
   console.log(`\n${summarize(batchDir)}`);
 }
+process.exitCode = failed ? 1 : 0;
 
 // The batch's summary, as the webapp's Results show it (see shared's summarizeRuns).
 function summarize(batchDir: string) {

@@ -2,6 +2,7 @@ import { tool } from "langchain";
 import type { Page } from "playwright";
 import { z } from "zod";
 import { getPage, noteUrl } from "./qaBrowser.js";
+import { inspectElements } from "./browserInspection.js";
 import { readOutput, runCommand, startProcess, stopProcess } from "./qaProcesses.js";
 
 // The QA's tools for running the software in the issue's workspace: commands (each one
@@ -33,11 +34,16 @@ function localUrl(value: string) {
   return url;
 }
 
-export function commandTools(issueId: string) {
+export function commandTools(issueId: string, { productOnly = false, completedChecks = [] }: { productOnly?: boolean; completedChecks?: string[] } = {}) {
   return [
-    tool(async ({ command, timeoutSeconds }) => runCommand(issueId, command, timeoutSeconds), {
+    tool(async ({ command, timeoutSeconds }, config) => {
+      if (productOnly && completedChecks.some((check) => check.trim() === command.trim()))
+        throw new Error("This deterministic check already has recorded results. Use that evidence and exercise product behavior instead.");
+      return runCommand(issueId, command, timeoutSeconds, config.signal);
+    }, {
       name: "run_command",
       description:
+        (productOnly ? "Use only to exercise the delivered CLI/library interface or recover missing runtime prerequisites. Deterministic checks have already run. " : "") +
         "Run a shell command in the workspace folder and wait for it to finish: its exit " +
         "code and the end of its output. For installs, builds, linters and tests; start " +
         "servers with start_process instead. The user approves each command first.",
@@ -168,6 +174,16 @@ export function browserTools(issueId: string, notify: () => void) {
       name: "browser_snapshot",
       description: "What the page in your browser shows now, as its accessibility tree.",
       schema: z.object({}),
+    }),
+    tool(async (target) => {
+      const { page } = await getPage(issueId);
+      try {
+        return cut(JSON.stringify(await inspectElements(locate(page, target))));
+      } catch (error) { throw new Error(playwrightError(error)); }
+    }, {
+      name: "browser_inspect",
+      description: "Read matching elements' text, classes, field state, visibility, bounds and computed styles without clicking or changing the page. Reports count 0 immediately when absent; includes up to 10 matches. Use to verify presence/absence, highlighting, disabled/checked state or layout instead of clicking as a probe.",
+      schema: z.object(TARGET),
     }),
     tool((target) => onPage((page) => locate(page, target).click({ timeout: 10_000 }))(), {
       name: "browser_click",

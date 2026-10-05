@@ -6,6 +6,7 @@ import { modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "./db.js";
+import { isModelRateLimit } from "./modelErrors.js";
 
 // What the agents (product manager, coordinator) share.
 
@@ -23,7 +24,7 @@ export const threadConfig = (threadId: string) => ({ configurable: { thread_id: 
 // agent needs more steps than that. It counts the steps of one run: the count is
 // read from the saved checkpoint, so every message gets a fresh budget. signal is the
 // run's abort signal (see stopRun), which cancels the model and tool calls it has in
-// flight, and is left out for a run that can't be stopped (the coordinator's).
+// flight.
 export const streamConfig = (threadId: string, recursionLimit?: number, signal?: AbortSignal) => ({
   ...threadConfig(threadId),
   streamMode: "values" as const,
@@ -47,7 +48,7 @@ export const modelRetry = modelRetryMiddleware({
   onFailure: "error",
   // A stopped run's aborted call isn't worth trying again; anything else is retried
   // unless LangChain has marked it as not retryable (its default).
-  retryOn: (error) => error.name !== "AbortError" && (getRetryable(error) ?? true),
+  retryOn: (error) => error.name !== "AbortError" && !isModelRateLimit(error) && (getRetryable(error) ?? true),
 });
 
 // The user's messages, the agent's written replies and its tool calls, each with its

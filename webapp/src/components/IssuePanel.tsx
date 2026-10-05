@@ -13,11 +13,8 @@ import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import ReplayIcon from "@mui/icons-material/Replay";
-import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
-import { GridLoader } from "react-spinners";
-import { PRIORITY_NAMES, type PipelineState, type Workspace } from "shared";
+import { PRIORITY_NAMES, type Workspace } from "shared";
 import { errorMessage } from "../api/client.ts";
-import { useCoordinator } from "../api/coordinator.ts";
 import {
   useCreateWorkspace,
   useDeleteWorkspace,
@@ -29,12 +26,8 @@ import { useLinearIssue } from "../api/integrations.ts";
 import PriorityIcon from "./icons/PriorityIcon.tsx";
 import StatusIcon from "./icons/StatusIcon.tsx";
 import VSCodeIcon from "./icons/VSCodeIcon.tsx";
-import CoordinatorDialog from "./CoordinatorDialog.tsx";
 import {
-  useMediaQuery,
-  useTheme,
   Alert,
-  Badge,
   Box,
   Button,
   CircularProgress,
@@ -49,7 +42,6 @@ import {
   ListItemText,
   Menu,
   MenuItem,
-  Paper,
   Skeleton,
   Stack,
   Tooltip,
@@ -294,65 +286,6 @@ function FolderRow({ path }: { path: string }) {
   );
 }
 
-// Where the issue's pipeline is at, for the coordinator button: its mark (a spinner
-// while working, a dot when it needs you or failed) and its tooltip.
-// Finished counts as done even though it waits for feedback: that's optional.
-function pipelineStatus(pipeline: PipelineState | undefined) {
-  if (!pipeline?.started) return null;
-  if (pipeline.running) return { mark: "working", tooltip: `Working: ${pipeline.running}` } as const;
-  if (pipeline.error) return { mark: "failed", tooltip: `Failed: ${pipeline.error}` } as const;
-  if (pipeline.finished) return { mark: null, tooltip: "Done" } as const;
-  const waiting = pipeline.waiting;
-  if (!waiting) return null;
-  const tooltip =
-    waiting.kind === "questions"
-      ? `Needs you: answer the ${waiting.from}'s questions`
-      : waiting.kind === "approve_plan"
-        ? "Needs you: approve the plan"
-        : "Needs you";
-  return { mark: "needs_you", tooltip } as const;
-}
-
-// Opens the issue's coordinator, showing where the pipeline is at so you know without
-// opening it: its icon is a spinner while a subagent works, and a dot on the button
-// says it needs you (orange) or failed (red). The tooltip says what exactly.
-function CoordinatorButton({ issueId }: { issueId: string }) {
-  const [open, setOpen] = useState(false);
-  const theme = useTheme();
-  const status = pipelineStatus(useCoordinator(issueId).data);
-
-  const icon =
-    status?.mark === "working" ? (
-      // Its grid is 3 × (size + 4)px wide: 21px, about the robot icon's size.
-      <Box sx={{ display: "flex" }}>
-        <GridLoader size={3} color={(theme.vars || theme).palette.primary.contrastText} />
-      </Box>
-    ) : (
-      <SmartToyOutlinedIcon />
-    );
-  const dot = status?.mark === "needs_you" || status?.mark === "failed";
-
-  return (
-    <>
-      {/* The dot sits on the button's top-right corner; the badge spans the full width
-          so the button still can. */}
-      <Badge
-        variant="dot"
-        color={status?.mark === "failed" ? "error" : "warning"}
-        invisible={!dot}
-        sx={{ width: "100%" }}
-      >
-        <Tooltip title={status?.tooltip ?? ""}>
-          <Button variant="contained" fullWidth startIcon={icon} onClick={() => setOpen(true)}>
-            Open coordinator
-          </Button>
-        </Tooltip>
-      </Badge>
-      <CoordinatorDialog issueId={issueId} open={open} onClose={() => setOpen(false)} />
-    </>
-  );
-}
-
 // The issue's git workspace: a button to create it, or its folder with
 // buttons to open it in VS Code and to delete it.
 // linearBranch is the branch Linear suggests for the issue, once it has loaded.
@@ -476,13 +409,6 @@ function WorkspaceSection({
               </Property>
             ))}
           <SetupStatusRow workspace={workspace.data} />
-          {/* The coordinator works in the workspace, so only once it's set up. */}
-          {workspace.data.setupStatus === "ready" && (
-            <Box sx={{ mt: 1.5 }}>
-              <CoordinatorButton issueId={issueId} />
-            </Box>
-          )}
-
           <Dialog
             open={confirming}
             onClose={() => !remove.isPending && setConfirming(false)}
@@ -532,20 +458,13 @@ function IssuePanel({
 }) {
   const issue = useLinearIssue(issueId);
   const data = issue.data;
-  const theme = useTheme();
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down("md"));
 
   return (
-    <Paper
-      square
-      elevation={0}
+    <Box
       sx={{
-        width: isSmallScreen ? "100%" : 430,
+        width: "100%",
         flexShrink: 0,
-        borderLeft: isSmallScreen ? undefined : 1,
-        borderColor: "divider",
         overflowY: "auto",
-        bgcolor: isSmallScreen ? "background.default" : undefined,
       }}
     >
       {/* Identifier and actions, then the title. */}
@@ -649,7 +568,7 @@ function IssuePanel({
       <Divider />
 
       <WorkspaceSection issueId={issueId} linearBranch={data?.branchName} />
-    </Paper>
+    </Box>
   );
 }
 

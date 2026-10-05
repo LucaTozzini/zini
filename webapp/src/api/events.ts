@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ServerEvent } from 'shared'
-import { approvalsKey, coordinatorKey, runLogsKey } from './coordinator.ts'
+import { approvalsKey, coordinatorKey, coordinatorMessagesKey } from './coordinator.ts'
 import { evalsKey } from './evals.ts'
 import { threadKey, threadsKey } from './productManager.ts'
 import { workspaceKey, workspacesKey } from './workspaces.ts'
@@ -31,16 +31,13 @@ export function useServerEvents() {
         // The status and its output, and the results, which change as runs end.
         queryClient.invalidateQueries({ queryKey: evalsKey })
       } else if (event.type === 'coordinator.updated') {
-        queryClient.invalidateQueries({ queryKey: coordinatorKey(event.issueId) })
+        // The pipeline and chat both come from saved checkpoints.
+        queryClient.invalidateQueries({ queryKey: coordinatorKey(event.issueId), exact: true })
+        queryClient.invalidateQueries({ queryKey: coordinatorMessagesKey(event.issueId) })
         // Whether it's waiting for an approval, for the issue lists.
         queryClient.invalidateQueries({ queryKey: approvalsKey })
         // The workspace says whether its coordinator is working (it can't be deleted then).
         queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId), exact: true })
-      } else {
-        // A line was added to a run's log: that run, and the list (a new run, or an
-        // ended one's outcome). Only fetched if they're shown.
-        queryClient.invalidateQueries({ queryKey: runLogsKey(event.issueId), exact: true })
-        queryClient.invalidateQueries({ queryKey: [...runLogsKey(event.issueId), event.runId] })
       }
     }
     return () => events.close()

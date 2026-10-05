@@ -181,9 +181,9 @@ function coordinatorTools(linear: LinearClient) {
         if (pipeline.started) return JSON.stringify({ status: "already_running" });
         const setup = await loadPipelineSetup();
         if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
-        const run = pipelineRun(setup, workspace.issueId);
+        const run = pipelineRun(setup, workspace.issueId, "Product manager");
         const started = await outsideAgentRun(() =>
-          startRun(coordinatorThreadId(workspace.issueId), () => startPipeline(run, ""), run.notify),
+          startRun(coordinatorThreadId(workspace.issueId), (signal) => startPipeline(run, "", signal), run.notify),
         );
         return JSON.stringify({ status: started ? "started" : "already_running" });
       },
@@ -284,9 +284,9 @@ function coordinatorTools(linear: LinearClient) {
         }
         const setup = await loadPipelineSetup();
         if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
-        const run = pipelineRun(setup, id);
+        const run = pipelineRun(setup, id, "Product manager");
         const started = await outsideAgentRun(() =>
-          startRun(coordinatorThreadId(id), () => resumePipeline(run, reply), run.notify),
+          startRun(coordinatorThreadId(id), (signal) => resumePipeline(run, reply, signal), run.notify),
         );
         return JSON.stringify(started ? { status: "resumed" } : { status: "error", error: "The pipeline is still running" });
       },

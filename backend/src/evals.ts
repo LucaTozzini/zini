@@ -127,7 +127,8 @@ export function runInDocker(args: string[], { key, model }: { key: string; model
       { ...process.env, OPENROUTER_API_KEY: key, EVAL_MODEL: model },
     );
     if (stopped) return { ok: false, error: "Stopped" };
-    return code === 0 ? { ok: true, error: null } : { ok: false, error: `The eval container exited with code ${code}` };
+    if (code === 2) return { ok: false, error: "Model rate limit reached; remaining eval runs were not started" };
+    return code === 0 ? { ok: true, error: null } : { ok: false, error: `Eval batch failed (container exit ${code}); inspect the run metrics` };
   })();
 
   const stop = () => {

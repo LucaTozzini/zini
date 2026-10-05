@@ -31,7 +31,7 @@ const ChatInput = ({
   onSubmit,
 }: ChatInputProps) => {
   return (
-    <Paper sx={{borderRadius: 8}}>
+    <Paper sx={{borderRadius: 2}}>
 
       <TextField
         component="form"
@@ -61,7 +61,6 @@ const ChatInput = ({
         slotProps={{
           input: {
             sx: {
-              borderRadius: 8,
               display: "flex",
             },
             endAdornment: (

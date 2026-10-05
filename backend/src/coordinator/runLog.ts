@@ -18,7 +18,7 @@ const LOG_DIR = resolve(dirname(storage), "coordinator-logs");
 
 // A run id, split into the time it started (its ISO string, with : and . as -) and
 // its role. Checked before an id is used in a file path.
-const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|qa|committer|pr_writer)$/;
+const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|checks|reviewer|qa|committer|pr_writer)$/;
 
 const runLogPath = (issueId: string, runId: string) => join(LOG_DIR, issueId, `${runId}.jsonl`);
 
@@ -130,7 +130,7 @@ export function logTo(log: RunLog) {
           await log.write({
             event: "model_reply",
             text: message.text,
-            toolCalls: message.tool_calls?.map(({ name, args }) => ({ name, args })),
+            toolCalls: message.tool_calls?.map(({ id, name, args }) => ({ id, name, args })),
             finishReason: message.response_metadata?.finish_reason as string | undefined,
             usage: message.usage_metadata,
           });
