@@ -23,7 +23,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import { useState, type ReactNode } from "react";
 import type { Todo } from "shared";
-import ForumIcon from "@mui/icons-material/Forum";
 import MarkdownText from "./MarkdownText.tsx";
 
 const MyAvatar = ({ src, label }: { src: string; label: string }) => (
@@ -93,10 +92,8 @@ type ChatHeaderProps = {
   // The agent's to-do list and project notes (markdown), for the dialogs.
   todos: Todo[];
   notes: string;
-  showChatlistButton: boolean;
-  onChatlistButtonClick: () => void;
 };
-const ChatHeader = ({ src, label, todos, notes, showChatlistButton, onChatlistButtonClick }: ChatHeaderProps) => {
+const ChatHeader = ({ src, label, todos, notes }: ChatHeaderProps) => {
   const [showModal, setShowModal] = useState(0);
   const openTodos = todos.filter((todo) => todo.status !== "completed").length;
 
@@ -118,15 +115,7 @@ const ChatHeader = ({ src, label, todos, notes, showChatlistButton, onChatlistBu
             `linear-gradient(${(theme.vars || theme).palette.background.default}, transparent)`,
         }}
       >
-        <Box sx={{ flex: 1 }}>
-          {showChatlistButton && <Tooltip title="Chat list">
-            <Paper sx={{ width: "fit-content", borderRadius: 1000 }}>
-              <IconButton size="large" onClick={onChatlistButtonClick}>
-                <ForumIcon />
-              </IconButton>
-            </Paper>
-          </Tooltip>}
-        </Box>
+        <Box sx={{ flex: 1 }} />
         <Paper
           elevation={2}
           sx={{

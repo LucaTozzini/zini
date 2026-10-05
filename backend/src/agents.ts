@@ -24,7 +24,7 @@ export const threadConfig = (threadId: string) => ({ configurable: { thread_id: 
 // agent needs more steps than that. It counts the steps of one run: the count is
 // read from the saved checkpoint, so every message gets a fresh budget. signal is the
 // run's abort signal (see stopRun), which cancels the model and tool calls it has in
-// flight, and is left out for a run that can't be stopped (the coordinator's).
+// flight.
 export const streamConfig = (threadId: string, recursionLimit?: number, signal?: AbortSignal) => ({
   ...threadConfig(threadId),
   streamMode: "values" as const,

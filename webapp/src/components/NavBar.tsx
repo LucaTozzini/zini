@@ -1,141 +1,193 @@
-import { Box, Container, IconButton, Stack, Tooltip } from "@mui/material";
+import {
+  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogContentText,
+  DialogTitle, Menu, MenuItem, Stack, Typography,
+} from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
-import HomeIcon from "@mui/icons-material/Home";
-import PsychologyIcon from "@mui/icons-material/Psychology";
 import ScienceIcon from "@mui/icons-material/Science";
-import { Link, useLocation } from "react-router";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import { useState } from "react";
-import ProfileDialog from "./ProfileDialog.tsx";
+import { Link, useLocation, useNavigate } from "react-router";
+import { useLinearIssues } from "../api/integrations.ts";
+import SessionsSection, { IssueItems } from "./navbar/SessionsSection.tsx";
+import Profile from "./navbar/Profile.tsx";
+import NavBarItem from "./navbar/NavBarItem.tsx";
+import { useDeleteThread, useThreads } from "../api/productManager.ts";
+import SessionItem from "./navbar/SessionItem";
+import AddIcon from "@mui/icons-material/Add";
+import { useId, useState } from "react";
+import type { ThreadSummary } from "shared";
+import { errorMessage } from "../api/client.ts";
 
-const MainItems = ({
-  tooltipPlacement,
-}: {
-  tooltipPlacement: "right" | "top";
-}) => {
+const NavBar = () => {
+  const navigate = useNavigate();
   const location = useLocation();
-
-  const style = (pathname: string) => {
-    return {
-      bgcolor: location.pathname === pathname ? "action.hover" : undefined,
-    };
-  };
-
-  return (
-    <>
-      <Tooltip key="home" title={"home"} placement={tooltipPlacement}>
-        <IconButton component={Link} to="/" sx={style("/")}>
-          <HomeIcon />
-        </IconButton>
-      </Tooltip>
-
-      <Tooltip
-        key="product-manager"
-        title="product manager"
-        placement={tooltipPlacement}
-      >
-        <IconButton
-          component={Link}
-          to="/product-manager"
-          sx={style("/product-manager")}
-        >
-          <PsychologyIcon />
-        </IconButton>
-      </Tooltip>
-
-      <Tooltip key="evals" title="evals" placement={tooltipPlacement}>
-        <IconButton component={Link} to="/evals" sx={style("/evals")}>
-          <ScienceIcon />
-        </IconButton>
-      </Tooltip>
-    </>
+  const { data: linearIssuesUnstarted } = useLinearIssues(["unstarted"]);
+  const { data: linearIssuesStarted } = useLinearIssues(["started"]);
+  const { data: linearIssuesBacklog } = useLinearIssues(["backlog"]);
+  const { data: pmThreads, isPending: pmThreadsIsPending } = useThreads();
+  const deleteThread = useDeleteThread();
+  const [menu, setMenu] = useState<{
+    position: { top: number; left: number };
+    thread: ThreadSummary;
+  } | null>(null);
+  const [threadToDelete, setThreadToDelete] = useState<ThreadSummary | null>(null);
+  const menuId = useId();
+  const dialogTitleId = useId();
+  const dialogDescriptionId = useId();
+  const menuThread = pmThreads?.find((thread) => thread.id === menu?.thread.id) ?? menu?.thread;
+  const deletingRunningThread = Boolean(
+    pmThreads?.find((thread) => thread.id === threadToDelete?.id)?.running,
   );
-};
 
-const ProfileButton = ({
-  tooltipPlacement,
-}: {
-  tooltipPlacement: "top" | "right";
-}) => {
-  const [showModal, setShowModal] = useState(false);
+  function closeDeleteDialog() {
+    if (deleteThread.isPending) return;
+    setThreadToDelete(null);
+    deleteThread.reset();
+  }
 
-  return (
-    <>
-      <Tooltip key="profile" title="profile" placement={tooltipPlacement}>
-        <IconButton onClick={() => setShowModal(true)}>
-          <AccountCircleIcon />
-        </IconButton>
-      </Tooltip>
-      <ProfileDialog showDialog={showModal} setShowDialog={setShowModal} />
-    </>
-  );
-};
+  function confirmDelete() {
+    if (!threadToDelete || deleteThread.isPending || deletingRunningThread) return;
+    deleteThread.mutate(threadToDelete.id, {
+      onSuccess: () => {
+        setThreadToDelete(null);
+        if (location.pathname === "/product-manager/" + threadToDelete.id) {
+          navigate("/product-manager");
+        }
+      },
+    });
+  }
 
-const SecondaryItems = ({
-  tooltipPlacement,
-}: {
-  tooltipPlacement: "top" | "right";
-}) => {
-  const location = useLocation();
-
-  const style = (pathname: string) => {
-    return {
-      bgcolor: location.pathname === pathname ? "action.hover" : undefined,
-    };
-  };
-  
-  return (
-    <>
-      <ProfileButton tooltipPlacement={tooltipPlacement} />
-      <Tooltip key="settings" title={"settings"} placement={tooltipPlacement}>
-        <IconButton component={Link} to="/settings" sx={style("/settings")} >
-          <SettingsIcon />
-        </IconButton>
-      </Tooltip>
-    </>
-  );
-};
-
-const NavBar = ({ direction }: { direction: "row" | "column" }) => {
   return (
     <Stack
       useFlexGap
-      direction={direction}
-      spacing={5}
+      spacing={2}
       sx={{
-        height: direction === "column" ? "100vh" : undefined,
-        borderColor: "divider",
-        borderRightStyle: direction === "column" ? "solid" : undefined,
-        borderTopStyle: direction === "row" ? "solid" : undefined,
-        borderWidth: 1,
-        p: 1.5,
+        height: "100dvh",
+        p: 2,
+        width: 280,
+        maxWidth: "100%",
+        userSelect: "none",
+        overflow: "auto",
       }}
     >
-      {direction === "column" && (
-        <>
-          <Box sx={{ display: "flex", flex: 1, alignItems: "center" }}>
-            <Stack spacing={2}>
-              <MainItems tooltipPlacement="right" />
-            </Stack>
-          </Box>
+      <Button
+        component={Link}
+        to={"/product-manager"}
+        size="small"
+        variant="outlined"
+        startIcon={<AddIcon sx={{ fontSize: 17 }} />}
+        sx={{
+          borderColor: "divider",
+          color: (theme) =>
+            (theme.vars || theme).palette.text.secondary + " !important",
+        }}
+      >
+        New Thread
+      </Button>
 
-          <Stack spacing={1}><SecondaryItems tooltipPlacement="right" /></Stack>
-        </>
-      )}
-      {direction === "row" && (
-        <Container maxWidth="sm">
-          <Box
-            sx={{
-              display: "flex",
-              width: "100%",
-              justifyContent: "space-between",
+      <Typography variant="subtitle2" color="textSecondary">
+        PRODUCT MANAGERS
+      </Typography>
+
+      <Stack>
+        {pmThreadsIsPending && <Typography variant="body2" color="textSecondary">Loading...</Typography>}
+        {pmThreads?.map((i) => (
+          <SessionItem
+            key={i.id}
+            title={i.title}
+            updatedAt={i.createdAt}
+            selected={location.pathname === "/product-manager/" + i.id}
+            handleClick={() => navigate("/product-manager/" + i.id)}
+            loading={i.running}
+            handleContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setMenu({ position: { top: event.clientY, left: event.clientX }, thread: i });
             }}
+          />
+        ))}
+      </Stack>
+
+      <Typography variant="subtitle2" color="textSecondary" sx={{ mt: 1.5 }}>
+        COORDINTORS
+      </Typography>
+      <SessionsSection defaultOpen={true} title="Unstarted">
+        <IssueItems issues={linearIssuesUnstarted} />
+      </SessionsSection>
+      <SessionsSection defaultOpen={true} title="Started">
+        <IssueItems issues={linearIssuesStarted} />
+      </SessionsSection>
+
+      <SessionsSection defaultOpen={false} title="Backlog">
+        <IssueItems issues={linearIssuesBacklog} />
+      </SessionsSection>
+
+      <Box sx={{ flex: 1 }} />
+      <Box>
+        <NavBarItem
+          Icon={ScienceIcon}
+          title="Evals"
+          handleClick={() => navigate("/evals")}
+        />
+        <NavBarItem
+          Icon={SettingsIcon}
+          title="Settings"
+          handleClick={() => navigate("/settings")}
+        />
+        <Profile />
+      </Box>
+      <Menu
+        id={menuId}
+        anchorReference="anchorPosition"
+        anchorPosition={menu?.position}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        open={Boolean(menu)}
+        onClose={() => setMenu(null)}
+      >
+        <MenuItem
+          sx={{ color: "error.main" }}
+          disabled={!menuThread || menuThread.running || deleteThread.isPending}
+          onClick={() => {
+            if (!menuThread || menuThread.running) return;
+            deleteThread.reset();
+            setThreadToDelete(menuThread);
+            setMenu(null);
+          }}
+        >
+          Delete thread
+        </MenuItem>
+      </Menu>
+      <Dialog
+        open={Boolean(threadToDelete)}
+        onClose={closeDeleteDialog}
+        aria-labelledby={dialogTitleId}
+        aria-describedby={dialogDescriptionId}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle id={dialogTitleId}>Delete thread?</DialogTitle>
+        <DialogContent>
+          <DialogContentText id={dialogDescriptionId}>
+            Delete “{threadToDelete?.title}” and its saved conversation? This cannot be undone.
+          </DialogContentText>
+          {deletingRunningThread && (
+            <Alert severity="warning" sx={{ mt: 2 }}>Stop the thread before deleting it.</Alert>
+          )}
+          {deleteThread.isError && (
+            <Alert severity="error" sx={{ mt: 2 }}>{errorMessage(deleteThread.error)}</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteDialog} disabled={deleteThread.isPending}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={confirmDelete}
+            loading={deleteThread.isPending}
+            disabled={deletingRunningThread}
           >
-            <MainItems tooltipPlacement="top" />
-            <SecondaryItems tooltipPlacement="top" />
-          </Box>
-        </Container>
-      )}
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 };

@@ -68,12 +68,10 @@ type ChatProps = {
   // Shown in an empty chat.
   emptyText: string;
   placeholder: string;
-  showChatlistButton: boolean;
-  onChatlistButtonClick: () => void;
 };
 
 // A chat with any agent role: messages, approvals and the input box.
-function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChatlistButtonClick }: ChatProps) {
+function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
   const {
     loading,
     content,
@@ -130,7 +128,7 @@ function Chat({ chat, avatar, emptyText, placeholder, showChatlistButton, onChat
           scrollbarWidth: "none",
         }}
       >
-        <ChatHeader src={avatar.src} label={avatar.label} todos={todos} notes={notes} showChatlistButton={showChatlistButton} onChatlistButtonClick={onChatlistButtonClick} />
+        <ChatHeader src={avatar.src} label={avatar.label} todos={todos} notes={notes} />
         <Container maxWidth={false} sx={{ maxWidth: 750 }}>
           <Stack spacing={2} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (

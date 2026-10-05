@@ -8,7 +8,7 @@ type ToolCall = Extract<ChatMessage, { role: "tool" }>;
 
 // Consecutive tool calls as one line, e.g. "12 tool calls · 1 failed · 2 never ran",
 // expanded to list each call. Its icon is the last call's.
-function ToolCallGroup({ calls, busy }: { calls: ToolCall[]; busy: boolean }) {
+function ToolCallGroup({ calls, busy, results }: { calls: ToolCall[]; busy: boolean; results?: (string | undefined)[] }) {
   const [open, setOpen] = useState(false);
   const failed = calls.filter((call) => call.status === "error").length;
   const neverRan = calls.filter((call) => call.status === "never_ran").length;
@@ -33,7 +33,7 @@ function ToolCallGroup({ calls, busy }: { calls: ToolCall[]; busy: boolean }) {
       <Collapse in={open} unmountOnExit>
         <Stack spacing={0.5} sx={{ mt: 0.5, pl: 2 }}>
           {calls.map((call, i) => (
-            <ToolCallLine key={i} call={call} busy={busy} />
+            <ToolCallLine key={i} call={call} busy={busy} result={results?.[i]} />
           ))}
         </Stack>
       </Collapse>

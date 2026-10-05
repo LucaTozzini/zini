@@ -1,24 +1,20 @@
-import { Box, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Divider } from "@mui/material";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 import { useServerEvents } from "./api/events.ts";
 import { useSetup } from "./hooks/useSetup.ts";
-import HomePage from "./pages/HomePage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
 import EvalsPage from "./pages/EvalsPage.tsx";
 import ProductManagerPage from "./pages/ProductManagerPage.tsx";
+import IssuePage from "./pages/IssuePage.tsx";
 
 function App() {
   const setup = useSetup();
   // Live updates for every page: chat replies, running chats, workspace setup.
   useServerEvents();
-  const theme =useTheme();
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down("md"));
-
-  // Pages only render once what they need is set up; until then their route shows
-  // only the banner. Home needs Linear; the product manager needs everything.
-  const home = setup?.linear ? <HomePage /> : null;
+  // The product manager only renders once its integrations are set up; until
+  // then its route shows the setup banner.
   const productManager =
     setup?.linear &&
     setup.openRouter &&
@@ -29,20 +25,23 @@ function App() {
     ) : null;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: {xs: "column-reverse", md: "row"}, overflow: "hidden", height: "100dvh" }}>
-      <NavBar direction={isSmallScreen ? "row": "column"} />
-
+    <>
+    <Box sx={{ display: "flex", overflow: "hidden", height: "100dvh" }}>
+      <NavBar />
+      <Divider flexItem orientation={"vertical"} />
       <Box sx={{ flex: 1, overflow: "auto" }}>
         <SetupBanner missing={setup?.missing} />
         <Routes>
-          <Route path="/" element={home} />
+          <Route path="/" element={<Navigate to="/product-manager" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/evals" element={<EvalsPage />} />
           <Route path="/product-manager" element={productManager} />
           <Route path="/product-manager/:threadId" element={productManager} />
+          <Route path="/issues/:issueId" element={<IssuePage/>}/>
         </Routes>
       </Box>
     </Box>
+    </>
   );
 }
 

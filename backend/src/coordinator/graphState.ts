@@ -6,6 +6,7 @@ import type {
   QaDocument,
   ReviewDocument,
   ChecksDocument,
+  CoordinatorHumanMessage,
 } from "shared";
 import type { z } from "zod";
 import type { CHECKS_SCHEMA } from "./documents.js";
@@ -23,6 +24,7 @@ const appended = <T>() =>
 export const PipelineGraphState = Annotation.Root({
   // The note you started it with, for the planner.
   note: latest(""),
+  humanMessages: appended<CoordinatorHumanMessage>(),
   plan: latest<PlanDocument | null>(null),
   planApproved: latest(false),
   implementation: latest<ImplementationDocument | null>(null),

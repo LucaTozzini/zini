@@ -54,14 +54,18 @@ const spawnInWorkspace = (issueId: string, command: string) =>
 
 // Runs command to completion (or until it times out), and gives its exit code and the
 // end of its output.
-export function runCommand(issueId: string, command: string, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS) {
-  return runCommandResult(issueId, command, ".", timeoutSeconds).then(({ status, output }) => `${status}\n\n${output}`);
+export function runCommand(issueId: string, command: string, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, signal?: AbortSignal) {
+  return runCommandResult(issueId, command, ".", timeoutSeconds, signal).then(({ status, output }) => `${status}\n\n${output}`);
 }
 
 // Capture execution evidence directly rather than asking a model to report it.
-export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds = DEFAULT_TIMEOUT_SECONDS) {
+export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const seconds = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_SECONDS);
   const child = spawnShell(command, await workspaceWorkingDirectory(issueId, cwd), QA_ENV);
+  const abort = () => killTree(child);
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   const running = commands.get(issueId) ?? new Set();
   commands.set(issueId, running.add(child));
 
@@ -85,6 +89,7 @@ export async function runCommandResult(issueId: string, command: string, cwd = "
       if (done) return;
       done = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       running.delete(child);
       resolve({ exitCode, timedOut, status, output: tail(output.trim()) || "(no output)" });
     };

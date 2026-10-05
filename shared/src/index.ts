@@ -242,6 +242,14 @@ export type PipelineResume =
   | { feedback: string }
   | { decisions: Decision[] };
 
+export type CoordinatorHumanMessage = { id: string; t: string; content: string; username?: string };
+export type CoordinatorMessage = { id: string; t: string; agent: AgentRole | null } & (
+  | { kind: "stage" }
+  | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
+  | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string }
+  | { kind: "document" }
+);
+
 // An issue whose pipeline is waiting for you to approve something (its plan, or the QA's
 // commands), as listed by GET /api/coordinator/approvals.
 export type PendingApproval = { issueId: string; kind: "approve_plan" | "approve_commands" };
@@ -251,6 +259,11 @@ export type PipelineState = {
   started: boolean;
   // The subagent working now, if any.
   running: AgentRole | null;
+  // Cancellation is draining; do not resume into the same workspace yet.
+  pausing?: boolean;
+  // Pending checkpoint work with no active run or outstanding human request.
+  canResume?: boolean;
+  pendingRole?: AgentRole | null;
   waiting: PipelineWaiting | null;
   plan: PlanDocument | null;
   planApproved: boolean;
@@ -290,7 +303,7 @@ export type RunLogEntry =
   | {
       event: "model_reply";
       text: string;
-      toolCalls?: { name: string; args: Record<string, unknown> }[];
+      toolCalls?: { id?: string; name: string; args: Record<string, unknown> }[];
       finishReason?: string;
       usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
     }

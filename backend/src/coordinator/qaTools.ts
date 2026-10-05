@@ -36,10 +36,10 @@ function localUrl(value: string) {
 
 export function commandTools(issueId: string, { productOnly = false, completedChecks = [] }: { productOnly?: boolean; completedChecks?: string[] } = {}) {
   return [
-    tool(async ({ command, timeoutSeconds }) => {
+    tool(async ({ command, timeoutSeconds }, config) => {
       if (productOnly && completedChecks.some((check) => check.trim() === command.trim()))
         throw new Error("This deterministic check already has recorded results. Use that evidence and exercise product behavior instead.");
-      return runCommand(issueId, command, timeoutSeconds);
+      return runCommand(issueId, command, timeoutSeconds, config.signal);
     }, {
       name: "run_command",
       description:

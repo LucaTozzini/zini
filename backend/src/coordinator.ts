@@ -25,6 +25,8 @@ import {
   CHECKS_SCHEMA,
 } from "./coordinator/documents.js";
 import { completeDocument } from "./coordinator/completion.js";
+import { PipelineExecution } from "./coordinator/execution.js";
+import { checkpointMessages, humanMessage, replyMessage } from "./coordinator/messages.js";
 import { canReuseCheckSelection, checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./coordinator/validation.js";
 import { PipelineGraphState, type State } from "./coordinator/graphState.js";
 import { contextText, freshContext, updateContext } from "./coordinator/codebaseContext.js";
@@ -109,7 +111,7 @@ const pausedLogs = new Map<string, RunLog>();
 // the user to approve or reject them; invocation memory carries on from the pause:
 // the node runs again once they answer, and the invocation's checkpoint resumes it.
 async function runSubagent<S extends z.ZodObject>(
-  { setup, issueId, notify }: Run,
+  { setup, issueId, notify, signal, execution }: Run,
   {
     role,
     prompt,
@@ -143,6 +145,13 @@ async function runSubagent<S extends z.ZodObject>(
     responseFormat: toolStrategy(schema),
     // modelRetry is outside logTo, so the log shows each failed attempt.
     middleware: [
+      createMiddleware({
+        name: "DrainPipelineTools",
+        wrapToolCall: (request, handler) => execution.track(async () => {
+          signal?.throwIfAborted();
+          return handler(request);
+        }),
+      }),
       modelRetry,
       logTo(log),
       toolErrors,
@@ -166,10 +175,16 @@ async function runSubagent<S extends z.ZodObject>(
   });
   try {
     // Plenty of steps: the coder may read and edit many files.
-    const result = await agent.invoke(
+    let result: { messages?: BaseMessage[]; structuredResponse?: z.infer<S> } = {};
+    const stream = await agent.stream(
       { messages: [{ role: "user", content: input }] },
-      { recursionLimit: 300 },
+      { recursionLimit: 300, signal, streamMode: "values", durability: "sync" },
     );
+    for await (const state of stream) {
+      result = state as unknown as typeof result;
+      notify();
+    }
+    signal?.throwIfAborted();
     const structuredResponse = await completeDocument(
       result as { structuredResponse?: z.infer<S> },
       async (attempt) => {
@@ -186,7 +201,7 @@ async function runSubagent<S extends z.ZodObject>(
         return await submission.invoke({ messages: [
           ...((result as { messages?: BaseMessage[] }).messages ?? []),
           { role: "user", content: "Your turn ended without its document. Submit it now from the evidence above. No further tools or tests are available." },
-        ] }, { recursionLimit: 8 }) as { structuredResponse?: z.infer<S> };
+        ] }, { recursionLimit: 8, signal }) as { structuredResponse?: z.infer<S> };
       },
     );
     await log.write({ event: "end", outcome: "done", document: structuredResponse });
@@ -201,12 +216,14 @@ async function runSubagent<S extends z.ZodObject>(
 // ---- The graph -------------------------------------------------------------------
 
 // What running a node needs. Absent when the graph is only read (getPipeline).
-type Run = { setup: Setup; issueId: string; notify: () => void };
+type Run = { setup: Setup; issueId: string; notify: () => void; signal?: AbortSignal; execution: PipelineExecution; username?: string };
 
 // A run of the issue's pipeline, which tells every connected webapp whenever it changes.
-export const pipelineRun = (setup: Setup, issueId: string): Run => ({
+export const pipelineRun = (setup: Setup, issueId: string, username?: string): Run => ({
   setup,
   issueId,
+  username,
+  execution: new PipelineExecution(),
   notify: () => sendEvent({ type: "coordinator.updated", issueId }),
 });
 
@@ -225,7 +242,6 @@ function buildPipeline(run: Run | null) {
   // current and survives compaction; their input says only why they run again.
 
   async function planner(state: State) {
-    const { issueId } = need();
     const { plan: previous } = state;
     const context = await codebaseContext(state);
     const book = await runbook(state);
@@ -357,6 +373,7 @@ function buildPipeline(run: Run | null) {
       report.couldNotTest.push("No deterministic check commands or evidence of inapplicability were supplied.");
     try {
       for (const [index, entry] of selection.commands.entries()) {
+        need().signal?.throwIfAborted();
         const decision = decisions[index];
         if (decision?.type !== "approve") {
           report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose,
@@ -366,12 +383,13 @@ function buildPipeline(run: Run | null) {
         const id = `check-${index}`;
         await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
         try {
-          const result = await runCommandResult(issueId, entry.command, entry.cwd);
+          const result = await runCommandResult(issueId, entry.command, entry.cwd, undefined, need().signal);
           report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose,
             status: result.exitCode === 0 ? "passed" : result.timedOut || result.exitCode === null ? "blocked" : "failed",
             exitCode: result.exitCode, output: `${result.status}\n${result.output}` });
           await log.write({ event: "tool_result", id, name: "run_command", result: `${result.status}\n${result.output}` });
         } catch (error) {
+          need().signal?.throwIfAborted();
           report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose, status: "blocked", exitCode: null, output: String(error) });
           await log.write({ event: "tool_result", id, name: "run_command", status: "error", result: String(error) });
         }
@@ -537,27 +555,35 @@ function buildPipeline(run: Run | null) {
   const hasQuestions = (doc: { blockingQuestions: string[] } | null) =>
     (doc?.blockingQuestions.length ?? 0) > 0;
 
+  const tracked = <T>(node: (state: State) => Promise<T>) => (state: State) =>
+    need().execution.track(async () => {
+      need().signal?.throwIfAborted();
+      const result = await node(state);
+      need().signal?.throwIfAborted();
+      return result;
+    });
+
   return new StateGraph(PipelineGraphState)
-    .addNode("planner", planner)
+    .addNode("planner", tracked(planner))
     .addNode(
       "ask_planner",
       ask("planner", (s) => s.plan),
     )
     .addNode("approve_plan", approvePlan)
-    .addNode("coder", coder)
-    .addNode("checks", checks)
-    .addNode("execute_checks", executeChecks)
+    .addNode("coder", tracked(coder))
+    .addNode("checks", tracked(checks))
+    .addNode("execute_checks", tracked(executeChecks))
     .addNode("ask_checks", ask("checks", (s) => s.checksPlan))
     .addNode(
       "ask_coder",
       ask("coder", (s) => s.implementation),
     )
-    .addNode("reviewer", reviewer)
+    .addNode("reviewer", tracked(reviewer))
     .addNode(
       "ask_reviewer",
       ask("reviewer", (s) => s.review),
     )
-    .addNode("qa", qa)
+    .addNode("qa", tracked(qa))
     .addNode(
       "ask_qa",
       ask("qa", (s) => s.qaReport),
@@ -603,11 +629,12 @@ function buildPipeline(run: Run | null) {
 
 // Starts the issue's pipeline with an optional note for the planner; the returned
 // stream is the run (see startRun).
-export function startPipeline(run: Run, note: string) {
-  return buildPipeline(run).stream(
-    { note },
-    streamConfig(coordinatorThreadId(run.issueId)),
-  );
+export function startPipeline(run: Run, note: string, signal?: AbortSignal) {
+  run.signal = signal;
+  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(
+    { note, humanMessages: [humanMessage(note || "Started work on this issue.", run.username)] },
+    streamConfig(coordinatorThreadId(run.issueId), undefined, signal),
+  )));
 }
 
 // Runs start outside whatever LangGraph run calls it, e.g. a product manager tool's.
@@ -651,11 +678,20 @@ export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume
 }
 
 // Answers what the pipeline is waiting on, and carries on.
-export function resumePipeline(run: Run, reply: PipelineResume) {
-  return buildPipeline(run).stream(
-    new Command({ resume: reply }),
-    streamConfig(coordinatorThreadId(run.issueId)),
-  );
+export async function resumePipeline(run: Run, reply: PipelineResume, signal?: AbortSignal) {
+  run.signal = signal;
+  const snapshot = await buildPipeline(null).getState(threadConfig(coordinatorThreadId(run.issueId)));
+  const request = toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
+  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(
+    new Command({ resume: reply, update: { humanMessages: [replyMessage(reply, request, run.username)] } }),
+    streamConfig(coordinatorThreadId(run.issueId), undefined, signal),
+  )));
+}
+
+// Retry pending work without adding input or bypassing a human interrupt.
+export function continuePipeline(run: Run, signal?: AbortSignal) {
+  run.signal = signal;
+  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(null, streamConfig(coordinatorThreadId(run.issueId), undefined, signal))));
 }
 
 const ROLE_NODES: Record<string, AgentRole> = {
@@ -666,6 +702,13 @@ const ROLE_NODES: Record<string, AgentRole> = {
   reviewer: "reviewer",
   qa: "qa",
 };
+
+export async function getPipelineMessages(issueId: string) {
+  const saved = [];
+  for await (const tuple of checkpointer.list(threadConfig(coordinatorThreadId(issueId)))) saved.push(tuple);
+  const pipeline = await getPipeline(issueId);
+  return checkpointMessages(saved, Boolean(pipeline.running || pipeline.waiting && !pipeline.finished));
+}
 
 // What the pipeline is paused on: one of its own pauses, or the QA's commands waiting
 // for approval (its humanInTheLoopMiddleware's request).
@@ -728,9 +771,12 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   const waiting = running
     ? null
     : toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
-  const { error } = runStatus(threadId);
+  const { error, pausing } = runStatus(threadId);
   return {
     started: Boolean(snapshot.createdAt),
+    pausing: Boolean(pausing),
+    canResume: Boolean(snapshot.createdAt && snapshot.next.length && !running && !waiting && !values.finished),
+    pendingRole: ROLE_NODES[snapshot.next[0] ?? ""] ?? null,
     // While a run goes on, its next node is the one working.
     running: running ? (ROLE_NODES[snapshot.next[0] ?? ""] ?? null) : null,
     waiting,

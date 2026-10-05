@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from "react";
-import { Box, Button, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Paper, Skeleton, Stack, TextField, Typography } from "@mui/material";
 import type { Decision, PendingCommand } from "shared";
+import { errorMessage } from "../../api/client.ts";
+import { useCreateWorkspace, useRerunSetup, useWorkspace } from "../../api/workspaces.ts";
 
 // The cards the pipeline shows when it's waiting on you.
 
 export function CardFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2, mt: 2, borderColor: "warning.main" }}>
-      <Typography variant="subtitle2" sx={{ mb: 3 }} gutterBottom>
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle2" sx={{ mb: 2 }}>
         {title}
       </Typography>
       {children}
@@ -16,30 +18,46 @@ export function CardFrame({ title, children }: { title: string; children: React.
 }
 
 // Starts the pipeline, with an optional note for the planner.
-export function StartCard({ onStart, loading }: { onStart: (note: string) => void; loading?: boolean }) {
+export function StartCard({ issueId, onStart, loading }: { issueId: string; onStart: (note: string) => void; loading?: boolean }) {
   const [note, setNote] = useState("");
+  const workspace = useWorkspace(issueId);
+  const create = useCreateWorkspace();
+  const rerun = useRerunSetup();
+  const settingUp = workspace.data?.setupStatus === "running";
+  const failed = workspace.data?.setupStatus === "failed";
+  const ready = workspace.data?.setupStatus === "ready";
+  const busy = Boolean(loading || create.isPending || rerun.isPending || settingUp);
+  const failure = create.error ?? rerun.error;
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    onStart(note.trim());
+    if (busy || !workspace.isSuccess) return;
+    if (workspace.data === null) create.mutate(issueId);
+    else if (failed) rerun.mutate(issueId);
+    else if (ready) onStart(note.trim());
   }
+  if (workspace.isPending) return <Skeleton height={100} />;
+  if (workspace.isError) return <Alert severity="error" action={<Button onClick={() => workspace.refetch()}>Retry</Button>}>
+    {errorMessage(workspace.error)}
+  </Alert>;
   return (
     <Stack component="form" spacing={1.5} onSubmit={handleSubmit}>
       <Typography variant="body2" color="text.secondary">
-        The planner plans the issue in this workspace. You answer its questions and approve the
-        plan, then the coder implements it, the reviewer checks it, and the QA runs it to test
-        the changes (you approve each command it runs).
+        {workspace.data === null ? "Create a workspace for this issue before starting the coordinator." :
+          "You’ll be asked to approve the plan and any commands that need permission."}
       </Typography>
-      <TextField
+      {failed && <Alert severity="error">Workspace setup failed: {workspace.data?.setupError ?? "Unknown error"}</Alert>}
+      {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
+      {ready && <TextField
         size="small"
         multiline
         minRows={2}
         label="Note for the planner (optional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
-      />
+      />}
       <Stack direction="row">
-        <Button type="submit" variant="contained" loading={loading}>
-          Start
+        <Button type="submit" variant="contained" loading={busy}>
+          {settingUp ? "Setting up workspace" : workspace.data === null ? "Create workspace" : failed ? "Retry setup" : "Start"}
         </Button>
       </Stack>
     </Stack>
@@ -113,13 +131,14 @@ export function CommandsCard({
             <Typography variant="caption" color="text.secondary">
               {command.tool === "start_process" ? "Start, and leave running" : "Run"}
             </Typography>
-            <Typography component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+            <Typography component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "monospace" }}>
               {command.command}
             </Typography>
           </Box>
         ))}
         <TextField
           size="small"
+          slotProps={{ htmlInput: { "aria-label": "Reason for rejecting commands (optional)" } }}
           placeholder="Optional note if rejecting, e.g. use npm test -- --run instead"
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -172,6 +191,7 @@ export function FeedbackCard({
           size="small"
           multiline
           minRows={2}
+          slotProps={{ htmlInput: { "aria-label": title } }}
           placeholder={placeholder}
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}

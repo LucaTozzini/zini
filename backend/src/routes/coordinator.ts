@@ -1,7 +1,9 @@
 import { Router, type Response } from "express";
 import {
   coordinatorThreadId,
+  continuePipeline,
   getPipeline,
+  getPipelineMessages,
   loadSetup as loadPipelineSetup,
   pendingApprovals,
   pipelineRun,
@@ -14,7 +16,8 @@ import { addViewer } from "../coordinator/qaBrowser.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { Workspace } from "../models/Workspace.js";
-import { beginRun, isRunning } from "../runs.js";
+import { beginRun, isRunning, pauseRun } from "../runs.js";
+import { sendEvent } from "../events.js";
 import { branchCommits, hasUncommitted } from "../workspaceFiles.js";
 import { isIssueId } from "../workspaces.js";
 
@@ -63,6 +66,11 @@ coordinator.get("/:issueId", async (req, res) => {
   res.json(await getPipeline(issueId));
 });
 
+coordinator.get("/:issueId/messages", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (issueId) res.json(await getPipelineMessages(issueId));
+});
+
 // Starts the pipeline, with an optional note for the planner. Answers once it's
 // started; the planner works in the background.
 coordinator.post("/:issueId/start", async (req, res) => {
@@ -81,11 +89,11 @@ coordinator.post("/:issueId/start", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId);
+  const run = pipelineRun(setup, issueId, req.cookies?.username);
   const started = await beginRun(
     res,
     coordinatorThreadId(issueId),
-    () => startPipeline(run, (note ?? "").trim()),
+    (signal) => startPipeline(run, (note ?? "").trim(), signal),
     run.notify,
   );
   if (started) res.status(202).end();
@@ -114,9 +122,34 @@ coordinator.post("/:issueId/resume", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId);
-  const started = await beginRun(res, coordinatorThreadId(issueId), () => resumePipeline(run, reply), run.notify);
+  const run = pipelineRun(setup, issueId, req.cookies?.username);
+  const started = await beginRun(res, coordinatorThreadId(issueId), (signal) => resumePipeline(run, reply, signal), run.notify);
   if (started) res.status(202).end();
+});
+
+// Manual recovery only. Human approval/answer pauses still use /resume above.
+coordinator.post("/:issueId/continue", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId || !(await requireReadyWorkspace(issueId, res))) return;
+  if (!(await getPipeline(issueId)).canResume) {
+    res.status(409).json({ error: "The pipeline has no interrupted work to resume" });
+    return;
+  }
+  const setup = await loadSetup(res);
+  if (!setup) return;
+  const run = pipelineRun(setup, issueId);
+  if (await beginRun(res, coordinatorThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
+});
+
+coordinator.post("/:issueId/pause", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (!pauseRun(coordinatorThreadId(issueId))) {
+    res.status(409).json({ error: "The coordinator isn't running or is already pausing" });
+    return;
+  }
+  sendEvent({ type: "coordinator.updated", issueId });
+  res.status(202).end();
 });
 
 // Writes a commit message for the workspace's uncommitted changes (see committer.ts),

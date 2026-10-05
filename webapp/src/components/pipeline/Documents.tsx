@@ -1,8 +1,8 @@
 import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
 import type { ChecksDocument, Clarification, PlanDocument, QaDocument, ReviewDocument } from "shared";
 
-// How the subagents' documents are shown in the timeline. blockingQuestions aren't
-// shown here: they're asked in a QuestionsCard below the document. The coder's
+// Documents shown in step dialogs (and beside plan approval). Blocking questions
+// are handled inline on the issue page, not in these documents. The coder's
 // document is only questions; its work shows as the workspace's diff.
 
 function Summary({ text }: { text: string }) {
@@ -100,6 +100,9 @@ export function QaView({ qa }: { qa: QaDocument }) {
 
 export function ChecksView({ checks }: { checks: ChecksDocument }) {
   return <Stack spacing={1.5}>
+    {checks.results.length === 0 && checks.couldNotTest.length === 0 && <Typography color="text.secondary">
+      {checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
+    </Typography>}
     {checks.results.map((result, index) => <Alert key={index}
       severity={result.status === "passed" ? "success" : result.status === "failed" ? "error" : "warning"}
       variant="outlined">

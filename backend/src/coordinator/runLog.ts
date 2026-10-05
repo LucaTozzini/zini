@@ -130,7 +130,7 @@ export function logTo(log: RunLog) {
           await log.write({
             event: "model_reply",
             text: message.text,
-            toolCalls: message.tool_calls?.map(({ name, args }) => ({ name, args })),
+            toolCalls: message.tool_calls?.map(({ id, name, args }) => ({ id, name, args })),
             finishReason: message.response_metadata?.finish_reason as string | undefined,
             usage: message.usage_metadata,
           });
