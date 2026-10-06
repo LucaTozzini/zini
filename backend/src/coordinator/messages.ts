@@ -51,15 +51,6 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
         put({ id: `human:${human.id}`, t: human.t, agent: null, kind: "message",
           message: { role: "user", content: human.content, username: human.username } });
       }
-      // Existing sessions predate explicit human history. Recover actual saved text,
-      // without fabricating missing approval decisions or authors.
-      if (!(values.humanMessages as unknown[] | undefined)?.length) {
-        if (values.note) put({ id: "legacy:note", t, agent: null, kind: "message", message: { role: "user", content: String(values.note) } });
-        for (const field of ["planFeedback", "implementationFeedback"])
-          ((values[field] ?? []) as string[]).forEach((content, index) => put({ id: `legacy:${field}:${index}`, t, agent: null, kind: "message", message: { role: "user", content } }));
-        ((values.clarifications ?? []) as { question: string; answer: string }[]).forEach((entry, index) =>
-          put({ id: `legacy:answer:${index}`, t, agent: null, kind: "message", message: { role: "user", content: `${entry.question}\n${entry.answer}` } }));
-      }
       for (const [field, role] of documents) {
         const version = checkpoint.channel_versions[field];
         if (values[field] && versions.get(field) !== version) {

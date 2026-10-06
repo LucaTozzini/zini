@@ -16,7 +16,7 @@ export const REPO_COMMAND = z.object({
   purpose: z.string().min(1).max(800).describe("Purpose; for startup, include known prerequisites, env/port/test-data options and readiness/access instructions so QA can use it directly"),
   sources: z.array(z.string().min(1)).min(1).max(5).describe("Only repo files defining this command or its required setup; not incidental implementation/test files or docs"),
 });
-const runbookUpdates = z.array(REPO_COMMAND).max(16).default([]);
+const runbookUpdates = z.array(REPO_COMMAND).max(16);
 export const ACCEPTANCE_CRITERION = z.object({
   id: z.string().min(1).max(80),
   requirement: z.string().min(1).describe("Observable outcome required by the issue, not an implementation step"),
@@ -29,7 +29,7 @@ export const CONTEXT_UPDATES = z
   .array(
     z.object({
       key: z.string().min(1).max(80).describe("Stable topic key; reuse it to correct an earlier fact"),
-      fact: z.string().min(1).max(300).describe("One concise, reusable codebase fact"),
+      fact: z.string().min(1).describe("One concise, reusable codebase fact"),
       sources: z.array(z.string().min(1)).min(1).max(5).describe("Workspace files that support this fact"),
     }),
   )
@@ -45,7 +45,7 @@ export const PLAN_SCHEMA = z
         "Plain instructions, in order, each naming the files it touches",
       ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES.default([]),
+    contextUpdates: CONTEXT_UPDATES,
     runbookUpdates,
     acceptanceCriteria: z.array(ACCEPTANCE_CRITERION).min(1).max(64),
   })
@@ -56,7 +56,7 @@ export const PLAN_SCHEMA = z
   });
 
 export const IMPLEMENTATION_SCHEMA = z
-  .object({ blockingQuestions: questions, contextUpdates: CONTEXT_UPDATES.default([]), runbookUpdates })
+  .object({ blockingQuestions: questions, contextUpdates: CONTEXT_UPDATES, runbookUpdates })
   .meta({
     title: "submit_implementation",
     description:
@@ -71,9 +71,8 @@ export const REVIEW_SCHEMA = z
         "What the coder must change, each naming the file and line; empty if none",
       ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES.default([]),
-    runbookUpdates,
-    environmentFailures: z.array(z.object({ command: z.string(), reason: z.string().min(1) })).default([])
+    contextUpdates: CONTEXT_UPDATES,
+    environmentFailures: z.array(z.object({ command: z.string(), reason: z.string().min(1) }))
       .describe("Failed checks proven to be missing environment prerequisites, not defects; identify the exact command and evidence"),
   })
   .meta({
@@ -84,30 +83,19 @@ export const REVIEW_SCHEMA = z
 
 export const QA_SCHEMA = z
   .object({
-    verdict: z
-      .enum(["pass", "fail", "partial"])
-      .describe("fail for a proven defect, partial for untested requirements, pass only when all criteria are covered"),
-    checks: z
-      .array(z.string())
-      .describe("Brief execution summary; put per-criterion evidence in coverage rather than repeating it here"),
+    coverage: z.array(z.object({
+      criterionId: z.string(),
+      status: z.enum(["pass", "fail", "blocked"]).describe("blocked when you couldn't verify it here"),
+      evidence: z.string().min(1).describe("Concrete observation or tool result, or why this criterion could not be tested"),
+    })).describe("One entry per acceptance criterion"),
     failures: z
       .array(z.string())
       .describe(
         "What doesn't work because of the changes, each with how to reproduce it and the evidence (e.g. the error); empty if none",
       ),
-    couldNotTest: z
-      .array(z.string())
-      .describe(
-        "Only requested acceptance criteria you could not verify, and why (e.g. missing credentials or rejected commands). Manual product checks count as verification. Do not list absent automated UI tests when manually covered, or unrequested accessibility/style checks. Empty if every requested criterion was verified.",
-      ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES.default([]),
+    contextUpdates: CONTEXT_UPDATES,
     runbookUpdates,
-    coverage: z.array(z.object({
-      criterionId: z.string(),
-      status: z.enum(["pass", "fail", "blocked"]),
-      evidence: z.string().min(1).describe("Concrete observation or tool result, or why this criterion could not be tested"),
-    })),
   })
   .meta({
     title: "submit_qa_report",
@@ -116,11 +104,10 @@ export const QA_SCHEMA = z
   });
 
 export const CHECKS_SCHEMA = z.object({
-  commands: z.array(REPO_COMMAND).max(16).describe("Relevant finite checks in execution order; no duplicates or servers"),
-  couldNotTest: z.array(z.string()).describe("Configured relevant checks you cannot execute or their missing prerequisites, with the reason. A category with no repo-configured command goes in notApplicable, not here. Product QA handles behavioral coverage. Empty if none"),
-  notApplicable: z.array(z.string()).default([]).describe("Evidence that a category of checks does not apply to this task/repo; absence is distinct from a check that could not run"),
+  commands: z.array(REPO_COMMAND).max(16).describe("Relevant finite checks in execution order; no duplicates or servers. Empty only with noChecksReason"),
+  noChecksReason: z.string().min(1).optional().describe("Only when commands is empty: why no check applies, with repo evidence (e.g. no configured test, lint or build command)"),
   blockingQuestions: questions,
-  contextUpdates: CONTEXT_UPDATES.default([]),
+  contextUpdates: CONTEXT_UPDATES,
   runbookUpdates,
 }).meta({
   title: "submit_checks",

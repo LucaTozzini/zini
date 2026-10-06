@@ -3,17 +3,6 @@ import type { AcceptanceCriterion, ChecksDocument, QaDocument, RepoCommand } fro
 type Fingerprint = (path: string) => Promise<string | null>;
 export type Runbook = Record<string, RepoCommand & { sourceHashes: Record<string, string> }>;
 
-export function canReuseCheckSelection(
-  selection: { commands: RepoCommand[]; blockingQuestions: string[] } | null | undefined,
-  book: Runbook,
-): boolean {
-  return !!selection && !selection.blockingQuestions.length && !!selection.commands.length &&
-    selection.commands.every((entry) => {
-      const current = book[entry.id.trim().toLowerCase()];
-      return current?.kind === "check" && current.command === entry.command && current.cwd === entry.cwd;
-    });
-}
-
 export async function freshRunbook(book: Runbook, fingerprint: Fingerprint): Promise<Runbook> {
   const entries = await Promise.all(Object.entries(book).map(async ([key, value]) => {
     const hashes = await Promise.all(value.sources.map((path) => fingerprint(path).catch(() => null)));
@@ -50,16 +39,17 @@ export function checksText(report: ChecksDocument | null) {
   if (!report) return "No checks have run.";
   return [`Workspace version: ${report.revision}; complete: ${report.complete}`,
     ...report.results.map((result) => `${result.status}: ${result.command} (cwd ${result.cwd}, exit ${result.exitCode})\n${result.output}`),
-    ...report.couldNotTest.map((reason) => `Could not check: ${reason}`),
-    ...(report.notApplicable ?? []).map((reason) => `Not applicable: ${reason}`)].join("\n\n");
+    ...(report.noChecksReason ? [`No checks selected: ${report.noChecksReason}`] : [])].join("\n\n");
 }
 
-// A model cannot declare a pass while leaving a requirement unaccounted for.
-export function enforceCoverage(report: QaDocument, criteria: AcceptanceCriterion[], checks: ChecksDocument | null): QaDocument {
+// The verdict, from the QA's coverage and failures and the deterministic checks (current
+// as of revision): a pass needs evidence for every requirement.
+export function enforceCoverage(report: Omit<QaDocument, "verdict" | "couldNotTest">, criteria: AcceptanceCriterion[],
+  checks: ChecksDocument | null, revision: string): QaDocument {
   const failures = [...report.failures];
-  const gaps = [...report.couldNotTest, ...(checks?.couldNotTest ?? [])];
+  const gaps: string[] = [];
   for (const criterion of criteria) {
-    const entries = (report.coverage ?? []).filter((entry) => entry.criterionId === criterion.id);
+    const entries = report.coverage.filter((entry) => entry.criterionId === criterion.id);
     if (entries.length !== 1 || !entries[0]!.evidence.trim()) gaps.push(`No unambiguous evidence for ${criterion.id}: ${criterion.requirement}`);
     else if (entries[0]!.status === "blocked") gaps.push(`${criterion.id}: ${entries[0]!.evidence}`);
     else if (entries[0]!.status === "fail") failures.push(`${criterion.id}: ${entries[0]!.evidence}`);
@@ -69,6 +59,7 @@ export function enforceCoverage(report: QaDocument, criteria: AcceptanceCriterio
     if (result.status === "blocked") gaps.push(`${result.command}: ${result.output}`);
   }
   if (!checks?.complete) gaps.push("Deterministic checks did not complete.");
+  else if (checks.revision !== revision) gaps.push("Workspace source changed after deterministic checks; their results are no longer current.");
   return { ...report, failures: [...new Set(failures)], couldNotTest: [...new Set(gaps)],
-    verdict: failures.length || report.verdict === "fail" ? "fail" : gaps.length || report.verdict === "partial" ? "partial" : "pass" };
+    verdict: failures.length ? "fail" : gaps.length ? "partial" : "pass" };
 }

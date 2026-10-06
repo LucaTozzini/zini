@@ -19,6 +19,8 @@ RUN npm ci
 
 COPY evals/repos/todo-app/package.json evals/repos/todo-app/package-lock.json evals/repos/todo-app/
 RUN cd evals/repos/todo-app && npm ci
+COPY evals/repos/personal-website/package.json evals/repos/personal-website/package-lock.json evals/repos/personal-website/
+RUN cd evals/repos/personal-website && npm ci
 
 COPY . .
 

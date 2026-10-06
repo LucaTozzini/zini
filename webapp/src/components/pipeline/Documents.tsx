@@ -86,12 +86,12 @@ export function QaView({ qa }: { qa: QaDocument }) {
           <Items items={qa.couldNotTest} />
         </Alert>
       )}
-      {qa.checks.length > 0 && (
+      {qa.coverage.length > 0 && (
         <>
           <Typography variant="overline" color="text.secondary">
-            Checks
+            Coverage
           </Typography>
-          <Items items={qa.checks} />
+          <Items items={qa.coverage.map((entry) => `${entry.criterionId} (${entry.status}): ${entry.evidence}`)} />
         </>
       )}
     </Stack>
@@ -100,8 +100,9 @@ export function QaView({ qa }: { qa: QaDocument }) {
 
 export function ChecksView({ checks }: { checks: ChecksDocument }) {
   return <Stack spacing={1.5}>
-    {checks.results.length === 0 && checks.couldNotTest.length === 0 && <Typography color="text.secondary">
-      {checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
+    {checks.results.length === 0 && <Typography color="text.secondary">
+      {checks.noChecksReason ? `No checks selected: ${checks.noChecksReason}`
+        : checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
     </Typography>}
     {checks.results.map((result, index) => <Alert key={index}
       severity={result.status === "passed" ? "success" : result.status === "failed" ? "error" : "warning"}
@@ -109,7 +110,6 @@ export function ChecksView({ checks }: { checks: ChecksDocument }) {
       <Typography variant="body2">{result.command} ({result.cwd}): {result.status}</Typography>
       <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}>{result.output}</Typography>
     </Alert>)}
-    {!!checks.couldNotTest.length && <Alert severity="warning"><Items items={checks.couldNotTest} /></Alert>}
   </Stack>;
 }
 
