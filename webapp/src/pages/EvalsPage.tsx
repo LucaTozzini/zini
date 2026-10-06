@@ -180,7 +180,7 @@ function SummaryTable({ runs, compare }: { runs: RunMetrics[]; compare?: RunMetr
         <TableRow>
           <TableCell>Metric</TableCell>
           <TableCell align="right">This batch</TableCell>
-          {compare && <TableCell align="right">Compared batch</TableCell>}
+          {compare && <TableCell align="right">Baseline</TableCell>}
           {compare && <TableCell align="right">Change</TableCell>}
         </TableRow>
       </TableHead>
@@ -238,50 +238,108 @@ function RunDetails({ batch, run }: { batch: EvalBatch; run: EvalBatch["runs"][n
   );
 }
 
-// Past batches. Selecting one shows its summary and runs; a second one is compared with it.
+const metricsOf = (b: EvalBatch) => b.runs.flatMap((r) => (r.metrics ? [r.metrics] : []));
+
+// A batch at a glance: what it ran (model, code version) and how its runs went.
+function batchRow(b: EvalBatch) {
+  const metrics = metricsOf(b);
+  const distinct = (values: (string | undefined)[]) => [...new Set(values.filter(Boolean))].join(", ") || "—";
+  const checked = metrics.filter((m) => m.check);
+  const errors = metrics.filter((m) => m.error && !m.rateLimited).length;
+  const rateLimited = metrics.filter((m) => m.rateLimited).length;
+  const noResults = b.runs.length - metrics.length;
+  return {
+    model: distinct(metrics.map((m) => m.model)),
+    code: distinct(metrics.map((m) => m.codeVersion?.slice(0, 7))),
+    check: checked.length ? `${checked.filter((m) => m.check?.passed).length}/${checked.length}` : "—",
+    qa: `${metrics.filter((m) => m.qaVerdict === "pass").length}/${b.runs.length}`,
+    issues: [
+      errors && `${errors} error${errors === 1 ? "" : "s"}`,
+      rateLimited && "rate limited",
+      noResults && `${noResults} without results`,
+    ]
+      .filter(Boolean)
+      .join(", "),
+  };
+}
+
+// Past batches of one scenario. Selecting one shows its summary and runs; a second is its
+// baseline, compared with it.
 function Results() {
   const batches = useEvalBatches();
+  const scenarios = useEvalScenarios();
+  const status = useEvalStatus();
+  const [chosenScenario, setChosenScenario] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
 
   if (batches.isError) return <Alert severity="error">{errorMessage(batches.error)}</Alert>;
-  const list = batches.data ?? [];
-  const key = (b: EvalBatch) => `${b.scenario}/${b.id}`;
-  const [main, other] = selected.map((k) => list.find((b) => key(b) === k)).filter((b): b is EvalBatch => Boolean(b));
-  const metricsOf = (b: EvalBatch) => b.runs.flatMap((r) => (r.metrics ? [r.metrics] : []));
-  const toggle = (k: string) =>
-    setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k].slice(-2)));
+  const all = batches.data ?? [];
+  // Until one is chosen: the running eval's scenario, or the latest batch's.
+  const scenario = chosenScenario || status.data?.running?.scenario || all[0]?.scenario || "";
+  const list = all.filter((b) => b.scenario === scenario);
+  const [main, other] = selected.map((id) => list.find((b) => b.id === id)).filter((b): b is EvalBatch => Boolean(b));
+  const toggle = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)));
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack spacing={2}>
         <Typography variant="h6">Results</Typography>
-        {list.length === 0 ? (
-          <Typography color="text.secondary">No evals yet.</Typography>
+        <TextField
+          select
+          size="small"
+          label="Scenario"
+          value={scenario}
+          onChange={(e) => {
+            setChosenScenario(e.target.value);
+            setSelected([]);
+          }}
+        >
+          {(scenarios.data ?? []).map((s) => (
+            <MenuItem key={s.id} value={s.id}>
+              {s.id}: {s.title}
+            </MenuItem>
+          ))}
+        </TextField>
+        {!batches.data ? null : list.length === 0 ? (
+          <Typography color="text.secondary">No results for this scenario yet.</Typography>
         ) : (
           <>
             <Typography variant="body2" color="text.secondary">
-              Select a batch to see it; select a second to compare the first with it.
+              Select a batch to see it; select a second as its baseline to compare them.
             </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox" />
-                  <TableCell>Scenario</TableCell>
                   <TableCell>Started</TableCell>
-                  <TableCell align="right">Runs</TableCell>
+                  <TableCell>Model</TableCell>
+                  <TableCell>zini hash</TableCell>
+                  <TableCell align="right">Check</TableCell>
+                  <TableCell align="right">QA</TableCell>
+                  <TableCell>Issues</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {list.map((b) => (
-                  <TableRow key={key(b)} hover onClick={() => toggle(key(b))} sx={{ cursor: "pointer" }}>
-                    <TableCell padding="checkbox">
-                      <Checkbox checked={selected.includes(key(b))} size="small" />
-                    </TableCell>
-                    <TableCell>{b.scenario}</TableCell>
-                    <TableCell>{batchTime(b.id)}</TableCell>
-                    <TableCell align="right">{b.runs.length}</TableCell>
-                  </TableRow>
-                ))}
+                {list.map((b) => {
+                  const row = batchRow(b);
+                  return (
+                    <TableRow key={b.id} hover onClick={() => toggle(b.id)} sx={{ cursor: "pointer" }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox checked={selected.includes(b.id)} size="small" />
+                      </TableCell>
+                      <TableCell>
+                        {batchTime(b.id)}
+                        {other?.id === b.id && " (baseline)"}
+                      </TableCell>
+                      <TableCell>{row.model}</TableCell>
+                      <TableCell sx={{ fontFamily: "monospace" }}>{row.code}</TableCell>
+                      <TableCell align="right">{row.check}</TableCell>
+                      <TableCell align="right">{row.qa}</TableCell>
+                      <TableCell>{row.issues}</TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </>
@@ -289,8 +347,8 @@ function Results() {
         {main && (
           <Stack spacing={1}>
             <Typography variant="subtitle1">
-              {main.scenario}, {batchTime(main.id)}
-              {other && ` compared with ${other.scenario}, ${batchTime(other.id)}`}
+              {batchTime(main.id)}
+              {other && `, compared with the baseline from ${batchTime(other.id)}`}
             </Typography>
             <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
             {main.runs.map((run) => (

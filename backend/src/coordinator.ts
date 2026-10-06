@@ -24,10 +24,10 @@ import {
   REVIEW_SCHEMA,
   CHECKS_SCHEMA,
 } from "./coordinator/documents.js";
-import { completeDocument } from "./coordinator/completion.js";
+import { requireSubmission } from "./coordinator/submission.js";
 import { PipelineExecution } from "./coordinator/execution.js";
 import { checkpointMessages, humanMessage, replyMessage } from "./coordinator/messages.js";
-import { canReuseCheckSelection, checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./coordinator/validation.js";
+import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./coordinator/validation.js";
 import { PipelineGraphState, type State } from "./coordinator/graphState.js";
 import { contextText, freshContext, updateContext } from "./coordinator/codebaseContext.js";
 import {
@@ -120,6 +120,7 @@ async function runSubagent<S extends z.ZodObject>(
     input,
     remember = false,
     approve = [],
+    validate,
   }: {
     role: AgentRole;
     prompt: string;
@@ -128,6 +129,8 @@ async function runSubagent<S extends z.ZodObject>(
     input: string;
     remember?: boolean;
     approve?: readonly string[];
+    // What's wrong with a submitted document, or nothing if it's valid.
+    validate?: (document: z.infer<S>) => string | undefined;
   },
 ): Promise<z.infer<S>> {
   const logKey = `${issueId}:${role}`;
@@ -156,6 +159,7 @@ async function runSubagent<S extends z.ZodObject>(
       logTo(log),
       toolErrors,
       workspaceFilesystem(issueId, role === "coder", notify),
+      requireSubmission(String(schema.meta()?.title), (attempt) => log.write({ event: "doc_recovery", attempt })),
       ...(remember ? [compactionMiddleware(model)] : []),
       ...(approve.length > 0
         ? [
@@ -173,11 +177,12 @@ async function runSubagent<S extends z.ZodObject>(
     // conversation.
     ...(remember ? { checkpointer: true } : {}),
   });
-  try {
+  // Runs the agent from these messages to its document.
+  const respond = async (messages: (BaseMessage | { role: "user"; content: string })[]) => {
     // Plenty of steps: the coder may read and edit many files.
     let result: { messages?: BaseMessage[]; structuredResponse?: z.infer<S> } = {};
     const stream = await agent.stream(
-      { messages: [{ role: "user", content: input }] },
+      { messages },
       { recursionLimit: 300, signal, streamMode: "values", durability: "sync" },
     );
     for await (const state of stream) {
@@ -185,27 +190,22 @@ async function runSubagent<S extends z.ZodObject>(
       notify();
     }
     signal?.throwIfAborted();
-    const structuredResponse = await completeDocument(
-      result as { structuredResponse?: z.infer<S> },
-      async (attempt) => {
-        await log.write({ event: "doc_recovery", attempt });
-        const submission = createAgent({
-          model, tools: [], checkpointer: false,
-          systemPrompt: `${prompt}\n\nSubmit the required document using only the existing observations. Do not invent completed work or checks; record missing evidence explicitly.`,
-          responseFormat: toolStrategy(schema),
-          middleware: [modelRetry, logTo(log), createMiddleware({
-            name: "RequireSubmission",
-            wrapModelCall: (request, handler) => handler({ ...request, toolChoice: "required" }),
-          })],
-        });
-        return await submission.invoke({ messages: [
-          ...((result as { messages?: BaseMessage[] }).messages ?? []),
-          { role: "user", content: "Your turn ended without its document. Submit it now from the evidence above. No further tools or tests are available." },
-        ] }, { recursionLimit: 8, signal }) as { structuredResponse?: z.infer<S> };
-      },
-    );
-    await log.write({ event: "end", outcome: "done", document: structuredResponse });
-    return structuredResponse;
+    // requireSubmission keeps the agent going until it submits, or fails the run.
+    if (!result.structuredResponse) throw new Error(`The ${role} ended without its document`);
+    return { messages: result.messages ?? [], document: result.structuredResponse };
+  };
+  try {
+    let { messages, document } = await respond([{ role: "user", content: input }]);
+    // A document that breaks a rule its schema can't express goes back to the agent
+    // with the error, on top of its conversation (its memory only lasts one call).
+    for (let attempt = 1, error = validate?.(document); error; attempt++, error = validate?.(document)) {
+      await log.write({ event: "doc_invalid", error });
+      if (attempt > 2) throw new Error(`The ${role} submitted an invalid document three times: ${error}`);
+      ({ messages, document } = await respond([...messages,
+        { role: "user", content: `Your document was invalid: ${error}. Submit it again.` }]));
+    }
+    await log.write({ event: "end", outcome: "done", document });
+    return document;
   } catch (err) {
     if (isGraphInterrupt(err)) pausedLogs.set(logKey, log);
     else await log.write({ event: "end", outcome: "error", error: String(err) });
@@ -315,27 +315,18 @@ function buildPipeline(run: Run | null) {
               : `The user's feedback on your changes:\n\n${state.implementationFeedback.at(-1)}`,
       remember: true,
     });
-    const revision = await workspaceRevision(issueId);
-    const nextBook = await updateRunbook(book, runbookUpdates, fingerprint);
-    if (previous && !hasQuestions(implementation) && revision === state.lastImplementationRevision &&
-        JSON.stringify(nextBook) === JSON.stringify(book) && (changes.length || state.qaReport?.verdict === "fail"))
-      throw new Error("Repair made no source or runbook changes; recorded failures remain unresolved");
-    return { implementation, repairAttempts: hasQuestions(implementation) ? state.repairAttempts : attempts, lastImplementationRevision: revision,
-      runbook: nextBook, codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
+    return { implementation, repairAttempts: hasQuestions(implementation) ? state.repairAttempts : attempts,
+      runbook: await updateRunbook(book, runbookUpdates, fingerprint),
+      codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
   }
 
   async function checks(state: State) {
     const { issueId } = need();
-    const revision = await workspaceRevision(issueId);
     const book = await runbook(state);
     const context = await codebaseContext(state);
-    if (state.checksReport?.complete && state.checksReport.revision === revision) return { runbook: book };
-    const cached = state.checksPlan;
-    const validCached = canReuseCheckSelection(cached, book);
-    // Surviving commands don't prove the selection is complete: an edit can
-    // invalidate only the tests/build entries. Discover missing checks rather
-    // than silently dropping them, then reuse a complete source-valid selection.
-    let selection = validCached && cached ? cached : await runSubagent(need(), {
+    // Selects afresh after every coder round. It sees the previous results, so it can
+    // also correct a command that failed for the wrong reason.
+    let selection = await runSubagent(need(), {
           role: "checks", prompt: CHECKS_PROMPT, tools: [diffTool(issueId)],
           schema: CHECKS_SCHEMA,
           input: inputText(await issue(), [
@@ -346,6 +337,13 @@ function buildPipeline(run: Run | null) {
             ["Previous check results", checksText(state.checksReport)],
             ["The workspace's setup", await setupText(issueId)],
           ]),
+          // Exactly one of the two, unless it's asking the user first.
+          validate: ({ commands, noChecksReason, blockingQuestions }) => {
+            if (blockingQuestions.length) return;
+            const checks = commands.filter((entry) => entry.kind === "check").length;
+            if (checks && noChecksReason) return "it has both check commands and noChecksReason; give exactly one";
+            if (!checks && !noChecksReason) return "it has neither check commands nor noChecksReason; give exactly one";
+          },
         });
     const unique = new Map(selection.commands.filter((entry) => entry.kind === "check")
       .map((entry) => [`${entry.cwd}\0${entry.command}`, entry]));
@@ -357,7 +355,6 @@ function buildPipeline(run: Run | null) {
   async function executeChecks(state: State) {
     const { issueId, setup } = need();
     const revision = await workspaceRevision(issueId);
-    if (state.checksReport?.complete && state.checksReport.revision === revision) return {};
     const selection = state.checksPlan;
     if (!selection) throw new Error("No check selection exists");
     const { decisions } = selection.commands.length ? interrupt<PipelineWaiting, { decisions: Decision[] }>({
@@ -367,10 +364,8 @@ function buildPipeline(run: Run | null) {
     const log = await openRunLog(issueId, "checks");
     await log.write({ event: "start", role: "checks", model: setup.model, prompt: "Execute selected checks and record their actual results", input: revision });
     const report: NonNullable<State["checksReport"]> = {
-      revision, complete: true, results: [], couldNotTest: [...selection.couldNotTest], notApplicable: selection.notApplicable,
+      revision, complete: true, results: [], noChecksReason: selection.noChecksReason,
     };
-    if (!selection.commands.length && !report.couldNotTest.length && !selection.notApplicable.length)
-      report.couldNotTest.push("No deterministic check commands or evidence of inapplicability were supplied.");
     try {
       for (const [index, entry] of selection.commands.entries()) {
         need().signal?.throwIfAborted();
@@ -394,10 +389,8 @@ function buildPipeline(run: Run | null) {
           await log.write({ event: "tool_result", id, name: "run_command", status: "error", result: String(error) });
         }
       }
-      if (await workspaceRevision(issueId) !== revision) {
-        report.complete = false;
-        report.couldNotTest.push("A check modified tracked/non-ignored source; results cannot validate the original workspace version.");
-      }
+      // A check changed the source, so its results don't validate this version.
+      if (await workspaceRevision(issueId) !== revision) report.complete = false;
       await log.write({ event: "end", outcome: "done", document: report });
       return { checksReport: report };
     } finally { stopAllProcesses(issueId); }
@@ -407,7 +400,7 @@ function buildPipeline(run: Run | null) {
     const { issueId } = need();
     const context = await codebaseContext(state);
     const book = await runbook(state);
-    const { contextUpdates, runbookUpdates, environmentFailures, ...review } = await runSubagent(need(), {
+    const { contextUpdates, environmentFailures, ...review } = await runSubagent(need(), {
       role: "reviewer",
       prompt: REVIEWER_PROMPT,
       tools: [diffTool(issueId), ...npmTools],
@@ -429,7 +422,8 @@ function buildPipeline(run: Run | null) {
         ],
       ]),
     });
-    const nextBook = await updateRunbook(book, runbookUpdates, fingerprint);
+    // The reviewer's call on failed checks: an environment failure stays a gap (blocked),
+    // any other failure goes back to the coder.
     const checkReport = state.checksReport && { ...state.checksReport,
       results: state.checksReport.results.map((entry) => {
         const environment = environmentFailures.find((failure) => failure.command === entry.command);
@@ -438,12 +432,9 @@ function buildPipeline(run: Run | null) {
           : entry;
       }),
     };
-    const changedChecks = Object.values(nextBook).some((entry) => entry.kind === "check" &&
-      (book[entry.id]?.command !== entry.command || book[entry.id]?.cwd !== entry.cwd));
-    if (!changedChecks && !review.requiredChanges.length && checkReport?.results.some((entry) => entry.status === "failed"))
+    if (!review.requiredChanges.length && checkReport?.results.some((entry) => entry.status === "failed"))
       review.requiredChanges.push("Resolve the failed deterministic checks recorded above; do not repeat unchanged repairs.");
-    return { review, runbook: nextBook, checksReport: changedChecks ? null : checkReport,
-      ...(changedChecks ? { checksPlan: null } : {}),
+    return { review, checksReport: checkReport,
       codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
   }
 
@@ -493,9 +484,7 @@ function buildPipeline(run: Run | null) {
         remember: false,
         approve: COMMAND_TOOLS,
       });
-      if (state.checksReport?.revision !== await workspaceRevision(issueId))
-        report.couldNotTest.push("Workspace source changed after deterministic checks; their results are no longer current.");
-      return { qaReport: enforceCoverage(report, criteria, state.checksReport),
+      return { qaReport: enforceCoverage(report, criteria, state.checksReport, await workspaceRevision(issueId)),
         runbook: await updateRunbook(book, runbookUpdates, fingerprint),
         codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
     } catch (err) {
@@ -607,8 +596,7 @@ function buildPipeline(run: Run | null) {
     .addEdge("execute_checks", "reviewer")
     .addConditionalEdges("reviewer", (s) => {
       if (hasQuestions(s.review)) return "ask_reviewer";
-      if ((s.review?.requiredChanges.length ?? 0) > 0) return "coder";
-      return s.checksReport ? "qa" : "checks";
+      return (s.review?.requiredChanges.length ?? 0) > 0 ? "coder" : "qa";
     })
     .addEdge("ask_reviewer", "reviewer")
     .addConditionalEdges("qa", (s) => {

@@ -32,7 +32,6 @@ export const PipelineGraphState = Annotation.Root({
   checksPlan: latest<z.infer<typeof CHECKS_SCHEMA> | null>(null),
   checksReport: latest<ChecksDocument | null>(null),
   repairAttempts: latest(0),
-  lastImplementationRevision: latest(""),
   review: latest<ReviewDocument | null>(null),
   // The QA's latest report. Not "qa": that's its node's name, and a graph can't use one
   // name for both.

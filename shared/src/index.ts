@@ -187,8 +187,8 @@ export type CheckResult = {
 export type ChecksDocument = {
   revision: string;
   results: CheckResult[];
-  couldNotTest: string[];
-  notApplicable?: string[];
+  // Why none were selected, when none were.
+  noChecksReason?: string;
   complete: boolean;
 };
 
@@ -200,16 +200,16 @@ export type ImplementationDocument = { blockingQuestions: string[] };
 // means approved.
 export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: string[] };
 
-// The QA's report. checks: what it ran or tried, each with its result. failures: what
-// doesn't work, each with how to reproduce it and the evidence (fail means there's at
-// least one). couldNotTest: what it couldn't check, and why (e.g. a missing .env).
+// The QA's report. coverage: each acceptance criterion's result, with its evidence.
+// failures: what doesn't work, each with how to reproduce it and the evidence. The
+// coordinator adds verdict and couldNotTest (what wasn't verified, and why) from these
+// and the deterministic checks.
 export type QaDocument = {
   verdict: "pass" | "fail" | "partial";
-  checks: string[];
   failures: string[];
   couldNotTest: string[];
   blockingQuestions: string[];
-  coverage?: { criterionId: string; status: "pass" | "fail" | "blocked"; evidence: string }[];
+  coverage: { criterionId: string; status: "pass" | "fail" | "blocked"; evidence: string }[];
 };
 
 // A question a subagent asked, and your answer. Kept for the whole pipeline and given

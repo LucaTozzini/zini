@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { killTree } from "../../backend/src/processes.js";
 import type { RunningApp } from "./types.js";
 
-// Starts a test repo's app the way its README says (npm run dev, with PORT and
-// DATA_FILE), for a hidden check, and waits until its API answers.
+// Starts a test repo's app with npm run dev, PORT and DATA_FILE (for the repos that keep
+// data), for a hidden check, and waits until it answers.
 let nextPort = 4700;
 
 export async function startApp(workspace: string, { dataFile }: { dataFile?: string } = {}): Promise<RunningApp> {
@@ -43,7 +43,10 @@ export async function startApp(workspace: string, { dataFile }: { dataFile?: str
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (exited) throw new Error(`The app exited before it answered:\n${output.slice(-2000)}`);
-    const ok = await fetch(`${url}/api/todos`).then((res) => res.ok, () => false);
+    // Either loopback address: some dev servers (e.g. Vite) only listen on localhost's
+    // IPv6 one, and Node's fetch only tries IPv4 for localhost.
+    const answers = (base: string) => fetch(base).then((res) => res.ok, () => false);
+    const ok = (await answers(`http://127.0.0.1:${port}`)) || (await answers(`http://[::1]:${port}`));
     if (ok) return { url, stop };
     await new Promise((resolve) => setTimeout(resolve, 500));
   }

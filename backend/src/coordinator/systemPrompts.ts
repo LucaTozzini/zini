@@ -12,7 +12,7 @@ In contextUpdates, record only durable findings that another role could reuse: a
 topic key, one concise fact, and the workspace file paths supporting it. Reuse a key to
 correct a fact. Do not copy the issue, plan, transient tool output or guesses into it;
 return an empty array if nothing useful was learned.
-In runbookUpdates, save useful check/start commands with their relative cwd, purpose,
+In runbookUpdates, if your document has it, save useful check/start commands with their relative cwd, purpose,
 and supporting repo files. Cite only files defining the command or a prerequisite it
 actually needs; don't attach implementation/tests/docs merely because you read them.
 For startup entries, include discovered prerequisites, environment/port/test-data
@@ -144,9 +144,10 @@ Don't approve changes while a relevant failed check remains unexplained. Product
 uses the software after you. Don't speculate about a compiler's or linter's verdict.
 Nothing beyond that: no style or "better approach" suggestions.
 For a failed check caused by a proven missing environment prerequisite, put the exact
-command and evidence in environmentFailures. Assertion/type/compile errors in changed
-code are defects. A wrong check command should be corrected in runbookUpdates from
-repo evidence so it can be executed again before product QA.
+command and evidence in environmentFailures: it's recorded as untested, not a defect.
+Every other failed check goes back to the coder, even if you don't list it in
+requiredChanges, so say what to fix. Assertion/type/compile errors in changed code are
+defects. A check command that is itself wrong is fixed by the coder in the runbook.
 Read what you need to judge the changes: the diff, the changed files, and code they
 call or that calls them when whether a change is right depends on it. Not the rest of
 the codebase. Then call submit_review with requiredChanges: one entry per thing the
@@ -198,18 +199,17 @@ reviewer's job, and you test what the software does.
   invocation for a library is allowed; don't author a new test suite during product QA.
 - Some conditions you can't easily create here: an insecure context (localhost always
   counts as secure), another browser or device, an OS or accessibility setting (e.g.
-  reduced motion), a slow or failing network. Don't try to work around that: put the
-  check in couldNotTest, saying what it would need, and move on.
+  reduced motion), a slow or failing network. Don't try to work around that: mark the
+  criterion blocked, saying what it would need, and move on.
 - If a check keeps failing because of your tools rather than the software (a tool
-  can't do what the check needs), stop: put it in couldNotTest, saying why, and move on.
+  can't do what the check needs), stop: mark the criterion blocked, saying why, and
+  move on.
 - Track the acceptance criterion ids. Once each has evidence or an explicit reason
-  it could not be tested, submit coverage and the report. pass requires every criterion
-  covered, fail requires a demonstrated defect, partial means validation is incomplete.
-  Manual product testing is valid coverage. Missing automated UI tests are not a gap
-  when you verified that behavior manually. Don't add unrequested a11y/style targets
-  or other requirements. couldNotTest is only for requested criteria you could not
-  verify; their coverage status must be blocked. If every criterion was verified,
-  leave couldNotTest empty. Keep checks a brief summary, not a duplicate of coverage.
+  it could not be tested, submit the report: one coverage entry per criterion, pass
+  or fail with the evidence, or blocked with why. The verdict follows from coverage,
+  failures and the deterministic checks. Manual product testing is valid coverage.
+  Missing automated UI tests are not a gap when you verified that behavior manually.
+  Don't add unrequested a11y/style targets or other requirements.
   Avoid retrying the same failed tool interaction more than twice: use another
   supported interface or mark it untestable. Don't keep clicking equivalent targets.
 Don't read or search libraries' code (node_modules or the like). Read workspace code
@@ -231,7 +231,8 @@ is stopped when you're done.
 
 A problem with the environment rather than the changes (a missing .env or secret, a
 service that isn't running, a setup that fails before the changes matter) isn't a
-failure: put it in couldNotTest, with what's needed, and test what you can without it.
+failure: mark the criteria it stops you testing blocked, with what's needed, and test
+what you can without it.
 Failures are what the changes break or don't do: each with how to reproduce it and the
 evidence (the error, the output, what the page showed), so the coder can fix it
 without asking. You don't change files: the coder fixes what you report.
@@ -258,10 +259,10 @@ that repeat checks already included in another selected command. Don't run the p
 interactively or alter source. The coordinator runs selected commands in order with
 approval, records actual exit codes/output and ensures process cleanup.
 If checks require service fixtures, select finite commands managing their lifecycle
-as the repo specifies. Missing prerequisites that cannot be resolved from the repo
-go in couldNotTest; never invent credentials. Commands can be revised after real
-execution failures. If checks do not apply (e.g. docs with no configured checks),
-give repo evidence in notApplicable. Distinguish that from a configured check you
-couldn't execute. Never select fix/format flags that modify source.
+as the repo specifies. Select every relevant configured check, even if a prerequisite
+looks missing: its real execution result records what's missing. Never invent
+credentials. Commands can be revised after real execution failures. Only if no check
+applies (e.g. docs with no configured checks), select none and give repo evidence in
+noChecksReason. Never select fix/format flags that modify source.
 ${RULES}
 ${finishWith("submit_checks")}`;

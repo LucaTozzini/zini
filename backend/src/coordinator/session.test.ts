@@ -47,3 +47,37 @@ test("invocation memory resumes approval once and starts fresh for the next impl
   assert.equal(initialHistories.length, 2);
   assert.ok(initialHistories.every((messages) => !messages.some(ToolMessage.isInstance)));
 });
+
+// Without remember, an agent's memory lasts one call: a second call in the same node
+// run starts fresh, so correcting a document passes the first call's messages back.
+test("a correction continues from the first call's messages", async () => {
+  const histories: BaseMessage[][] = [];
+  class Model extends BaseChatModel {
+    constructor() { super({}); }
+    _llmType() { return "session-test"; }
+    bindTools() { return this; }
+    async _generate(messages: BaseMessage[]) {
+      histories.push([...messages]);
+      const message = new AIMessage({ content: "", tool_calls: [{
+        name: "submit_report", args: { passed: histories.length > 1 }, id: `call-${histories.length}`,
+      }] });
+      return { generations: [{ text: "", message }] };
+    }
+  }
+  const model = new Model();
+  const state = Annotation.Root({ report: Annotation<{ passed: boolean } | null>() });
+  const graph = new StateGraph(state).addNode("tester", async () => {
+    const run = (messages: (BaseMessage | { role: string; content: string })[]) => createAgent({ model, tools: [],
+      responseFormat: toolStrategy(z.object({ passed: z.boolean() }).meta({ title: "submit_report" })),
+    }).invoke({ messages });
+    const first = await run([{ role: "user", content: "Check this version" }]);
+    const second = await run([...first.messages, { role: "user", content: "That report was invalid: correct it" }]);
+    return { report: second.structuredResponse };
+  }).addEdge(START, "tester").addEdge("tester", END).compile({ checkpointer: new MemorySaver() });
+  const result = await graph.invoke({ report: null }, { configurable: { thread_id: "test" } });
+  assert.deepEqual(result.report, { passed: true });
+  const second = histories[1]!;
+  assert.equal(second.filter((message) => message.text === "Check this version").length, 1);
+  assert.ok(second.some((message) => AIMessage.isInstance(message) && message.tool_calls?.[0]?.name === "submit_report"));
+  assert.equal(second.at(-1)!.text, "That report was invalid: correct it");
+});
