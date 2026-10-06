@@ -40,95 +40,89 @@ import DiffView from "../components/pipeline/DiffView.tsx";
 const batchTime = (id: string) =>
   new Date(id.replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)$/, "$1:$2:$3.$4")).toLocaleString();
 
+// A button that opens the form for starting an eval: a repo, a scenario and how many runs.
 function StartEval({ disabled }: { disabled: boolean }) {
   const scenarios = useEvalScenarios();
   const start = useStartEval();
+  const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState("");
   const [scenario, setScenario] = useState("");
   const [repeat, setRepeat] = useState(1);
-  const [confirming, setConfirming] = useState(false);
 
   const repos = [...new Set((scenarios.data ?? []).map((s) => s.repo))];
   const inRepo = (scenarios.data ?? []).filter((s) => s.repo === repo);
   const chosen = inRepo.find((s) => s.id === scenario);
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack spacing={2}>
-        <Typography variant="h6">Run an eval</Typography>
-        {scenarios.isError && <Alert severity="error">{errorMessage(scenarios.error)}</Alert>}
-        {start.isError && <Alert severity="error">{errorMessage(start.error)}</Alert>}
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-          <TextField
-            select
-            size="small"
-            label="Repo"
-            value={repo}
-            onChange={(e) => {
-              setRepo(e.target.value);
-              setScenario("");
-            }}
-            sx={{ minWidth: 160 }}
-          >
-            {repos.map((r) => (
-              <MenuItem key={r} value={r}>
-                {r}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="Scenario"
-            value={scenario}
-            onChange={(e) => setScenario(e.target.value)}
-            disabled={!repo}
-            sx={{ flex: 1 }}
-          >
-            {inRepo.map((s) => (
-              <MenuItem key={s.id} value={s.id}>
-                {s.name}: {s.title}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            size="small"
-            type="number"
-            label="Runs"
-            value={repeat}
-            onChange={(e) => setRepeat(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
-            slotProps={{ htmlInput: { min: 1, max: 10 } }}
-            sx={{ width: 90 }}
-          />
-        </Stack>
-        <Box>
-          <Button variant="contained" disabled={disabled || !chosen} loading={start.isPending} onClick={() => setConfirming(true)}>
-            Start
-          </Button>
-        </Box>
-      </Stack>
-      <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Start this eval?</DialogTitle>
+    <>
+      <Box>
+        <Button variant="contained" disabled={disabled} onClick={() => setOpen(true)}>
+          Start an eval
+        </Button>
+      </Box>
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Start an eval</DialogTitle>
         <DialogContent>
-          <Typography>
-            {repeat === 1 ? "One full pipeline run" : `${repeat} full pipeline runs`} of {chosen?.id}, in a Docker
-            container. Each run spends OpenRouter credit, with the coordinator's model, and can take a while.
-          </Typography>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {scenarios.isError && <Alert severity="error">{errorMessage(scenarios.error)}</Alert>}
+            {start.isError && <Alert severity="error">{errorMessage(start.error)}</Alert>}
+            <TextField
+              select
+              size="small"
+              label="Repo"
+              value={repo}
+              onChange={(e) => {
+                setRepo(e.target.value);
+                setScenario("");
+              }}
+            >
+              {repos.map((r) => (
+                <MenuItem key={r} value={r}>
+                  {r}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Scenario"
+              value={scenario}
+              onChange={(e) => setScenario(e.target.value)}
+              disabled={!repo}
+            >
+              {inRepo.map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name}: {s.title}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              size="small"
+              type="number"
+              label="Runs"
+              value={repeat}
+              onChange={(e) => setRepeat(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
+              slotProps={{ htmlInput: { min: 1, max: 10 } }}
+            />
+            <Typography variant="body2" color="text.secondary">
+              Each run is a full pipeline run in a Docker container. It spends OpenRouter credit, with the
+              coordinator's model, and can take a while.
+            </Typography>
+          </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
-            onClick={() => {
-              setConfirming(false);
-              start.mutate({ scenario, repeat });
-            }}
+            disabled={disabled || !chosen}
+            loading={start.isPending}
+            onClick={() => start.mutate({ scenario, repeat }, { onSuccess: () => setOpen(false) })}
           >
             Start
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </>
   );
 }
 
@@ -175,26 +169,28 @@ function EvalOutput() {
 function SummaryTable({ runs, compare }: { runs: RunMetrics[]; compare?: RunMetrics[] }) {
   const rows = summarizeRuns(runs, compare);
   return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          <TableCell>Metric</TableCell>
-          <TableCell align="right">This batch</TableCell>
-          {compare && <TableCell align="right">Baseline</TableCell>}
-          {compare && <TableCell align="right">Change</TableCell>}
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.label}>
-            <TableCell>{row.label}</TableCell>
-            <TableCell align="right">{row.value}</TableCell>
-            {compare && <TableCell align="right">{row.was}</TableCell>}
-            {compare && <TableCell align="right">{row.change ?? ""}</TableCell>}
+    <Box sx={{ overflowX: "auto" }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Metric</TableCell>
+            <TableCell align="right">This batch</TableCell>
+            {compare && <TableCell align="right">Baseline</TableCell>}
+            {compare && <TableCell align="right">Change</TableCell>}
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHead>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.label}>
+              <TableCell>{row.label}</TableCell>
+              <TableCell align="right">{row.value}</TableCell>
+              {compare && <TableCell align="right">{row.was}</TableCell>}
+              {compare && <TableCell align="right">{row.change ?? ""}</TableCell>}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
   );
 }
 
@@ -282,32 +278,32 @@ function Results() {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)));
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack spacing={2}>
-        <Typography variant="h6">Results</Typography>
-        <TextField
-          select
-          size="small"
-          label="Scenario"
-          value={scenario}
-          onChange={(e) => {
-            setChosenScenario(e.target.value);
-            setSelected([]);
-          }}
-        >
-          {(scenarios.data ?? []).map((s) => (
-            <MenuItem key={s.id} value={s.id}>
-              {s.id}: {s.title}
-            </MenuItem>
-          ))}
-        </TextField>
-        {!batches.data ? null : list.length === 0 ? (
-          <Typography color="text.secondary">No results for this scenario yet.</Typography>
-        ) : (
-          <>
-            <Typography variant="body2" color="text.secondary">
-              Select a batch to see it; select a second as its baseline to compare them.
-            </Typography>
+    <Stack spacing={2}>
+      <Typography variant="h6">Results</Typography>
+      <TextField
+        select
+        size="small"
+        label="Scenario"
+        value={scenario}
+        onChange={(e) => {
+          setChosenScenario(e.target.value);
+          setSelected([]);
+        }}
+      >
+        {(scenarios.data ?? []).map((s) => (
+          <MenuItem key={s.id} value={s.id}>
+            {s.id}: {s.title}
+          </MenuItem>
+        ))}
+      </TextField>
+      {!batches.data ? null : list.length === 0 ? (
+        <Typography color="text.secondary">No results for this scenario yet.</Typography>
+      ) : (
+        <>
+          <Typography variant="body2" color="text.secondary">
+            Select a batch to see it; select a second as its baseline to compare them.
+          </Typography>
+          <Box sx={{ overflowX: "auto" }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -342,22 +338,22 @@ function Results() {
                 })}
               </TableBody>
             </Table>
-          </>
-        )}
-        {main && (
-          <Stack spacing={1}>
-            <Typography variant="subtitle1">
-              {batchTime(main.id)}
-              {other && `, compared with the baseline from ${batchTime(other.id)}`}
-            </Typography>
-            <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
-            {main.runs.map((run) => (
-              <RunDetails key={run.id} batch={main} run={run} />
-            ))}
-          </Stack>
-        )}
-      </Stack>
-    </Paper>
+          </Box>
+        </>
+      )}
+      {main && (
+        <Stack spacing={1}>
+          <Typography variant="subtitle1">
+            {batchTime(main.id)}
+            {other && `, compared with the baseline from ${batchTime(other.id)}`}
+          </Typography>
+          <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
+          {main.runs.map((run) => (
+            <RunDetails key={run.id} batch={main} run={run} />
+          ))}
+        </Stack>
+      )}
+    </Stack>
   );
 }
 
@@ -366,7 +362,6 @@ function EvalsPage() {
   return (
     <Container maxWidth="md" sx={{ py: 3 }}>
       <Stack spacing={2}>
-        <Typography variant="h5">Evals</Typography>
         <StartEval disabled={Boolean(status.data?.running)} />
         <EvalOutput />
         <Results />
