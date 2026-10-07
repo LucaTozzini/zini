@@ -25,7 +25,7 @@ function App() {
   // then its route shows the setup banner.
   const productManager =
     setup?.linear &&
-    setup.openRouter &&
+    setup.modelProvider &&
     setup.github &&
     setup.repo &&
     setup.model ? (

@@ -2,7 +2,6 @@ import type { LinearClient } from "@linear/sdk";
 import { Command, START, StateGraph, interrupt, isGraphInterrupt } from "@langchain/langgraph";
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, humanInTheLoopMiddleware, toolStrategy, type HITLRequest } from "langchain";
 import type {
   AgentRole,
@@ -52,9 +51,8 @@ import { diffTool, workspaceFilesystem, writeTools } from "./coordinator/tools.j
 import { sendEvent } from "./events.js";
 import { npmTools } from "./npmTools.js";
 import { fetchLinearIssue, getLinearClient } from "./linear.js";
-import { getKey } from "./models/Integration.js";
 import { Workspace } from "./models/Workspace.js";
-import { OPENROUTER_URL } from "./openrouter.js";
+import { chatModel, loadConnection, type ModelConnection } from "./modelProvider.js";
 import { isRunning, runStatus } from "./runs.js";
 import { getSetting } from "./settings.js";
 import { fingerprintWorkspaceFile, workspaceRevision } from "./workspaceFiles.js";
@@ -70,36 +68,31 @@ import { readSetupLog } from "./workspaceSetup.js";
 
 export type Setup = {
   linear: LinearClient;
-  openRouterKey: string;
+  connection: ModelConnection;
   model: string;
 };
 
 // What the pipeline needs to run, or what's missing.
 export async function loadSetup(): Promise<Setup | string> {
-  const [linear, openRouterKey, model] = await Promise.all([
+  const [linear, provider, model] = await Promise.all([
     getLinearClient(),
-    getKey("openrouter"),
+    getSetting("coordinatorProvider"),
     getSetting("coordinatorModel"),
   ]);
   if (!linear) return "Linear isn't connected";
-  if (!openRouterKey) return "OpenRouter isn't connected";
+  const connection = await loadConnection(provider);
+  if (typeof connection === "string") return connection;
   if (!model) return "No coordinator model set";
-  return { linear, openRouterKey, model };
+  return { linear, connection, model };
 }
 
 // One pipeline per issue, so the issue id is enough to find it.
 export const coordinatorThreadId = (issueId: string) =>
   `coordinator:${issueId}`;
 
-// The coordinator's model, on OpenRouter: every subagent's, and the committer's.
-export const coordinatorModel = (setup: Setup) =>
-  new ChatOpenAI({
-    model: setup.model,
-    apiKey: setup.openRouterKey,
-    // Our middleware owns retries, and must stop immediately on model rate limits.
-    maxRetries: 0,
-    configuration: { baseURL: OPENROUTER_URL },
-  });
+// The coordinator's model, on its provider: every subagent's, and the committer's.
+// Our middleware owns retries, and must stop immediately on model rate limits.
+export const coordinatorModel = (setup: Setup) => chatModel(setup.connection, setup.model, { maxRetries: 0 });
 
 // A run paused for approval keeps its log here, so carrying on adds to the same one.
 const pausedLogs = new Map<string, RunLog>();

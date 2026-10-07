@@ -121,9 +121,12 @@ export type ThreadEvent = { type: "thread.updated"; threadId: string };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
 // githubRepo is "owner/name". workspaceSetupCommand runs in each new workspace, and is
-// stopped after workspaceSetupTimeoutMinutes (a whole number; 15 when unset).
+// stopped after workspaceSetupTimeoutMinutes (a whole number; 15 when unset). Each model
+// runs on its provider (a ModelProvider; OpenRouter when unset).
 export type Settings = {
+  productManagerProvider: string | null;
   productManagerModel: string | null;
+  coordinatorProvider: string | null;
   coordinatorModel: string | null;
   githubRepo: string | null;
   workspaceSetupCommand: string | null;
@@ -131,7 +134,23 @@ export type Settings = {
 };
 
 // Settings that can be cleared, by saving an empty value.
-export const OPTIONAL_SETTINGS = ["workspaceSetupCommand", "workspaceSetupTimeoutMinutes"] as const;
+export const OPTIONAL_SETTINGS = [
+  "workspaceSetupCommand",
+  "workspaceSetupTimeoutMinutes",
+  "productManagerProvider",
+  "coordinatorProvider",
+] as const;
+
+// Where a model runs: on OpenRouter, with its key, or on the user's ChatGPT plan, through
+// Sign in with ChatGPT.
+export const MODEL_PROVIDERS = ["openrouter", "chatgpt"] as const;
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+
+// As returned by GET /api/chatgpt: whether zini is signed in to a ChatGPT plan, and as whom.
+export type ChatGptStatus = { connected: boolean; email?: string };
+
+// The ChatGPT sign-in changed (signed in or out): refetch its status and models.
+export type ChatGptEvent = { type: "chatgpt.updated" };
 
 // A workspace's setup started, finished or failed: refetch it.
 export type WorkspaceEvent = { type: "workspace.updated"; issueId: string };
@@ -148,7 +167,7 @@ export type CoordinatorLogEvent = { type: "coordinator.log"; issueId: string; ru
 export type EvalEvent = { type: "eval.updated" };
 
 // Everything sent on GET /api/events.
-export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | CoordinatorLogEvent | EvalEvent;
+export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | CoordinatorLogEvent | EvalEvent | ChatGptEvent;
 
 // The coordinator's pipeline for an issue: the planner plans (you answer its questions
 // and approve the plan), then the coder and reviewer loop until the review requires no

@@ -13,8 +13,9 @@ import {
   useIntegrations,
 } from "../api/integrations.ts";
 import { useSaveSettings, useSettings } from "../api/settings.ts";
-import type { Provider, Settings } from "shared";
-import { Container, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
+import type { ModelProvider, Provider, Settings } from "shared";
+import { Container, MenuItem, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
 
 type KeyCardProps = { provider: Provider; name: string; helperText: string };
@@ -174,6 +175,137 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
   );
 }
 
+// Sign in with ChatGPT, to run models on your ChatGPT plan. Its callback goes to this
+// machine's 127.0.0.1, so the sign-in only works in a browser on the computer running
+// zini.
+function ChatGptCard() {
+  const status = useChatGpt();
+  const signIn = useChatGptSignIn();
+  const signOut = useChatGptSignOut();
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6">ChatGPT plan</Typography>
+          {status.isError && <Alert severity="error">{errorMessage(status.error)}</Alert>}
+          {signIn.isError && <Alert severity="error">{errorMessage(signIn.error)}</Alert>}
+          {signOut.isError && <Alert severity="error">{errorMessage(signOut.error)}</Alert>}
+          {status.data?.connected ? (
+            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+              <Typography sx={{ flexGrow: 1 }}>Signed in as {status.data.email ?? "your ChatGPT account"}</Typography>
+              <Button color="error" loading={signOut.isPending} onClick={() => signOut.mutate()}>
+                Sign out
+              </Button>
+            </Stack>
+          ) : (
+            status.isSuccess && (
+              <>
+                <Typography variant="body2" color="text.secondary">
+                  Run models on your ChatGPT plan (Plus or Pro) instead of OpenRouter. Usage counts against your
+                  plan&apos;s limits.
+                </Typography>
+                {local ? (
+                  <Stack direction="row">
+                    <Button variant="contained" loading={signIn.isPending} onClick={() => signIn.mutate()}>
+                      Sign in with ChatGPT
+                    </Button>
+                  </Stack>
+                ) : (
+                  <Alert severity="info">Sign in from a browser on the computer running zini.</Alert>
+                )}
+              </>
+            )
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+// A role's model and where it runs: an OpenRouter model id, or one of the ChatGPT plan's
+// models. Both are saved together.
+function ModelCard({ title, provider: providerSetting, model: modelSetting, helperText }: {
+  title: string;
+  provider: "productManagerProvider" | "coordinatorProvider";
+  model: "productManagerModel" | "coordinatorModel";
+  helperText: string;
+}) {
+  const settings = useSettings();
+  const save = useSaveSettings();
+  const chatGpt = useChatGpt();
+  const [drafts, setDrafts] = useState<Partial<Record<keyof Settings, string>>>({});
+  const provider = (drafts[providerSetting] ?? settings.data?.[providerSetting] ?? "openrouter") as ModelProvider;
+  const model = drafts[modelSetting] ?? settings.data?.[modelSetting] ?? "";
+  const models = useChatGptModels(provider === "chatgpt" && Boolean(chatGpt.data?.connected));
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    save.mutate(drafts, { onSuccess: () => setDrafts({}) });
+  }
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6">{title}</Typography>
+          {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
+          {settings.isSuccess && (
+            <Stack component="form" spacing={2} onSubmit={handleSubmit}>
+              <TextField
+                select
+                label="Provider"
+                value={provider}
+                // A model id belongs to its provider, so switching starts the model afresh.
+                onChange={(e) => setDrafts((d) => ({ ...d, [providerSetting]: e.target.value, [modelSetting]: "" }))}
+              >
+                <MenuItem value="openrouter">OpenRouter</MenuItem>
+                <MenuItem value="chatgpt">ChatGPT plan</MenuItem>
+              </TextField>
+              {provider === "openrouter" ? (
+                <TextField
+                  label="Model"
+                  value={model}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [modelSetting]: e.target.value }))}
+                  placeholder="anthropic/claude-sonnet-5"
+                  helperText={helperText}
+                  autoComplete="off"
+                  required
+                />
+              ) : !chatGpt.data?.connected ? (
+                <Alert severity="info">Sign in with ChatGPT above to choose one of your plan&apos;s models.</Alert>
+              ) : (
+                <TextField
+                  select
+                  label="Model"
+                  value={models.data?.some((m) => m.slug === model) ? model : ""}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [modelSetting]: e.target.value }))}
+                  helperText={models.isError ? errorMessage(models.error) : "One of the models your ChatGPT plan offers."}
+                  error={models.isError}
+                  required
+                >
+                  {(models.data ?? []).map((m) => (
+                    <MenuItem key={m.slug} value={m.slug}>
+                      {m.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+              {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
+              <Stack direction="row">
+                <Button type="submit" variant="contained" loading={save.isPending} disabled={!drafts[modelSetting]}>
+                  Save
+                </Button>
+              </Stack>
+            </Stack>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 // setMode also saves the choice in localStorage, so it survives reloads.
 function AppearanceCard() {
   const { mode, setMode } = useColorScheme();
@@ -251,28 +383,18 @@ function SettingsPage() {
             },
           ]}
         />
-        <SettingCard
+        <ChatGptCard />
+        <ModelCard
           title="Product manager"
-          fields={[
-            {
-              setting: "productManagerModel",
-              label: "Model",
-              placeholder: "anthropic/claude-sonnet-5",
-              helperText: "An OpenRouter model ID that supports tool calling.",
-            },
-          ]}
+          provider="productManagerProvider"
+          model="productManagerModel"
+          helperText="An OpenRouter model ID that supports tool calling."
         />
-        <SettingCard
+        <ModelCard
           title="Coordinator"
-          fields={[
-            {
-              setting: "coordinatorModel",
-              label: "Model",
-              placeholder: "anthropic/claude-sonnet-5",
-              helperText:
-                "An OpenRouter model ID for the coordinator, which guides implementing an issue in its workspace.",
-            },
-          ]}
+          provider="coordinatorProvider"
+          model="coordinatorModel"
+          helperText="An OpenRouter model ID for the coordinator, which guides implementing an issue in its workspace."
         />
         <AppearanceCard />
       </Stack>

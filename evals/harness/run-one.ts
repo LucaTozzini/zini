@@ -31,6 +31,7 @@ import { roleMetrics, totals } from "./metrics.js";
 import type { Check, Scenario } from "./types.js";
 import { isModelRateLimit } from "../../backend/src/modelErrors.js";
 import { codeVersion } from "./version.js";
+import type { ModelConnection } from "../../backend/src/modelProvider.js";
 
 // One eval run, in its own process (see run.ts): DB_PATH puts all of zini's data (its
 // database, the repo's clone, the workspace, the run logs) in a fresh folder. The run
@@ -41,7 +42,10 @@ const EVALS = resolve(import.meta.dirname, "..");
 const scenarioName = required("EVAL_SCENARIO"); // e.g. todo-app/remaining-count
 const runDir = resolve(required("EVAL_RUN_DIR"));
 const model = required("EVAL_MODEL");
-const openRouterKey = required("OPENROUTER_API_KEY");
+// The backend keeps the mounted ChatGPT token current; reread it for every request.
+const connection: ModelConnection = process.env.EVAL_PROVIDER === "chatgpt"
+  ? { provider: "chatgpt", token: async () => readFileSync(required("CHATGPT_TOKEN_FILE"), "utf8") }
+  : { provider: "openrouter", key: required("OPENROUTER_API_KEY") };
 const dataDir = dirname(resolve(storage));
 
 // Every command the QA runs is approved, so runs only happen in the eval container,
@@ -212,7 +216,7 @@ async function main() {
   await makeWorkspace(issueId);
   console.log(`${scenarioName}: ${scenario.title} (model ${model})`);
 
-  const run = pipelineRun({ linear: fakeLinear(issueId), openRouterKey, model }, issueId);
+  const run = pipelineRun({ linear: fakeLinear(issueId), connection, model }, issueId);
   const stopFollowing = followLogs(join(runDir, "logs", issueId));
   let error: string | null = null;
   try {

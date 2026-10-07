@@ -11,10 +11,13 @@ import { codeVersion } from "./harness/version.js";
 // scenario's batch. The eval container's entry point (see Dockerfile), started by zini's
 // backend from the webapp's Evals page (see backend/src/evals.ts); the container is the
 // only place the QA's commands are approved.
-//   run.ts <repo/scenario ...|all> [--repeat N]
-// Needs OPENROUTER_API_KEY and EVAL_MODEL. EVAL_RESULTS (default evals/results) is where
-// results go, EVAL_WORK (default the system's temp folder) where runs work, and
-// EVAL_TIMEOUT_MINUTES (default 60) how long a run may take.
+//   run.ts <repo/scenario ...|all> [--repeat N] [--run N]
+// --run N does only run N of the batch: zini's backend starts a container per run, each
+// with a current ChatGPT token file, and gives them the same batch with EVAL_BATCH.
+// Needs EVAL_MODEL, and OPENROUTER_API_KEY, or CHATGPT_TOKEN_FILE with
+// EVAL_PROVIDER=chatgpt. EVAL_RESULTS (default evals/results) is where results go,
+// EVAL_WORK (default the system's temp folder) where runs work, and EVAL_TIMEOUT_MINUTES
+// (default 60) how long a run may take.
 
 const EVALS = import.meta.dirname;
 const SCENARIOS = join(EVALS, "scenarios");
@@ -22,6 +25,8 @@ const SCENARIOS = join(EVALS, "scenarios");
 const args = process.argv.slice(2);
 const repeatAt = args.indexOf("--repeat");
 const repeat = repeatAt === -1 ? 1 : Number(args.splice(repeatAt, 2)[1]);
+const runAt = args.indexOf("--run");
+const only = runAt === -1 ? null : Number(args.splice(runAt, 2)[1]);
 const scenarios = args.includes("all")
   ? readdirSync(SCENARIOS).flatMap((repo) =>
       readdirSync(join(SCENARIOS, repo))
@@ -37,11 +42,13 @@ if (!existsSync("/.dockerenv")) {
   );
   process.exit(1);
 }
-if (scenarios.length === 0 || !Number.isInteger(repeat) || repeat < 1) {
-  console.error("Usage: npx tsx evals/run.ts <repo/scenario ...|all> [--repeat N]");
+if (scenarios.length === 0 || !Number.isInteger(repeat) || repeat < 1 ||
+    (only !== null && (!Number.isInteger(only) || only < 1 || only > repeat))) {
+  console.error("Usage: npx tsx evals/run.ts <repo/scenario ...|all> [--repeat N] [--run N]");
   process.exit(1);
 }
-for (const name of ["OPENROUTER_API_KEY", "EVAL_MODEL"]) {
+const credential = process.env.EVAL_PROVIDER === "chatgpt" ? "CHATGPT_TOKEN_FILE" : "OPENROUTER_API_KEY";
+for (const name of [credential, "EVAL_MODEL"]) {
   if (!process.env[name]) {
     console.error(`${name} isn't set`);
     process.exit(1);
@@ -57,7 +64,7 @@ for (const scenario of scenarios) {
 const results = resolve(process.env.EVAL_RESULTS ?? join(EVALS, "results"));
 const work = resolve(process.env.EVAL_WORK ?? join(tmpdir(), "zini-evals"));
 const timeoutMinutes = Number(process.env.EVAL_TIMEOUT_MINUTES) || 60;
-const batch = new Date().toISOString().replace(/[:.]/g, "-");
+const batch = process.env.EVAL_BATCH ?? new Date().toISOString().replace(/[:.]/g, "-");
 console.log(`Coordinator source version: ${codeVersion()}`);
 
 function runOne(scenario: string, runDir: string, dataDir: string) {
@@ -86,7 +93,7 @@ function runOne(scenario: string, runDir: string, dataDir: string) {
 let failed = false;
 for (const scenario of scenarios) {
   const batchDir = join(results, scenario, batch);
-  for (let n = 1; n <= repeat; n++) {
+  for (let n = only ?? 1; n <= (only ?? repeat); n++) {
     console.log(`\n=== ${scenario}, run ${n} of ${repeat} ===`);
     const code = await runOne(scenario, join(batchDir, `run-${n}`), join(work, batch, scenario, `run-${n}`));
     if (code === 2) {

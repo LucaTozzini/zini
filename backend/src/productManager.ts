@@ -1,6 +1,5 @@
 import type { LinearClient } from "@linear/sdk";
 import { Command } from "@langchain/langgraph";
-import { ChatOpenAI } from "@langchain/openai";
 import {
   AIMessage,
   HumanMessage,
@@ -49,7 +48,7 @@ import { exploreCode } from "./codeExplorer.js";
 import { notesMiddleware, readNotes } from "./notes.js";
 import { Workspace } from "./models/Workspace.js";
 import { npmTools } from "./npmTools.js";
-import { OPENROUTER_URL } from "./openrouter.js";
+import { chatModel as connectModel, type ModelConnection } from "./modelProvider.js";
 import { startRun } from "./runs.js";
 import { commitAndPush, createWorkspace, isIssueId } from "./workspaces.js";
 
@@ -368,12 +367,8 @@ const senderNames = createMiddleware({
 
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
-function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
-  const chatModel = new ChatOpenAI({
-    model,
-    apiKey: openRouterKey,
-    configuration: { baseURL: OPENROUTER_URL },
-  });
+function buildAgent({ linear, connection, model, repo }: Setup) {
+  const chatModel = connectModel(connection, model);
   // The run's signal reaches the tool, so stopping the chat stops the explorer too.
   // The chat's id goes in the explorer's log.
   const exploreCodeTool = tool(
@@ -426,7 +421,7 @@ function buildAgent({ linear, openRouterKey, model, repo }: Setup) {
 }
 
 // repo is the githubRepo setting, "owner/name".
-type Setup = { linear: LinearClient; openRouterKey: string; model: string; repo: string };
+type Setup = { linear: LinearClient; connection: ModelConnection; model: string; repo: string };
 
 // A reply is many small steps (a tool call, then its result), so LangGraph's default
 // of 25 is nowhere near enough for a long one, and compaction (100k tokens) never

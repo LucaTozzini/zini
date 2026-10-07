@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { MODEL_PROVIDERS } from "shared";
 import { cloneRepo } from "../git.js";
 import { getKey } from "../models/Integration.js";
 import { Workspace } from "../models/Workspace.js";
@@ -43,6 +44,14 @@ settings.put("/", async (req, res) => {
       return;
     }
     changes[key] = trimmed;
+  }
+
+  for (const key of ["productManagerProvider", "coordinatorProvider"] as const) {
+    const provider = changes[key];
+    if (provider && !(MODEL_PROVIDERS as readonly string[]).includes(provider)) {
+      res.status(400).json({ error: `${key} must be one of ${MODEL_PROVIDERS.join(", ")}` });
+      return;
+    }
   }
 
   const timeout = changes.workspaceSetupTimeoutMinutes;
