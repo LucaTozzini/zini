@@ -3,6 +3,7 @@ import { CHATGPT_API, chatGptAccessToken } from "./chatgpt.js";
 import { getKey } from "./models/Integration.js";
 import { OAuthConnection } from "./models/OAuthConnection.js";
 import { OPENROUTER_URL } from "./openrouter.js";
+import { preserveChatGptOutput } from "./chatgptStream.js";
 
 // Where a role's model runs: on OpenRouter with its key, or on the user's ChatGPT plan
 // (see chatgpt.ts), with a token that's fetched, and refreshed, per request.
@@ -40,7 +41,7 @@ export function chatModel(connection: ModelConnection, model: string, fields: { 
       fetch: async (url: string | URL | Request, init?: RequestInit) => {
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${await connection.token()}`);
-        return fetch(url, { ...init, headers });
+        return preserveChatGptOutput(await fetch(url, { ...init, headers }));
       },
     },
   });
