@@ -8,6 +8,7 @@ import { chat, deleteThreadHistory, loadThread, resume } from "../productManager
 import { sendEvent } from "../events.js";
 import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../runs.js";
 import { getSetting } from "../settings.js";
+import { loadConnection } from "../modelProvider.js";
 
 export const productManager = Router();
 
@@ -26,9 +27,9 @@ const isDecision = (d: unknown): d is Decision =>
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
-  const [linear, openRouterKey, githubToken, model, repo] = await Promise.all([
+  const [linear, connection, githubToken, model, repo] = await Promise.all([
     getLinearClient(),
-    getKey("openrouter"),
+    getSetting("productManagerProvider").then(loadConnection),
     getKey("github"),
     getSetting("productManagerModel"),
     getSetting("githubRepo"),
@@ -38,11 +39,11 @@ async function loadSetup(res: Response) {
     return null;
   };
   if (!linear) return missing("Linear isn't connected");
-  if (!openRouterKey) return missing("OpenRouter isn't connected");
+  if (typeof connection === "string") return missing(connection);
   if (!githubToken) return missing("GitHub isn't connected");
   if (!model) return missing("No model set");
   if (!repo) return missing("No GitHub repository set");
-  return { linear, openRouterKey, model, repo };
+  return { linear, connection, model, repo };
 }
 
 // The chat with this id, or null after sending a 404.

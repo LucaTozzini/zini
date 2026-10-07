@@ -1,3 +1,4 @@
+import { useChatGpt } from "../api/chatgpt.ts";
 import { useIntegrations } from "../api/integrations.ts";
 import { useSettings } from "../api/settings.ts";
 
@@ -7,19 +8,22 @@ import { useSettings } from "../api/settings.ts";
 export function useSetup() {
   const integrations = useIntegrations();
   const settings = useSettings();
+  const chatGpt = useChatGpt();
 
-  if (!integrations.isSuccess || !settings.isSuccess) return null;
+  if (!integrations.isSuccess || !settings.isSuccess || !chatGpt.isSuccess) return null;
 
+  // The product manager's model runs on its provider: OpenRouter, or the ChatGPT plan.
+  const onChatGpt = settings.data.productManagerProvider === "chatgpt";
   const ready = {
     linear: integrations.data.linear.connected,
-    openRouter: integrations.data.openrouter.connected,
+    modelProvider: onChatGpt ? chatGpt.data.connected : integrations.data.openrouter.connected,
     github: integrations.data.github.connected,
     model: Boolean(settings.data.productManagerModel),
     repo: Boolean(settings.data.githubRepo),
   };
   const missing = [];
   if (!ready.linear) missing.push("a Linear key");
-  if (!ready.openRouter) missing.push("an OpenRouter key");
+  if (!ready.modelProvider) missing.push(onChatGpt ? "a ChatGPT sign-in" : "an OpenRouter key");
   if (!ready.github) missing.push("a GitHub token");
   if (!ready.model) missing.push("a model");
   if (!ready.repo) missing.push("a GitHub repository");

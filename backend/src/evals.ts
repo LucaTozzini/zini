@@ -4,8 +4,9 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { EvalBatch, EvalScenario, EvalStatus, RunMetrics } from "shared";
 import { sendEvent } from "./events.js";
-import { getKey } from "./models/Integration.js";
+import { loadConnection, type ModelConnection } from "./modelProvider.js";
 import { getSetting } from "./settings.js";
+import { createEvalCredentials } from "./evalCredentials.js";
 
 // zini's evals (see evals/README.md, at the repo's root): runs of the coordinator on test
 // issues in a Docker container, started from the webapp's Evals page. This lists the
@@ -68,14 +69,14 @@ export function runDiff(repo: string, name: string, batch: string, run: string) 
 
 // ---- Running ----------------------------------------------------------------------
 
-// The OpenRouter key and the coordinator's model (EVAL_MODEL overrides it), or what's
-// missing.
+// The coordinator's provider and model (EVAL_MODEL overrides it), or what's missing.
 export async function evalSettings() {
-  const [key, model] = await Promise.all([getKey("openrouter"), getSetting("coordinatorModel")]);
-  if (!key) return "OpenRouter isn't connected";
+  const [provider, model] = await Promise.all([getSetting("coordinatorProvider"), getSetting("coordinatorModel")]);
+  const connection = await loadConnection(provider);
+  if (typeof connection === "string") return connection;
   const evalModel = process.env.EVAL_MODEL ?? model;
   if (!evalModel) return "No coordinator model set";
-  return { key, model: evalModel };
+  return { connection, model: evalModel };
 }
 
 export async function dockerRunning() {
@@ -85,13 +86,17 @@ export async function dockerRunning() {
   );
 }
 
-// Builds the eval image, then runs evals/run.ts in a container with args (scenarios and
-// --repeat), its results going to evals/results. Each line of output goes to onLine. The
-// key is passed in the container's environment, never on a command line.
-export function runInDocker(args: string[], { key, model }: { key: string; model: string }, onLine: (line: string) => void) {
+// Builds the eval image, then runs each of a scenario's repeat runs in its own container
+// (evals/run.ts --run N), all in one batch, its results going to evals/results. Each line
+// of output goes to onLine. ChatGPT tokens stay current in a temporary read-only mount;
+// only this server refreshes them. OpenRouter keys go in the container's environment.
+export function runInDocker(scenario: string, repeat: number, { connection, model }: { connection: ModelConnection; model: string },
+  onLine: (line: string) => void) {
   const container = `zini-eval-${Date.now()}`;
   let child: ChildProcess | null = null;
   let stopped = false;
+  let credentials: Awaited<ReturnType<typeof createEvalCredentials>> | null = null;
+  let credentialError: string | null = null;
 
   const run = (command: string[], env: NodeJS.ProcessEnv = process.env) =>
     new Promise<number | null>((done) => {
@@ -114,29 +119,49 @@ export function runInDocker(args: string[], { key, model }: { key: string; model
       });
     });
 
-  const done = (async () => {
+  const execute = async () => {
     onLine("Building the eval image…");
     if ((await run(["build", "--quiet", "-f", "evals/Dockerfile", "-t", IMAGE, "."])) !== 0) {
       return { ok: false, error: stopped ? "Stopped" : "Building the eval image failed" };
     }
     if (stopped) return { ok: false, error: "Stopped" };
+    if (connection.provider === "chatgpt") {
+      credentials = await createEvalCredentials(connection.token, (error) => {
+        credentialError = error instanceof Error ? error.message : String(error);
+        stop();
+      });
+    }
     mkdirSync(RESULTS, { recursive: true });
-    const code = await run(
-      ["run", "--rm", "--name", container, "-e", "OPENROUTER_API_KEY", "-e", "EVAL_MODEL", "-e", "EVAL_TIMEOUT_MINUTES",
-        "-v", `${RESULTS}:/results`, IMAGE, ...args],
-      { ...process.env, OPENROUTER_API_KEY: key, EVAL_MODEL: model },
-    );
-    if (stopped) return { ok: false, error: "Stopped" };
-    if (code === 2) return { ok: false, error: "Model rate limit reached; remaining eval runs were not started" };
-    return code === 0 ? { ok: true, error: null } : { ok: false, error: `Eval batch failed (container exit ${code}); inspect the run metrics` };
-  })();
+    const batch = new Date().toISOString().replace(/[:.]/g, "-");
+    let failed = false;
+    for (let n = 1; n <= repeat; n++) {
+      if (stopped) return { ok: false, error: credentialError ?? "Stopped" };
+      const credential: Record<string, string> = connection.provider === "chatgpt"
+        ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: "/run/zini-auth/access-token" }
+        : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
+      const code = await run(
+        ["run", "--rm", "--name", `${container}-${n}`, ...Object.keys(credential).flatMap((name) => ["-e", name]),
+          "-e", "EVAL_MODEL", "-e", "EVAL_BATCH", "-e", "EVAL_TIMEOUT_MINUTES",
+          ...(credentials ? ["-v", `${credentials.directory}:/run/zini-auth:ro`] : []),
+          "-v", `${RESULTS}:/results`, IMAGE, scenario, "--repeat", String(repeat), "--run", String(n)],
+        { ...process.env, ...credential, EVAL_MODEL: model, EVAL_BATCH: batch },
+      );
+      if (stopped) return { ok: false, error: credentialError ?? "Stopped" };
+      if (code === 2) return { ok: false, error: "Model rate limit reached; remaining eval runs were not started" };
+      if (code !== 0) failed = true;
+    }
+    return failed ? { ok: false, error: "Some eval runs failed; inspect the run metrics" } : { ok: true, error: null };
+  };
 
   const stop = () => {
     stopped = true;
     // Stopping the container ends its run; a build still going is killed.
-    spawn("docker", ["stop", container], { windowsHide: true }).on("error", () => {});
+    for (let n = 1; n <= repeat; n++) spawn("docker", ["stop", `${container}-${n}`], { windowsHide: true }).on("error", () => {});
     (child as ChildProcess | null)?.kill();
   };
+  const done = execute()
+    .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+    .finally(async () => { await credentials?.close(); });
   return { done, stop };
 }
 
@@ -174,7 +199,7 @@ export async function startEval(scenario: string, repeat: number): Promise<strin
 
   output = [];
   ended = null;
-  const { done, stop } = runInDocker([scenario, "--repeat", String(repeat)], settings, (line) => {
+  const { done, stop } = runInDocker(scenario, repeat, settings, (line) => {
     output.push(line);
     if (output.length > MAX_OUTPUT_LINES) output = output.slice(-MAX_OUTPUT_LINES);
     notify();

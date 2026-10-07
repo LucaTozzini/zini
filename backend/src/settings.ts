@@ -5,7 +5,9 @@ export type SettingKey = keyof Settings;
 
 // The settings that exist. Each is a row in the settings table once saved.
 export const SETTING_KEYS: SettingKey[] = [
+  "productManagerProvider",
   "productManagerModel",
+  "coordinatorProvider",
   "coordinatorModel",
   "githubRepo",
   "workspaceSetupCommand",

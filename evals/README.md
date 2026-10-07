@@ -11,12 +11,15 @@ reach your machine.
 
 ## Running
 
-Needs Docker Desktop running, OpenRouter connected in zini, and the coordinator's model
-set (or `EVAL_MODEL`).
+Needs Docker Desktop running, the coordinator's provider connected in zini (OpenRouter,
+or a ChatGPT sign-in), and the coordinator's model set (or `EVAL_MODEL`).
 
 Evals are started from the webapp's **Evals** page: pick a repo, a scenario and how many
 runs, and start. One eval runs at a time. zini's backend builds the image
-(`evals/Dockerfile`), then runs the scenario in a container (`evals/run.ts`). Its output
+(`evals/Dockerfile`), then runs each run in its own container (`evals/run.ts --run N`),
+with the OpenRouter key in its environment, or a read-only mount containing a ChatGPT
+access token. The backend refreshes that token during the run, and each model request
+rereads it; refresh tokens stay on the host. Its output
 shows on the page as it goes: each subagent, its tool calls and what the harness
 answers, then a summary of the batch.
 
