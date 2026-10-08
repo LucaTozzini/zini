@@ -31,7 +31,7 @@ const ChatInput = ({
   onSubmit,
 }: ChatInputProps) => {
   return (
-    <Paper sx={{borderRadius: 2}}>
+    <Paper sx={{borderRadius: 2}} variant="outlined">
 
       <TextField
         component="form"

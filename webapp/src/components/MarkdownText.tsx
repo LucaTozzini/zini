@@ -2,13 +2,21 @@ import { Box, Typography, type TypographyProps } from "@mui/material";
 import type { ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import LinkIcon from "@mui/icons-material/Link";
+import LaunchIcon from '@mui/icons-material/Launch';
 
 // A markdown element as MUI Typography, so it follows the theme's type scale. The
 // variants are a step or two smaller than the tags': the text sits in a chat bubble
 // or a card, not a page. Typography has no margins, so they're set here.
 const text =
-  (variant: TypographyProps["variant"], component: "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p") =>
-  ({ node: _node, ...props }: ComponentProps<typeof component> & ExtraProps) => (
+  (
+    variant: TypographyProps["variant"],
+    component: "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p",
+  ) =>
+  ({
+    node: _node,
+    ...props
+  }: ComponentProps<typeof component> & ExtraProps) => (
     <Typography
       variant={variant}
       component={component}
@@ -27,19 +35,51 @@ const markdownComponents: Components = {
   p: text("body1", "p"),
   // Inline code, and the code in a fenced block.
   code: ({ node: _node, ...props }) => (
-    <Box component="code" {...props} sx={{ color: "secondary.main" }} />
+    <Typography
+      variant="body2"
+      component="code"
+      {...props}
+      sx={{ color: "inherit", fontFamily: "monospace" }}
+    />
   ),
   // A fenced block scrolls sideways for its long lines, instead of running out of the
   // bubble.
-  pre: ({ node: _node, ...props }) => <Box component="pre" {...props} sx={{ overflowX: "auto", bgcolor: "background.default", p: 1 }} />,
+  pre: ({ node: _node, ...props }) => (
+    <Box
+      component="pre"
+      {...props}
+      sx={{
+        overflowX: "auto",
+        bgcolor: "black",
+        p: 1,
+        borderRadius: 1,
+        color: "white",
+      }}
+    />
+  ),
   // Links open in a new tab instead of replacing the chat. noreferrer also stops the
   // new page from reaching back into this one through window.opener.
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+  a: ({ node: _node, ...props }) => (
+    <Typography
+      component={"a"}
+      {...props}
+      target="_blank"
+      rel="noreferrer"
+      color="primary"
+
+    >
+      <LaunchIcon sx={{fontSize: 12, mx: .3}}/>
+      {props.children}
+    </Typography>
+  ),
 };
 
 // Markdown text (an agent's reply, an issue description), without its outer
 // paragraph margins.
-function MarkdownText({ children, ...props }: { children: string } & TypographyProps<"div">) {
+function MarkdownText({
+  children,
+  ...props
+}: { children: string } & TypographyProps<"div">) {
   return (
     <Typography
       component="div"
@@ -47,7 +87,11 @@ function MarkdownText({ children, ...props }: { children: string } & TypographyP
       sx={[
         // overflowWrap: long words with nowhere to break (paths, URLs, inline code) break
         // anywhere rather than overflow.
-        { overflowWrap: "anywhere", "& > :first-child": { mt: 0 }, "& > :last-child": { mb: 0 } },
+        {
+          overflowWrap: "anywhere",
+          "& > :first-child": { mt: 0 },
+          "& > :last-child": { mb: 0 },
+        },
         ...(Array.isArray(props.sx) ? props.sx : [props.sx]),
       ]}
     >

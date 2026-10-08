@@ -28,10 +28,12 @@ import MarkdownText from "./MarkdownText.tsx";
 const MyAvatar = ({ src, label }: { src: string; label: string }) => (
   <Tooltip title={label} enterDelay={600}>
     <Avatar
+      variant="rounded"
       sx={{
-        height: 55,
-        width: 55,
+        height: 50,
+        width: 50,
         m: 0.2,
+        
       }}
       src={src}
     />
@@ -108,44 +110,42 @@ const ChatHeader = ({ src, label, todos, notes }: ChatHeaderProps) => {
           left: 0,
           right: 0,
           display: "flex",
-          justifyContent: "space-between",
+          justifyContent: "center",
+          pointerEvents: "none",
 
-          p: 3,
+          p: 1,
           backgroundImage: (theme) =>
             `linear-gradient(${(theme.vars || theme).palette.background.default}, transparent)`,
         }}
       >
-        <Box sx={{ flex: 1 }} />
         <Paper
-          elevation={2}
           sx={{
-            borderRadius: 100,
             display: "flex",
             alignItems: "center",
             gap: 0.5,
             pr: 1.5,
+            pointerEvents: "all"
           }}
         >
           <MyAvatar src={src} label={label} />
 
           <ButtonGroup>
             <Tooltip title="To-Do">
-              <IconButton onClick={() => setShowModal(2)}>
+              <IconButton onClick={() => setShowModal(2)} size="small">
                 {/* Hidden when there are none. */}
                 <Badge badgeContent={openTodos} color="primary">
-                  <FormatListNumberedRtlIcon />
+                  <FormatListNumberedRtlIcon fontSize="small" />
                 </Badge>
               </IconButton>
             </Tooltip>
 
             <Tooltip title="Project notes">
-              <IconButton onClick={() => setShowModal(3)}>
-                <StickyNote2Icon />
+              <IconButton onClick={() => setShowModal(3)} size="small">
+                <StickyNote2Icon fontSize="small"/>
               </IconButton>
             </Tooltip>
           </ButtonGroup>
         </Paper>
-        <Box sx={{ flex: 1 }}></Box>
       </Box>
 
       <MyDialog

@@ -7,10 +7,13 @@ import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
 import ChatInput from "./ChatInput.tsx";
 import CompactionMarker from "./CompactionMarker.tsx";
-import { MessageBubble } from "./MessageBubble.tsx";
+import { HumanMessage } from "./chat/HumanMessage.tsx";
+import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import ToolCallGroup from "./ToolCallGroup.tsx";
 import ToolCallLine from "./ToolCallLine.tsx";
 import ChatHeader from "./ChatHeader.tsx";
+import SystemMessage from "./chat/SystemMessage.tsx";
+import AiMessage from "./chat/AiMessage.tsx";
 
 // Everything the chat shows and does, whatever agent and API are behind it (e.g.
 // useChat for the product manager).
@@ -94,7 +97,14 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
     stopAgent,
   } = chat;
 
-  const { scrollRef, lastMessageRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
+  const {
+    scrollRef,
+    lastMessageRef,
+    onScroll,
+    onScrollEnd,
+    messagesBelow,
+    scrollToBottom,
+  } = useChatScroll({
     content,
     // A new chat's first message, or a message just sent to this one.
     sending: Boolean(sending) || sendLoading,
@@ -128,9 +138,14 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
           scrollbarWidth: "none",
         }}
       >
-        <ChatHeader src={avatar.src} label={avatar.label} todos={todos} notes={notes} />
-        <Container maxWidth={false} sx={{ maxWidth: 750 }}>
-          <Stack spacing={2} sx={{ pt: 3 }}>
+        <ChatHeader
+          src={avatar.src}
+          label={avatar.label}
+          todos={todos}
+          notes={notes}
+        />
+        <Container maxWidth={"md"}>
+          <Stack spacing={3} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (
               <Typography
                 color="text.secondary"
@@ -152,16 +167,28 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
                 )
               ) : message.role === "compaction" ? (
                 <CompactionMarker key={i} summary={message.summary} />
-              ) : (
-                <MessageBubble
+              ) : message.role === "activity" ? (
+                <SystemMessage
+                  key={message.eventId}
+                  issueId={message.issueId}
+                  content={message.content}
+                />
+              ) : message.role === "user" ? (
+                <HumanMessage
                   key={i}
                   message={message}
                   ref={i === messages.length - 1 ? lastMessageRef : undefined}
                 />
+              ) : (
+                <AiMessage
+                  key={i}
+                  ref={i === messages.length - 1 ? lastMessageRef : undefined}
+                  content={message.content}
+                />
               ),
             )}
             {sending && (
-              <MessageBubble message={{ role: "user", content: sending }} />
+              <HumanMessage message={{ role: "user", content: sending }} />
             )}
             {pending.length > 0 && (
               <ApprovalCard
@@ -170,12 +197,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
                 onDecide={decide}
               />
             )}
-            {busy && (
-              <MessageBubble
-                message={{ role: "assistant", content: "" }}
-                loading
-              />
-            )}
+            {busy && <ThinkingIndicator />}
             {error && <Alert severity="error">{errorMessage(error)}</Alert>}
           </Stack>
         </Container>
@@ -204,7 +226,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
             <Box
               sx={{
                 position: "absolute",
-                top:-20,
+                top: -20,
                 left: 0,
                 right: 0,
                 display: "flex",
@@ -225,13 +247,13 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
                   color: "primary.contrastText",
                   ":hover": {
                     bgcolor: "primary.light",
-                  color: "primary.contrastText",
-                  }
+                    color: "primary.contrastText",
+                  },
                 }}
               />
             </Box>
           )}
-          <Container maxWidth={false} sx={{ maxWidth: 780 }}>
+          <Container maxWidth={"md"}>
             <ChatInput
               value={draft}
               loading={sendLoading}

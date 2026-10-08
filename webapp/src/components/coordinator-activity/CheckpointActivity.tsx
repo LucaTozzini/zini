@@ -4,7 +4,9 @@ import { Alert, Box, Button, Divider, Skeleton, Stack, Typography } from "@mui/m
 import type { AgentRole, PipelineState } from "shared";
 import { errorMessage } from "../../api/client.ts";
 import { useCoordinatorMessages } from "../../api/coordinator.ts";
-import { MessageBubble } from "../MessageBubble.tsx";
+import { HumanMessage } from "../chat/HumanMessage.tsx";
+import AiMessage from "../chat/AiMessage.tsx";
+import ThinkingIndicator from "../ThinkingIndicator.tsx";
 import CompactionMarker from "../CompactionMarker.tsx";
 import ToolCallLine from "../ToolCallLine.tsx";
 import ToolCallGroup from "../ToolCallGroup.tsx";
@@ -27,7 +29,8 @@ export default function CheckpointActivity({ issueId, pipeline, onSelect, onCont
       {item.kind === "stage" ? <Divider textAlign="center" sx={{ mt: 1, mb: 1 }}><Typography variant="caption" color="text.secondary">
         {item.agent && titles[item.agent]} · {new Date(item.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
       </Typography></Divider> : item.kind === "message" ? item.message.role === "compaction" ?
-        <CompactionMarker summary={item.message.summary} /> : <MessageBubble message={item.message} /> :
+        <CompactionMarker summary={item.message.summary} /> : item.message.role === "user" ?
+          <HumanMessage message={item.message} /> : <AiMessage content={item.message.content} /> :
         item.kind === "tools" ? item.tools.length === 1 ?
           <ToolCallLine call={item.tools[0].call} busy={busy} result={item.tools[0].result} /> :
           <ToolCallGroup calls={item.tools.map((tool) => tool.call)} results={item.tools.map((tool) => tool.result)} busy={busy} /> :
@@ -35,6 +38,6 @@ export default function CheckpointActivity({ issueId, pipeline, onSelect, onCont
             {titles[item.agent]} document created · Open latest
           </Button>}
     </Box>)}
-    {busy && <MessageBubble message={{ role: "assistant", content: "" }} loading />}
+    {busy && <ThinkingIndicator />}
   </Stack>;
 }

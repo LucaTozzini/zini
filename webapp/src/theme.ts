@@ -4,7 +4,20 @@ declare module "@mui/material/styles" {
   interface TypeBackground {
     secondary: string;
   }
+
+  interface Palette {
+    tertiary: Palette["primary"];
+  }
+
+  interface PaletteOptions {
+    tertiary?: PaletteOptions["primary"];
+  }
 }
+
+const tertiary = (main: string) => createTheme().palette.augmentColor({
+  color: { main },
+  name: "tertiary",
+});
 
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: "class" },
@@ -17,18 +30,23 @@ export const theme = createTheme({
         primary: {
           main: "#065dff",
         },
+        tertiary: tertiary("#0da100"),
       }
     },
     dark: {
       palette: {
         background: {
-          default: "#151515",
+          default: "#141414",
           paper: "#1e1e1e",
           secondary: "#252525"
         },
         primary: {
           main: "#007bff",
         },
+        secondary: {
+          main: "#7900ea"
+        },
+        tertiary: tertiary("#ca6100"),
       },
     },
   },
