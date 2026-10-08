@@ -1,4 +1,4 @@
-import { Box, Card, CardContent } from "@mui/material";
+import { Card } from "@mui/material";
 import type { Ref } from "react";
 import MarkdownText from "../MarkdownText";
 import LineLimit from "../LineLimit.tsx";

@@ -3,6 +3,7 @@ import type { PipelineState } from "shared";
 export const PIPELINE_STEPS = [
   { role: "planner", label: "Plan" },
   { role: "coder", label: "Code" },
+  { role: "setup", label: "Setup" },
   { role: "checks", label: "Checks" },
   { role: "reviewer", label: "Review" },
   { role: "qa", label: "QA" },
@@ -15,17 +16,18 @@ function activeStep(pipeline: PipelineState) {
   const { waiting } = pipeline;
   if (waiting?.kind === "questions") return PIPELINE_STEPS.findIndex((step) => step.role === waiting.from);
   if (waiting?.kind === "approve_plan") return 0;
-  if (waiting?.kind === "approve_commands") return waiting.from === "checks" ? 2 : 4;
-  if (pipeline.finished) return 4;
+  if (waiting?.kind === "approve_commands") return PIPELINE_STEPS.findIndex((step) => step.role === (waiting.from ?? "qa"));
+  if (pipeline.finished) return 5;
   if (!pipeline.planApproved) return 0;
   if (!pipeline.implementation) return 1;
-  if (!pipeline.checks) return 2;
-  if (!pipeline.review) return 3;
+  if (!pipeline.environmentSetup && !pipeline.checks) return 2;
+  if (!pipeline.checks) return 3;
+  if (!pipeline.review) return 4;
   if (!pipeline.error && (pipeline.review.requiredChanges.length > 0 || pipeline.qa?.verdict === "fail")) return 1;
-  return 4;
+  return 5;
 }
 
 // Legacy runs may have reached review/QA without saving a checks report.
 export function checksSkipped(pipeline: PipelineState) {
-  return !pipeline.checks && activeStep(pipeline) > 2;
+  return !pipeline.checks && activeStep(pipeline) > 3;
 }

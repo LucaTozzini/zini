@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
 // Commands run through the system shell (cmd.exe on Windows, sh elsewhere), the way
-// the workspace setup command and the QA's commands run.
+// the environment setup, checks, and QA commands run.
 
 // Settings of zini's own that a command shouldn't inherit: an app started in a
 // workspace would otherwise take zini's port, or its database.

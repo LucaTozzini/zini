@@ -4,10 +4,11 @@ import type { AgentRole, CoordinatorHumanMessage, CoordinatorMessage, PipelineRe
 import { randomUUID } from "node:crypto";
 import { isSummary, summaryText } from "../compaction.js";
 
-const roles = new Set(["planner", "coder", "checks", "reviewer", "qa"]);
+const roles = new Set(["planner", "coder", "setup", "checks", "reviewer", "qa"]);
 const documents: [string, AgentRole][] = [["plan", "planner"], ["implementation", "coder"],
+  ["environmentPlan", "setup"], ["environmentReport", "setup"],
   ["checksPlan", "checks"], ["checksReport", "checks"], ["review", "reviewer"], ["qaReport", "qa"]];
-const submissions = new Set(["submit_plan", "submit_implementation", "submit_checks", "submit_review", "submit_qa_report"]);
+const submissions = new Set(["submit_plan", "submit_implementation", "submit_environment_setup", "submit_checks", "submit_review", "submit_qa_report"]);
 
 export function humanMessage(content: string, username?: string): CoordinatorHumanMessage {
   return { id: randomUUID(), t: new Date().toISOString(), content, ...(username ? { username } : {}) };
@@ -16,7 +17,7 @@ export function humanMessage(content: string, username?: string): CoordinatorHum
 export function replyMessage(reply: PipelineResume, waiting: PipelineWaiting | null, username?: string) {
   const content = "answers" in reply ? reply.answers.map((answer, i) =>
     `${waiting?.kind === "questions" ? `${waiting.questions[i]}\n` : ""}${answer}`).join("\n\n") :
-    "approve" in reply ? "Approved the plan." : "feedback" in reply ? reply.feedback :
+    "approve" in reply ? "Approved the plan." :
       reply.decisions.map((decision, i) => {
         const command = waiting?.kind === "approve_commands" ? waiting.commands[i]?.command : undefined;
         return `${decision.type === "approve" ? "Approved" : "Rejected"}${command ? `: ${command}` : " command"}${decision.type === "reject" && decision.message ? `\n${decision.message}` : ""}`;
@@ -34,7 +35,7 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
   const seenMessages = new Set<string>();
   const lastAssistant = new Map<string, string>();
   const toolKeys = new Map<string, { result: string; ns: string; assistant: string }>();
-  let selectedChecks: { id: string; command: string; cwd: string }[] = [];
+  const selectedCommands = new Map<AgentRole, { id: string; command: string; cwd: string }[]>();
   let activeNamespace = "";
   const put = (item: CoordinatorMessage) => {
     const old = items.get(item.id);
@@ -54,24 +55,26 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
       for (const [field, role] of documents) {
         const version = checkpoint.channel_versions[field];
         if (values[field] && versions.get(field) !== version) {
-          if (field === "checksPlan") {
-            if ([...items.values()].at(-1)?.agent !== "checks")
-              put({ id: `stage:checks:${checkpoint.id}`, t, agent: "checks", kind: "stage" });
-            activeNamespace = "__checks__";
+          if (field === "checksPlan" || field === "environmentPlan") {
+            if ([...items.values()].at(-1)?.agent !== role)
+              put({ id: `stage:${role}:${checkpoint.id}`, t, agent: role, kind: "stage" });
+            activeNamespace = `__${role}__`;
             const selection = values[field] as { commands: { command: string; cwd: string }[] };
-            selectedChecks = (selection.commands ?? []).map((entry, i) => ({ ...entry, id: `check:${checkpoint.id}:${i}` }));
+            const selectedChecks = (selection.commands ?? []).map((entry, i) => ({ ...entry, id: `check:${checkpoint.id}:${i}` }));
+            selectedCommands.set(role, selectedChecks);
             for (const entry of selectedChecks) put({ id: entry.id, t, agent: role, kind: "tool", call: {
               role: "tool", name: "run_command", args: { command: entry.command, cwd: entry.cwd }, status: "pending",
             } });
           }
-          if (field === "checksReport") {
+          if (field === "checksReport" || field === "environmentReport") {
+            const selectedChecks = selectedCommands.get(role) ?? [];
             const report = values[field] as { results: { command: string; cwd: string; output: string; status: string }[] };
             report.results.forEach((entry, i) => put({ id: selectedChecks.find((selected) => selected.command === entry.command && selected.cwd === entry.cwd)?.id ?? `check:${checkpoint.id}:${i}`, t, agent: role, kind: "tool", call: {
               role: "tool", name: "run_command", args: { command: entry.command, cwd: entry.cwd },
               status: entry.status === "passed" ? "done" : "error", ...(entry.status !== "passed" ? { error: entry.output } : {}),
             }, result: entry.output }));
           }
-          if (field !== "checksPlan") put({ id: `doc:${field}:${checkpoint.id}`, t, agent: role, kind: "document" });
+          if (field !== "checksPlan" && field !== "environmentPlan") put({ id: `doc:${field}:${checkpoint.id}`, t, agent: role, kind: "document" });
         }
         versions.set(field, version);
       }
@@ -84,30 +87,36 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
       channel === "messages" && Array.isArray(value) ? value as BaseMessage[] : []);
     const messages = [...((values.compacted ?? []) as BaseMessage[]), ...((values.messages ?? []) as BaseMessage[]), ...pending];
     for (const [index, message] of messages.entries()) {
-      const key = `${ns}:${message.id ?? index}`;
+      let key = `${ns}:${message.id ?? index}`;
       if (ToolMessage.isInstance(message)) { results.set(`${ns}:${message.tool_call_id}`, message); continue; }
+      const messageTime = message.additional_kwargs?.createdAt;
+      if (typeof messageTime !== "string") continue;
       if (isSummary(message)) {
-        put({ id: `summary:${key}`, t, agent, kind: "message", message: { role: "compaction", summary: summaryText(message) } });
+        put({ id: `summary:${key}`, t: messageTime, agent, kind: "message", message: { role: "compaction", summary: summaryText(message) } });
         continue;
       }
       if (message.type === "human") {
         if (!seenMessages.has(key)) {
-          put({ id: `stage:${key}`, t, agent, kind: "stage" });
+          put({ id: `stage:${key}`, t: messageTime, agent, kind: "stage" });
           activeNamespace = ns;
         }
         seenMessages.add(key);
-        if (message.text.trim()) put({ id: key, t, agent, kind: "message",
+        if (message.text.trim()) put({ id: key, t: messageTime, agent, kind: "message",
           message: { role: "user", content: message.text, username: "Coordinator" } });
         continue;
       }
       if (!AIMessage.isInstance(message)) continue;
+      const previous = messages[index - 1];
+      const documentReceipt = !message.tool_calls?.length && message.text.startsWith("Returning structured response: ") &&
+        ToolMessage.isInstance(previous) && submissions.has(previous.name ?? "");
+      if (documentReceipt) key = `${ns}:document-receipt:${previous.tool_call_id}`;
       if (!seenMessages.has(key)) { activeNamespace = ns; lastAssistant.set(ns, key); }
       seenMessages.add(key);
-      if (message.text.trim()) put({ id: key, t, agent, kind: "message", message: { role: "assistant", content: message.text } });
+      if (message.text.trim()) put({ id: key, t: messageTime, agent, kind: "message", message: { role: "assistant", content: documentReceipt ? "Document submitted." : message.text } });
       for (const [i, call] of (message.tool_calls ?? []).entries()) {
         if (submissions.has(call.name)) continue;
         const id = `${key}:tool:${call.id ?? i}`;
-        put({ id, t, agent, kind: "tool", call: { role: "tool", name: call.name, args: call.args, status: "pending" } });
+        put({ id, t: messageTime, agent, kind: "tool", call: { role: "tool", name: call.name, args: call.args, status: "pending" } });
         // Keep storage correlation private; process results after all namespaces.
         toolKeys.set(id, { result: `${ns}:${call.id}`, ns, assistant: key });
       }
@@ -117,7 +126,7 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
     if (item.kind !== "tool") continue;
     const key = toolKeys.get(item.id);
     if (!key) {
-      if (item.call.status === "pending" && !(live && activeNamespace === "__checks__")) {
+      if (item.call.status === "pending" && !(live && activeNamespace === `__${item.agent}__`)) {
         item.call.status = "error";
         item.call.error = "No result was recorded. This check may have been interrupted.";
       }

@@ -1,6 +1,6 @@
 # Evals
 
-Runs the coordinator's pipeline (planner, coder, deterministic checks, reviewer, product QA) on test issues, the same
+Runs the coordinator's pipeline (planner, coder, environment setup, deterministic checks, reviewer, product QA) on test issues, the same
 way each time, so you can measure how it behaves and compare a change against a baseline.
 
 Each run takes a scenario's issue, works on a fresh copy of a test repo, answers every
@@ -36,7 +36,9 @@ change). They're kept in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
   `codeVersion`, a SHA-256 hash of the sources actually copied into the container
   (including uncommitted changes), and `rateLimited`.
 
-The pipeline runs selected deterministic checks between coding and review, then
+The pipeline prepares repository prerequisites with approved finite setup commands
+before selecting deterministic checks. Failed setup pauses the pipeline before checks.
+The pipeline runs selected deterministic checks between setup and review, then
 product QA checks acceptance criteria. Check results are recorded directly by the
 executor and tied to the workspace content version. The repo supplies commands and
 working directories; the coordinator does not assume a language or package manager.
@@ -49,7 +51,9 @@ must complete and return a passing QA report. Partial validation is reported sep
 ## Test repos and scenarios
 
 - `repos/<repo>/`: a small project, copied fresh into each run as a git repo with one
-  commit. Its dependencies are installed when the image is built.
+  commit. Its dependencies are installed when the image is built. A scenario can set
+  `preinstalledDependencies: false` to start its workspace without that install and
+  exercise pipeline preparation; the personal-website copy-email scenario does this.
 - `scenarios/<repo>/<name>/`: a scenario for that repo.
   - `scenario.json`: the issue's `title` and `description`. Optionally a `patch` in the
     folder, applied before the first commit (e.g. a planted bug), and `answers` to the

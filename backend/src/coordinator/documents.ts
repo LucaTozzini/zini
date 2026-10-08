@@ -10,7 +10,7 @@ const questions = z
 
 export const REPO_COMMAND = z.object({
   id: z.string().min(1).max(80),
-  kind: z.enum(["check", "start"]),
+  kind: z.enum(["setup", "check", "start"]),
   command: z.string().min(1).describe("Exact command for the runtime shell; no watch mode for checks"),
   cwd: z.string().describe("Workspace-relative working directory, '.' for the root"),
   purpose: z.string().min(1).max(800).describe("Purpose; for startup, include known prerequisites, env/port/test-data options and readiness/access instructions so QA can use it directly"),
@@ -113,3 +113,11 @@ export const CHECKS_SCHEMA = z.object({
   title: "submit_checks",
   description: "Submit the selected commands. The coordinator executes them and records their real results.",
 });
+
+export const ENVIRONMENT_SETUP_SCHEMA = z.object({
+  commands: z.array(REPO_COMMAND).max(16).describe("Finite setup/readiness commands, in dependency order; kind must be setup"),
+  noSetupReason: z.string().min(1).optional().describe("Repository evidence that no environment setup is required; only when commands is empty"),
+  blockingQuestions: questions,
+  contextUpdates: CONTEXT_UPDATES,
+  runbookUpdates,
+}).meta({ title: "submit_environment_setup", description: "Submit prerequisites to prepare before deterministic checks." });

@@ -1,4 +1,5 @@
 {
   "title": "Copy email address to clipboard from the Socials card",
+  "preinstalledDependencies": false,
   "description": "The Email card in the Socials section opens a `mailto:` link, which does nothing useful for visitors without a mail app set up. Clicking it should copy my email address (me@lucatozzini.com) to the clipboard instead, and show a short confirmation that it was copied. The other socials cards keep opening their links as they do now."
 }

@@ -16,12 +16,14 @@ const NOT_RUNNING: RunStatus = { running: false, error: null };
 
 // Each run's own controller, so it can be stopped (see stopRun).
 const controls = new Map<string, AbortController>();
+const reservations = new Map<string, symbol>();
+export const isRedirecting = (runId: string) => reservations.has(runId);
 
 export function runStatus(runId: string): RunStatus {
   return runs.get(runId) ?? NOT_RUNNING;
 }
 
-export const isRunning = (runId: string) => runStatus(runId).running;
+export const isRunning = (runId: string) => runStatus(runId).running || reservations.has(runId);
 
 // Drops a deleted conversation's status.
 export function forgetRun(runId: string) {
@@ -49,7 +51,8 @@ export function stopRun(runId: string): boolean {
 }
 
 // Pause keeps the workspace locked until cancellation has unwound.
-export function pauseRun(runId: string): boolean {
+export function pauseRun(runId: string, reservation?: symbol): boolean {
+  if (reservations.has(runId) && reservations.get(runId) !== reservation) return false;
   const status = runs.get(runId);
   const control = controls.get(runId);
   if (!status?.running || status.pausing || !control) return false;
@@ -89,8 +92,9 @@ export async function startRun(
   runId: string,
   start: (signal: AbortSignal) => Promise<AsyncIterable<unknown>>,
   notify: () => void,
+  reservation?: symbol,
 ) {
-  if (isRunning(runId)) return false;
+  if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
   const status: RunStatus = { ...NOT_RUNNING, running: true };
   const control = new AbortController();
   runs.set(runId, status);
@@ -135,4 +139,22 @@ export async function beginRun(
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
   return false;
+}
+
+// Reserve the workspace across cancellation and checkpoint replacement. Other starts
+// remain blocked even between the old run ending and the replacement starting.
+export async function withPausedRun<T>(runId: string, notify: () => void, work: (reservation: symbol) => Promise<T>) {
+  if (reservations.has(runId)) throw new Error("The coordinator is already redirecting");
+  const reservation = Symbol(runId);
+  reservations.set(runId, reservation);
+  try {
+    if (runStatus(runId).running) pauseRun(runId, reservation);
+    notify();
+    const deadline = Date.now() + 60_000;
+    while (runStatus(runId).running) {
+      if (Date.now() >= deadline) throw new Error("Cancellation has not finished. The coordinator remains paused; try again once it stops.");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return await work(reservation);
+  } finally { reservations.delete(runId); notify(); }
 }

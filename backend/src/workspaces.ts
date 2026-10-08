@@ -5,10 +5,10 @@ import { addWorktree, fetchRepo, pushBranch, removeWorktree, workspacePath, work
 import { fetchLinearIssue } from "./linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "./models/Workspace.js";
-import { deleteSetupLog, isSettingUp, startSetup } from "./workspaceSetup.js";
 import { coordinatorThreadId, deleteConversation, stopQa } from "./coordinator.js";
 import { deleteRunLogs } from "./coordinator/runLog.js";
 import { forgetRun, isRunning } from "./runs.js";
+import { workspaceApps } from "./workspaceAppSessions.js";
 
 // Linear issue ids are UUIDs. Checked before an id is used in a folder path.
 export const isIssueId = (id: string) => /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
@@ -24,27 +24,12 @@ async function toResponse(row: Workspace): Promise<WorkspaceResponse> {
     branch,
     path: workspacePath(row.issueId),
     createdAt: row.createdAt.toISOString(),
-    setupStatus: row.setupStatus,
-    setupError: row.setupError,
     coordinatorRunning: isCoordinatorRunning(row.issueId),
     uncommitted,
     unpushed,
   };
 }
 
-// Starts setup, recording a failure to even start (e.g. the log folder can't be
-// made) on the row rather than failing the request.
-async function trySetup(issueId: string) {
-  try {
-    await startSetup(issueId);
-  } catch (err) {
-    console.error(`Starting setup for ${issueId} failed:`, err);
-    const setupError = `Couldn't start setup: ${err instanceof Error ? err.message : String(err)}`;
-    await Workspace.update({ setupStatus: "failed", setupError }, { where: { issueId } });
-  }
-}
-
-// The issue's workspace, or null if it doesn't have one.
 export async function getWorkspace(issueId: string) {
   const row = await Workspace.findByPk(issueId);
   return row ? toResponse(row) : null;
@@ -52,7 +37,7 @@ export async function getWorkspace(issueId: string) {
 
 // Creates the issue's workspace on the branch Linear suggests for it, or returns the
 // existing one; created says which. The row is only kept if the worktree was made,
-// and vice versa. Setup then runs in the background (see workspaceSetup.ts).
+// and vice versa.
 export async function createWorkspace(linear: LinearClient, issueId: string) {
   const existing = await Workspace.findByPk(issueId);
   if (existing) return { workspace: await toResponse(existing), created: false };
@@ -69,29 +54,20 @@ export async function createWorkspace(linear: LinearClient, issueId: string) {
     );
     throw err;
   }
-  await trySetup(issue.id);
   return { workspace: await toResponse(await row.reload()), created: true };
 }
 
-// Runs setup again, e.g. after fixing the command. null if there's no workspace.
-export async function rerunSetup(issueId: string) {
-  const row = await Workspace.findByPk(issueId);
-  if (!row) return null;
-  await trySetup(issueId);
-  return toResponse(await row.reload());
-}
-
-// Removes the issue's worktree and local branch, its setup log, its coordinator
+// Removes the issue's worktree and local branch, its coordinator
 // conversation (which was about this workspace), then its row. false if it had none.
-// Not while setup or the coordinator is running (see isSettingUp, isCoordinatorRunning).
+// Not while the coordinator is running.
 // What the QA left running while it waits on you is stopped first: its files would
 // otherwise be in use.
 export async function deleteWorkspace(issueId: string) {
   const row = await Workspace.findByPk(issueId);
   if (!row) return false;
+  await workspaceApps.stop(issueId);
   await stopQa(issueId);
   await removeWorktree(issueId);
-  await deleteSetupLog(issueId);
   await deleteConversation(issueId);
   await deleteRunLogs(issueId);
   forgetRun(coordinatorThreadId(issueId));
@@ -103,13 +79,13 @@ export const isCoordinatorRunning = (issueId: string) => isRunning(coordinatorTh
 
 // Commits the workspace's uncommitted changes, if any, with message, then pushes its
 // branch to GitHub. With nothing uncommitted it only pushes (e.g. after a push that
-// failed). Not while setup or the coordinator is running in it. Answers with the
+// failed). Not while the coordinator is running in it. Answers with the
 // workspace, or with what stopped it and the HTTP status that goes with it.
 export async function commitAndPush(
   issueId: string,
   message: string,
 ): Promise<{ workspace: WorkspaceResponse } | { status: number; error: string }> {
-  if (isSettingUp(issueId)) return { status: 409, error: "The workspace is still being set up" };
+  if (workspaceApps.starting(issueId)) return { status: 409, error: "The user app is still being prepared" };
   if (isCoordinatorRunning(issueId)) {
     return { status: 409, error: "The coordinator is still working in this workspace" };
   }

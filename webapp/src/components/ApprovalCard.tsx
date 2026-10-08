@@ -70,6 +70,33 @@ function CommitDetails({ action }: { action: PendingAction }) {
 function ActionDetails({ action }: { action: PendingAction }) {
   if (action.name === "reply_to_pipeline") return <PipelineReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
+  if (action.name === "stop_workspace_app") return (
+    <Typography variant="subtitle2">Stop the user app for {String(action.args.issueId)}</Typography>
+  );
+  if (action.name === "launch_workspace_app") {
+    const { issueId, plan } = action.args as { issueId: string; plan: {
+      setup: { command: string; cwd: string }[];
+      services: { id: string; command: string; cwd: string; port: number }[];
+    } };
+    return (
+      <Stack spacing={1}>
+        <Typography variant="subtitle2">Launch the workspace app for {issueId}</Typography>
+        <Typography color="text.secondary">Prepare the environment, then start these services. They stay running until stopped.</Typography>
+        {plan.setup.map((entry, i) => (
+          <Stack key={`setup-${i}`}>
+            <Typography variant="caption">Setup · {entry.cwd}</Typography>
+            <Typography sx={{ fontFamily: "monospace", overflowWrap: "anywhere" }}>{entry.command}</Typography>
+          </Stack>
+        ))}
+        {plan.services.map((entry) => (
+          <Stack key={entry.id}>
+            <Typography variant="caption">{entry.id} · {entry.cwd} · port {entry.port}</Typography>
+            <Typography sx={{ fontFamily: "monospace", overflowWrap: "anywhere" }}>{entry.command}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    );
+  }
   const { id, title, description, priority, status, assignee } = action.args as {
     id?: string;
     title?: string;

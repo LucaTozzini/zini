@@ -10,8 +10,6 @@ export const SETTING_KEYS: SettingKey[] = [
   "coordinatorProvider",
   "coordinatorModel",
   "githubRepo",
-  "workspaceSetupCommand",
-  "workspaceSetupTimeoutMinutes",
 ];
 
 export const isSettingKey = (key: string): key is SettingKey =>

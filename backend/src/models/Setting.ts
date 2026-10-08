@@ -15,7 +15,7 @@ export class Setting extends Model<InferAttributes<Setting>, InferCreationAttrib
 Setting.init(
   {
     key: { type: DataTypes.STRING, primaryKey: true },
-    // TEXT: values like a setup command can be long.
+    // TEXT allows settings values without an arbitrary length limit.
     value: { type: DataTypes.TEXT, allowNull: false },
   },
   { sequelize, tableName: "settings" },

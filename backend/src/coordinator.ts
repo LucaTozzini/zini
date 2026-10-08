@@ -1,5 +1,5 @@
 import type { LinearClient } from "@linear/sdk";
-import { Command, START, StateGraph, interrupt, isGraphInterrupt } from "@langchain/langgraph";
+import { Command, END, START, StateGraph, interrupt, isGraphInterrupt } from "@langchain/langgraph";
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { createAgent, humanInTheLoopMiddleware, toolStrategy, type HITLRequest } from "langchain";
@@ -8,6 +8,7 @@ import type {
   Decision,
   PendingApproval,
   PipelineResume,
+  PipelineRedirect,
   PipelineState,
   PipelineWaiting,
 } from "shared";
@@ -22,11 +23,16 @@ import {
   QA_SCHEMA,
   REVIEW_SCHEMA,
   CHECKS_SCHEMA,
+  ENVIRONMENT_SETUP_SCHEMA,
 } from "./coordinator/documents.js";
 import { requireSubmission } from "./coordinator/submission.js";
 import { PipelineExecution } from "./coordinator/execution.js";
+import { environmentSetupNext, executeEnvironmentSetup, validateEnvironmentSetup } from "./coordinator/environmentSetup.js";
 import { checkpointMessages, humanMessage, replyMessage } from "./coordinator/messages.js";
+import { loadCoordinatorHistory } from "./coordinator/history.js";
 import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./coordinator/validation.js";
+import { redirectUpdate, steeringOptions } from "./coordinator/steering.js";
+import { workspaceApps } from "./workspaceAppSessions.js";
 import { PipelineGraphState, type State } from "./coordinator/graphState.js";
 import { contextText, freshContext, updateContext } from "./coordinator/codebaseContext.js";
 import {
@@ -43,9 +49,10 @@ import {
   QA_PROMPT,
   REVIEWER_PROMPT,
   CHECKS_PROMPT,
+  ENVIRONMENT_SETUP_PROMPT,
 } from "./coordinator/systemPrompts.js";
 import { browserUrl, closeBrowser } from "./coordinator/qaBrowser.js";
-import { runCommandResult, stopAllProcesses } from "./coordinator/qaProcesses.js";
+import { drainProcesses, runCommandResult, stopAllProcesses } from "./coordinator/qaProcesses.js";
 import { browserTools, COMMAND_TOOLS, commandTools } from "./coordinator/qaTools.js";
 import { diffTool, workspaceFilesystem, writeTools } from "./coordinator/tools.js";
 import { sendEvent } from "./events.js";
@@ -53,14 +60,13 @@ import { npmTools } from "./npmTools.js";
 import { fetchLinearIssue, getLinearClient } from "./linear.js";
 import { Workspace } from "./models/Workspace.js";
 import { chatModel, loadConnection, type ModelConnection } from "./modelProvider.js";
-import { isRunning, runStatus } from "./runs.js";
+import { isRunning, isRedirecting, runStatus, startRun, withPausedRun } from "./runs.js";
 import { getSetting } from "./settings.js";
 import { fingerprintWorkspaceFile, workspaceRevision } from "./workspaceFiles.js";
-import { readSetupLog } from "./workspaceSetup.js";
 
 // The coordinator: a fixed pipeline per issue, run as a LangGraph graph in the issue's
 // workspace. The planner plans (it can ask you questions), you approve the plan (or
-// send feedback), then coder → deterministic checks → reviewer → product QA. A
+// send feedback), then coder → environment setup → checks → reviewer → product QA. A
 // review or QA failure sends the coder back to work, with a bounded repair budget.
 // User feedback runs the same validation sequence again. Each subagent has its
 // own tools, and returns a document (see coordinator/documents.ts). It pauses
@@ -176,7 +182,14 @@ async function runSubagent<S extends z.ZodObject>(
     let result: { messages?: BaseMessage[]; structuredResponse?: z.infer<S> } = {};
     const stream = await agent.stream(
       { messages },
-      { recursionLimit: 300, signal, streamMode: "values", durability: "sync" },
+      {
+        recursionLimit: 300, signal, streamMode: "values", durability: "sync",
+        // A remembered planner/coder gets a NEW turn, even when the parent is
+        // continuing after a pause/redirect. Otherwise the inherited resume flag
+        // skips this input and resumes its already-completed child checkpoint.
+        // Invocation-scoped QA keeps inheritance to resume command approvals.
+        ...(remember ? { configurable: { __pregel_resuming: false } } : {}),
+      },
     );
     for await (const state of stream) {
       result = state as unknown as typeof result;
@@ -230,9 +243,9 @@ function buildPipeline(run: Run | null) {
   const codebaseContext = (state: State) => freshContext(state.codebaseContext ?? {}, fingerprint);
   const runbook = (state: State) => freshRunbook(state.runbook ?? {}, fingerprint);
 
-  // The planner and coder remember their earlier runs (see runSubagent). Their system
-  // prompt has the whole context, rebuilt from the state every run, so it's always
-  // current and survives compaction; their input says only why they run again.
+  // Every pipeline agent gets current issue/state context in its system prompt,
+  // rebuilt each run. The user message says what to do. Planner and coder retain
+  // their conversations; refreshing their context also keeps it through compaction.
 
   async function planner(state: State) {
     const { plan: previous } = state;
@@ -244,6 +257,7 @@ function buildPipeline(run: Run | null) {
         ["Note from the user", state.note],
         ["Your previous plan", previous && planText(previous)],
         ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         [
@@ -281,6 +295,7 @@ function buildPipeline(run: Run | null) {
       prompt: `${CODER_PROMPT}\n\n${inputText(await issue(), [
         ["The approved plan", state.plan && planText(state.plan)],
         ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         [
@@ -313,6 +328,58 @@ function buildPipeline(run: Run | null) {
       codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
   }
 
+  async function environmentSetup(state: State) {
+    const { issueId } = need();
+    const book = await runbook(state);
+    const context = await codebaseContext(state);
+    const selection = await runSubagent(need(), {
+      role: "setup", tools: [], schema: ENVIRONMENT_SETUP_SCHEMA,
+      prompt: `${ENVIRONMENT_SETUP_PROMPT}\n\n${inputText(await issue(), [
+        ["The approved plan", state.plan && planText(state.plan)],
+        ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
+        ["Repo runbook", runbookText(book)],
+        ["Shared codebase context", contextText(context)],
+        ["Previous environment setup", state.environmentReport && JSON.stringify(state.environmentReport)],
+      ])}`,
+      input: "Prepare the environment before checks.",
+      validate: validateEnvironmentSetup,
+    });
+    const commands = [...new Map(selection.commands.map((entry) => [`${entry.cwd}\0${entry.command}`, entry])).values()];
+    return { environmentPlan: { ...selection, commands }, environmentReport: null, checksReport: null,
+      codebaseContext: await updateContext(context, selection.contextUpdates, fingerprint),
+      runbook: await updateRunbook(book, [...selection.runbookUpdates, ...commands], fingerprint) };
+  }
+
+  async function executeSetup(state: State) {
+    const { issueId, setup } = need();
+    const selection = state.environmentPlan;
+    if (!selection) throw new Error("No environment setup selection exists");
+    const { decisions } = selection.commands.length ? interrupt<PipelineWaiting, { decisions: Decision[] }>({
+      kind: "approve_commands", from: "setup",
+      commands: selection.commands.map((entry) => ({ tool: "run_command", command: `[${entry.cwd}] ${entry.command}` })),
+    }) : { decisions: [] };
+    const revision = await workspaceRevision(issueId);
+    const log = await openRunLog(issueId, "setup");
+    await log.write({ event: "start", role: "setup", model: setup.model, prompt: "Prepare environment before checks", input: revision });
+    try {
+      const report = await executeEnvironmentSetup(selection, decisions, revision, async (entry, index) => {
+        const id = `setup-${index}`;
+        await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
+        try {
+          const result = await runCommandResult(issueId, entry.command, entry.cwd, undefined, need().signal);
+          await log.write({ event: "tool_result", id, name: "run_command", result: `${result.status}\n${result.output}` });
+          return result;
+        } catch (error) {
+          await log.write({ event: "tool_result", id, name: "run_command", status: "error", result: String(error) });
+          throw error;
+        }
+      }, need().signal);
+      await log.write({ event: "end", outcome: "done", document: report });
+      return { environmentReport: report };
+    } finally { stopAllProcesses(issueId); }
+  }
+
   async function checks(state: State) {
     const { issueId } = need();
     const book = await runbook(state);
@@ -320,16 +387,18 @@ function buildPipeline(run: Run | null) {
     // Selects afresh after every coder round. It sees the previous results, so it can
     // also correct a command that failed for the wrong reason.
     let selection = await runSubagent(need(), {
-          role: "checks", prompt: CHECKS_PROMPT, tools: [diffTool(issueId)],
+          role: "checks", tools: [diffTool(issueId)],
           schema: CHECKS_SCHEMA,
-          input: inputText(await issue(), [
+          prompt: `${CHECKS_PROMPT}\n\n${inputText(await issue(), [
             ["The approved plan", state.plan && planText(state.plan)],
             ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
             ["Repo runbook", runbookText(book, state.checksReport)],
             ["Shared codebase context", contextText(context)],
             ["Previous check results", checksText(state.checksReport)],
-            ["The workspace's setup", await setupText(issueId)],
-          ]),
+            ["Completed environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
+          ])}`,
+          input: "Select the deterministic checks for the changes.",
           // Exactly one of the two, unless it's asking the user first.
           validate: ({ commands, noChecksReason, blockingQuestions }) => {
             if (blockingQuestions.length) return;
@@ -395,12 +464,12 @@ function buildPipeline(run: Run | null) {
     const book = await runbook(state);
     const { contextUpdates, environmentFailures, ...review } = await runSubagent(need(), {
       role: "reviewer",
-      prompt: REVIEWER_PROMPT,
       tools: [diffTool(issueId), ...npmTools],
       schema: REVIEW_SCHEMA,
-      input: inputText(await issue(), [
+      prompt: `${REVIEWER_PROMPT}\n\n${inputText(await issue(), [
         ["The approved plan", state.plan && planText(state.plan)],
         ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         ["Recorded deterministic checks", checksText(state.checksReport)],
@@ -413,7 +482,8 @@ function buildPipeline(run: Run | null) {
           "What the QA found broken (the coder must fix it too)",
           state.qaReport?.verdict === "fail" && listText(state.qaReport.failures),
         ],
-      ]),
+      ])}`,
+      input: "Review the implementation and recorded checks.",
     });
     // The reviewer's call on failed checks: an environment failure stays a gap (blocked),
     // any other failure goes back to the coder.
@@ -447,16 +517,17 @@ function buildPipeline(run: Run | null) {
         prompt: `${QA_PROMPT}\n\n${inputText(await issue(), [
           ["The approved plan", state.plan && planText(state.plan)],
           ["The user's answers", clarificationsText(state.clarifications)],
+        ["Coordinator steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
           ["Shared codebase context", contextText(context)],
           ["Repo runbook", runbookText(book, state.checksReport)],
           ["Recorded deterministic checks (do not repeat)", checksText(state.checksReport)],
+          ["Completed environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
           ["Acceptance criteria", JSON.stringify(criteria)],
           [
             "The user's feedback on the changes",
             state.implementationFeedback.length > 0 &&
               listText(state.implementationFeedback),
           ],
-          ["The workspace's setup", await setupText(issueId)],
         ])}`,
         tools: [
           diffTool(issueId),
@@ -512,26 +583,14 @@ function buildPipeline(run: Run | null) {
       };
     };
 
-  // Pauses for you to approve the plan, or send feedback on it.
+  // Plan revisions use redirect; this interrupt only approves the current plan.
   function approvePlan() {
-    const reply = interrupt<
-      PipelineWaiting,
-      { approve: true } | { feedback: string }
-    >({ kind: "approve_plan" });
-    return "approve" in reply
-      ? { planApproved: true }
-      : { planFeedback: [reply.feedback] };
+    interrupt<PipelineWaiting, { approve: true }>({ kind: "approve_plan" });
+    return { planApproved: true };
   }
 
-  // Done: waits for feedback on the changes, which runs the coder again.
   function finish() {
     return { finished: true };
-  }
-  function awaitFeedback() {
-    const { feedback } = interrupt<PipelineWaiting, { feedback: string }>({
-      kind: "feedback",
-    });
-    return { finished: false, implementationFeedback: [feedback], repairAttempts: 0, checksReport: null };
   }
 
   const hasQuestions = (doc: { blockingQuestions: string[] } | null) =>
@@ -546,6 +605,7 @@ function buildPipeline(run: Run | null) {
     });
 
   return new StateGraph(PipelineGraphState)
+    .addNode("redirect", () => ({}))
     .addNode("planner", tracked(planner))
     .addNode(
       "ask_planner",
@@ -553,6 +613,10 @@ function buildPipeline(run: Run | null) {
     )
     .addNode("approve_plan", approvePlan)
     .addNode("coder", tracked(coder))
+    .addNode("setup", tracked(environmentSetup))
+    .addNode("execute_setup", tracked(executeSetup))
+    .addNode("ask_setup", ask("setup", (s) => s.environmentPlan))
+    .addNode("ask_setup_failure", ask("setup", (s) => s.environmentReport))
     .addNode("checks", tracked(checks))
     .addNode("execute_checks", tracked(executeChecks))
     .addNode("ask_checks", ask("checks", (s) => s.checksPlan))
@@ -571,19 +635,21 @@ function buildPipeline(run: Run | null) {
       ask("qa", (s) => s.qaReport),
     )
     .addNode("finish", finish)
-    .addNode("await_feedback", awaitFeedback)
-    .addEdge(START, "planner")
+    .addConditionalEdges("redirect", (s) => s.redirectTarget, ["planner", "coder", "reviewer", "qa"])
+    .addEdge(START, "redirect")
     .addConditionalEdges("planner", (s) =>
       hasQuestions(s.plan) ? "ask_planner" : "approve_plan",
     )
     .addEdge("ask_planner", "planner")
-    .addConditionalEdges("approve_plan", (s) =>
-      s.planApproved ? "coder" : "planner",
-    )
+    .addEdge("approve_plan", "coder")
     .addConditionalEdges("coder", (s) =>
-      hasQuestions(s.implementation) ? "ask_coder" : "checks",
+      hasQuestions(s.implementation) ? "ask_coder" : "setup",
     )
     .addEdge("ask_coder", "coder")
+    .addConditionalEdges("setup", (s) => hasQuestions(s.environmentPlan) ? "ask_setup" : "execute_setup")
+    .addEdge("ask_setup", "setup")
+    .addConditionalEdges("execute_setup", (s) => environmentSetupNext(s.environmentReport))
+    .addEdge("ask_setup_failure", "setup")
     .addConditionalEdges("checks", (s) => hasQuestions(s.checksPlan) ? "ask_checks" : "execute_checks")
     .addEdge("ask_checks", "checks")
     .addEdge("execute_checks", "reviewer")
@@ -597,8 +663,7 @@ function buildPipeline(run: Run | null) {
       return s.qaReport?.verdict === "fail" ? "coder" : "finish";
     })
     .addEdge("ask_qa", "qa")
-    .addEdge("finish", "await_feedback")
-    .addEdge("await_feedback", "coder")
+    .addEdge("finish", END)
     .compile({ checkpointer });
 }
 
@@ -628,11 +693,11 @@ export const outsideAgentRun = <T>(start: () => T) =>
 export function readReply(body: unknown): PipelineResume | null {
   if (typeof body !== "object" || body === null) return null;
   const b = body as Record<string, unknown>;
+  if (Object.keys(b).length !== 1) return null;
   if (Array.isArray(b.answers) && b.answers.every((a) => typeof a === "string")) {
     return { answers: b.answers as string[] };
   }
   if (b.approve === true) return { approve: true };
-  if (typeof b.feedback === "string" && b.feedback.trim()) return { feedback: b.feedback.trim() };
   if (Array.isArray(b.decisions) && b.decisions.every(isDecision)) {
     return { decisions: b.decisions as Decision[] };
   }
@@ -650,11 +715,10 @@ const isDecision = (d: unknown): d is Decision =>
 export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume) {
   return (
     (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
-    (waiting?.kind === "approve_plan" && ("approve" in reply || "feedback" in reply)) ||
+    (waiting?.kind === "approve_plan" && "approve" in reply) ||
     (waiting?.kind === "approve_commands" &&
       "decisions" in reply &&
-      reply.decisions.length === waiting.commands.length) ||
-    (waiting?.kind === "feedback" && "feedback" in reply)
+      reply.decisions.length === waiting.commands.length)
   );
 }
 
@@ -677,7 +741,18 @@ export function continuePipeline(run: Run, signal?: AbortSignal) {
 
 const ROLE_NODES: Record<string, AgentRole> = {
   planner: "planner",
+  ask_planner: "planner",
+  approve_plan: "planner",
   coder: "coder",
+  ask_coder: "coder",
+  ask_setup: "setup",
+  ask_setup_failure: "setup",
+  ask_checks: "checks",
+  ask_reviewer: "reviewer",
+  ask_qa: "qa",
+  finish: "qa",
+  setup: "setup",
+  execute_setup: "setup",
   checks: "checks",
   execute_checks: "checks",
   reviewer: "reviewer",
@@ -685,10 +760,9 @@ const ROLE_NODES: Record<string, AgentRole> = {
 };
 
 export async function getPipelineMessages(issueId: string) {
-  const saved = [];
-  for await (const tuple of checkpointer.list(threadConfig(coordinatorThreadId(issueId)))) saved.push(tuple);
+  const { checkpoints } = await loadCoordinatorHistory(checkpointer, coordinatorThreadId(issueId));
   const pipeline = await getPipeline(issueId);
-  return checkpointMessages(saved, Boolean(pipeline.running || pipeline.waiting && !pipeline.finished));
+  return checkpointMessages(checkpoints, Boolean(pipeline.running || pipeline.waiting && !pipeline.finished));
 }
 
 // What the pipeline is paused on: one of its own pauses, or the QA's commands waiting
@@ -714,20 +788,6 @@ export async function stopQa(issueId: string) {
 }
 
 // The workspace's setup, for the QA: the command, how it went, and the end of its log.
-async function setupText(issueId: string) {
-  const [workspace, command, log] = await Promise.all([
-    Workspace.findByPk(issueId),
-    getSetting("workspaceSetupCommand"),
-    readSetupLog(issueId),
-  ]);
-  if (!command) return "No setup command is set: nothing ran when the workspace was made.";
-  const status = workspace?.setupError
-    ? `${workspace.setupStatus}: ${workspace.setupError}`
-    : (workspace?.setupStatus ?? "unknown");
-  const end = log.slice(-3_000).trim();
-  return `Command: ${command}\nStatus: ${status}${end ? `\n\nThe end of its output:\n\n${end}` : ""}`;
-}
-
 // The issues whose pipeline is waiting for an approval (its plan, or the QA's commands),
 // for marking them in the webapp's issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
@@ -745,18 +805,20 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   const threadId = coordinatorThreadId(issueId);
   const snapshot = await buildPipeline(null).getState(threadConfig(threadId));
   const values = snapshot.values as Partial<State>;
-  const running = isRunning(threadId);
+  const running = runStatus(threadId).running;
   // A running pipeline isn't waiting on you. Its saved state can still say it is: a
   // node that carries on after you answer (the QA, after you approve its commands)
   // keeps the pause it resumed from until it finishes or pauses again.
-  const waiting = running
+  const waiting = running || values.finished
     ? null
     : toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
   const { error, pausing } = runStatus(threadId);
   return {
     started: Boolean(snapshot.createdAt),
+    redirecting: isRedirecting(threadId),
+    steeringOptions: steeringOptions(values, ROLE_NODES[snapshot.next[0] ?? ""] ?? null, Boolean(snapshot.createdAt)),
     pausing: Boolean(pausing),
-    canResume: Boolean(snapshot.createdAt && snapshot.next.length && !running && !waiting && !values.finished),
+    canResume: Boolean(snapshot.createdAt && snapshot.next.length && !isRunning(threadId) && !waiting && !values.finished),
     pendingRole: ROLE_NODES[snapshot.next[0] ?? ""] ?? null,
     // While a run goes on, its next node is the one working.
     running: running ? (ROLE_NODES[snapshot.next[0] ?? ""] ?? null) : null,
@@ -765,6 +827,7 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
     planApproved: values.planApproved ?? false,
     implementation: values.implementation ?? null,
     checks: values.checksReport ?? null,
+    environmentSetup: values.environmentReport ?? null,
     review: values.review ?? null,
     qa: values.qaReport ?? null,
     clarifications: values.clarifications ?? [],
@@ -791,4 +854,34 @@ export async function commitContext(issueId: string) {
 // its thread), e.g. with its workspace.
 export async function deleteConversation(issueId: string) {
   await checkpointer.deleteThread(coordinatorThreadId(issueId));
+}
+
+// Shared by the issue page and PM. Never mutate a checkpoint while its old run drains.
+export async function redirectPipeline(run: Run, request: PipelineRedirect) {
+  const threadId = coordinatorThreadId(run.issueId);
+  if (!await Workspace.findByPk(run.issueId)) throw new Error("This issue has no workspace");
+  if (workspaceApps.starting(run.issueId)) throw new Error("The user app is still being prepared");
+  const validate = async () => {
+    const pipeline = await getPipeline(run.issueId);
+    const option = pipeline.steeringOptions?.find((entry) => entry.target === request.target);
+    if (!option || option.reason) throw new Error(option?.reason ?? "Invalid redirect target");
+    if ((request.target === "reviewer" || request.target === "qa") &&
+      pipeline.checks?.revision !== await workspaceRevision(run.issueId))
+      throw new Error("The workspace changed since checks. Redirect to coder to validate it again.");
+  };
+  await validate();
+  return withPausedRun(threadId, run.notify, async (reservation) => {
+    await validate();
+    await stopQa(run.issueId);
+    await drainProcesses(run.issueId);
+    for (const role of ["planner", "coder", "setup", "checks", "reviewer", "qa"]) pausedLogs.delete(`${run.issueId}:${role}`);
+    const graph = buildPipeline(run);
+    // Simulate the routing node's completion: updateState replaces pending tasks,
+    // rather than adding a goto alongside a saved approval or interrupted node.
+    await graph.updateState(threadConfig(threadId), {
+      ...redirectUpdate(request),
+      humanMessages: [humanMessage(`Redirect to ${request.target}:\n\n${request.feedback}`, run.username)],
+    }, "redirect");
+    return startRun(threadId, (signal) => continuePipeline(run, signal), run.notify, reservation);
+  });
 }

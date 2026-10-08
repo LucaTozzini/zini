@@ -5,12 +5,13 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Container, Dialog, DialogContent, DialogTitle, IconButton, Skeleton, Stack, Typography } from "@mui/material";
 import type { AgentRole, PipelineResume, PipelineState } from "shared";
 import { errorMessage } from "../api/client.ts";
-import { useCoordinator, usePipelineControl, useResumePipeline, useStartPipeline } from "../api/coordinator.ts";
+import { useCoordinator, usePipelineControl, useRedirectPipeline, useResumePipeline, useStartPipeline } from "../api/coordinator.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import CheckpointActivity from "./coordinator-activity/CheckpointActivity.tsx";
 import BrowserView from "./pipeline/BrowserView.tsx";
 import { FeedbackCard } from "./pipeline/Cards.tsx";
 import CommitCard from "./pipeline/CommitCard.tsx";
+import SteeringControls from "./pipeline/SteeringControls.tsx";
 import PipelineDocument from "./pipeline/PipelineDocument.tsx";
 import PipelineRequest from "./pipeline/PipelineRequest.tsx";
 import PullRequestCard from "./pipeline/PullRequestCard.tsx";
@@ -22,12 +23,13 @@ function CoordinatorContent({ issueId, pipeline }: { issueId: string; pipeline: 
   const start = useStartPipeline(issueId);
   const resume = useResumePipeline(issueId);
   const control = usePipelineControl(issueId);
+  const redirect = useRedirectPipeline(issueId);
   const reply = (response: PipelineResume) => resume.mutate(response);
-  const failure = start.error ?? resume.error ?? control.error;
+  const failure = start.error ?? resume.error ?? control.error ?? redirect.error;
   const [activityContent, setActivityContent] = useState("");
   const content = useMemo(() => ({ pipeline, activityContent }), [pipeline, activityContent]);
   const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
-    content, sending: start.isPending || resume.isPending, busy: Boolean(pipeline.running),
+    content, sending: start.isPending || resume.isPending || redirect.isPending, busy: Boolean(pipeline.running),
     error: Boolean(failure || pipeline.error), lastIsReply: false,
   });
   const hasControl = Boolean(pipeline.running || pipeline.pausing || pipeline.canResume);
@@ -43,16 +45,16 @@ function CoordinatorContent({ issueId, pipeline }: { issueId: string; pipeline: 
       {pipeline.error && <Alert severity="error">{pipeline.error}</Alert>}
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
       <Box data-chat-message="">
-        <PipelineRequest issueId={issueId} pipeline={pipeline} onStart={(note) => start.mutate(note)} onReply={reply}
-          sending={start.isPending || resume.isPending} />
+        <PipelineRequest issueId={issueId} pipeline={pipeline} onStart={(note) => start.mutate(note)} onReply={reply} onRedirect={(request) => redirect.mutate(request)}
+          sending={start.isPending || resume.isPending || redirect.isPending || Boolean(pipeline.redirecting)} />
       </Box>
       {pipeline.finished && <>
         <CommitCard issueId={issueId} />
         <PullRequestCard issueId={issueId} />
-        {pipeline.waiting?.kind === "feedback" && <FeedbackCard
+        <FeedbackCard
           title="Request changes"
-          placeholder="Describe what to change. The coder will revise it, followed by checks, review, and QA."
-          feedbackLabel="Send to coder" onFeedback={(feedback) => reply({ feedback })} loading={resume.isPending} />}
+          placeholder="Describe what to change. The coder will revise it, followed by setup, checks, review, and QA."
+          feedbackLabel="Send to coder" onFeedback={(feedback) => redirect.mutate({ target: "coder", feedback })} loading={resume.isPending || redirect.isPending || Boolean(pipeline.redirecting)} />
       </>}
       {pipeline.browserUrl && <Accordion slotProps={{ transition: { unmountOnExit: true } }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Live product preview</Typography></AccordionSummary>
@@ -61,18 +63,19 @@ function CoordinatorContent({ issueId, pipeline }: { issueId: string; pipeline: 
       </Stack>
       </Container>
       </Box>
-      {(hasControl || messagesBelow !== null) && <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0,
+      {(hasControl || pipeline.started || messagesBelow !== null) && <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0,
         pt: 4, pb: 3, pointerEvents: "none",
         background: (theme) => `linear-gradient(transparent, ${(theme.vars || theme).palette.background.default} 50%)` }}>
         <Stack spacing={1} sx={{ alignItems: "center" }}>
           {messagesBelow !== null && <Button variant="contained" size="small" startIcon={<KeyboardArrowDownIcon />}
             onClick={scrollToBottom} sx={{ pointerEvents: "auto" }}>Latest activity</Button>}
           {hasControl && <Button variant="outlined" loading={control.isPending || pipeline.pausing}
-            disabled={start.isPending || resume.isPending || pipeline.pausing}
+            disabled={start.isPending || resume.isPending || redirect.isPending || pipeline.pausing || pipeline.redirecting}
             onClick={() => control.mutate(pipeline.running ? "pause" : "continue")}
             sx={{ pointerEvents: "auto", bgcolor: "background.default" }}>
             {pipeline.pausing ? "Pausing…" : pipeline.running ? "Pause" : "Resume"}
           </Button>}
+          {pipeline.started && <SteeringControls issueId={issueId} pipeline={pipeline} disabled={start.isPending || resume.isPending || redirect.isPending || control.isPending} />}
         </Stack>
       </Box>}
       <Dialog open={selected !== null} onClose={() => setSelected(null)} fullWidth

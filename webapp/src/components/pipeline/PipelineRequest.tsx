@@ -1,14 +1,15 @@
 import { Alert, Stack } from "@mui/material";
-import type { PipelineResume, PipelineState } from "shared";
+import type { PipelineRedirect, PipelineResume, PipelineState } from "shared";
 import { CommandsCard, FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
 import { PlanView } from "./Documents.tsx";
 
 // Only the current blocking request is inline. Historical documents live in the step dialogs.
-export default function PipelineRequest({ issueId, pipeline, onStart, onReply, sending }: {
+export default function PipelineRequest({ issueId, pipeline, onStart, onReply, onRedirect, sending }: {
   issueId: string;
   pipeline: PipelineState;
   onStart: (note: string) => void;
   onReply: (response: PipelineResume) => void;
+  onRedirect: (request: PipelineRedirect) => void;
   sending: boolean;
 }) {
   if (!pipeline.started) return <StartCard issueId={issueId} onStart={onStart} loading={sending} />;
@@ -25,8 +26,8 @@ export default function PipelineRequest({ issueId, pipeline, onStart, onReply, s
     {pipeline.plan ? <PlanView plan={pipeline.plan} /> : <Alert severity="warning">The plan document is unavailable.</Alert>}
     <FeedbackCard key={JSON.stringify(pipeline.plan)} title="Approve the plan?"
       placeholder="Or describe what to change, and the planner will revise it."
-      feedbackLabel="Send feedback" onApprove={pipeline.plan ? () => onReply({ approve: true }) : undefined}
-      onFeedback={(feedback) => onReply({ feedback })} loading={sending} />
+      feedbackLabel="Revise plan" onApprove={pipeline.plan ? () => onReply({ approve: true }) : undefined}
+      onFeedback={(feedback) => onRedirect({ target: "planner", feedback })} loading={sending} />
   </Stack>;
   return null;
 }

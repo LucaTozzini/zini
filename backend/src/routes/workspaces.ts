@@ -8,7 +8,7 @@ import { fetchLinearIssue, getLinearClient } from "../linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../settings.js";
 import { isPushed, workspaceDiff } from "../workspaceFiles.js";
-import { isSettingUp, readSetupLog } from "../workspaceSetup.js";
+import { workspaceApps } from "../workspaceAppSessions.js";
 import {
   commitAndPush,
   createWorkspace,
@@ -16,7 +16,6 @@ import {
   getWorkspace,
   isCoordinatorRunning,
   isIssueId,
-  rerunSetup,
 } from "../workspaces.js";
 
 export const workspaces = Router();
@@ -44,25 +43,6 @@ workspaces.get("/:issueId", async (req, res) => {
   }
 });
 
-const stillSettingUp = (res: Response) =>
-  res.status(409).json({ error: "The workspace is still being set up" });
-
-// Runs the setup command again. The outcome comes as a workspace.updated event.
-workspaces.post("/:issueId/setup", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  if (isSettingUp(issueId)) {
-    stillSettingUp(res);
-    return;
-  }
-  const workspace = await rerunSetup(issueId);
-  if (!workspace) {
-    res.status(404).json({ error: "This issue has no workspace" });
-    return;
-  }
-  res.json(workspace);
-});
-
 // Everything changed in the workspace since it branched, as a unified diff (see
 // workspaceDiff).
 workspaces.get("/:issueId/diff", async (req, res) => {
@@ -82,7 +62,7 @@ workspaces.get("/:issueId/diff", async (req, res) => {
 
 // Commits the uncommitted changes, if any, with { message }, then pushes the branch to
 // GitHub, and answers with the workspace. With nothing uncommitted it only pushes (e.g.
-// after a push that failed). Not while setup or the coordinator is running in it.
+// after a push that failed). Not while the coordinator is running in it.
 workspaces.post("/:issueId/commit", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
@@ -134,8 +114,8 @@ workspaces.get("/:issueId/pull-request", async (req, res) => {
 workspaces.post("/:issueId/pull-request", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (isSettingUp(issueId)) {
-    stillSettingUp(res);
+  if (workspaceApps.starting(issueId)) {
+    res.status(409).json({ error: "The user app is still being prepared" });
     return;
   }
   if (isCoordinatorRunning(issueId)) {
@@ -179,13 +159,6 @@ workspaces.post("/:issueId/pull-request", async (req, res) => {
   }
 });
 
-// The end of the last setup's output (see readSetupLog), as plain text.
-workspaces.get("/:issueId/setup-log", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  res.type("text/plain").send(await readSetupLog(issueId));
-});
-
 // Creates a workspace for { issueId }, or returns the one it already has.
 workspaces.post("/", async (req, res) => {
   const issueId = readIssueId((req.body as { issueId?: unknown } | undefined)?.issueId, res);
@@ -218,12 +191,12 @@ workspaces.post("/", async (req, res) => {
   }
 });
 
-// Not while setup or the coordinator is running in it.
+// Not while the coordinator is running in it.
 workspaces.delete("/:issueId", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (isSettingUp(issueId)) {
-    stillSettingUp(res);
+  if (workspaceApps.starting(issueId)) {
+    res.status(409).json({ error: "Stop the app launch before deleting its workspace" });
     return;
   }
   if (isCoordinatorRunning(issueId)) {

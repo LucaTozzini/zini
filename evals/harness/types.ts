@@ -11,6 +11,8 @@ export type Scenario = {
   // Answers to the subagents' questions, in the order they're asked; "You decide."
   // once they run out.
   answers?: string[];
+  // False exercises pipeline preparation with an initially empty dependency install.
+  preinstalledDependencies?: boolean;
 };
 
 // What a hidden check is given: the workspace after the run, and a way to run the app in

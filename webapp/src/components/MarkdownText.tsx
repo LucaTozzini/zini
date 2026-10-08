@@ -2,7 +2,6 @@ import { Box, Typography, type TypographyProps } from "@mui/material";
 import type { ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import LinkIcon from "@mui/icons-material/Link";
 import LaunchIcon from '@mui/icons-material/Launch';
 
 // A markdown element as MUI Typography, so it follows the theme's type scale. The

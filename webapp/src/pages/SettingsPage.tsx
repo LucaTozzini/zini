@@ -363,26 +363,6 @@ function SettingsPage() {
             },
           ]}
         />
-        <SettingCard
-          title="Workspace setup"
-          fields={[
-            {
-              setting: "workspaceSetupCommand",
-              label: "Setup command",
-              placeholder: "npm ci",
-              helperText:
-                "Runs in each new workspace to get it ready, e.g. installing dependencies. Uses cmd on Windows and sh elsewhere. Leave empty for none.",
-              optional: true,
-            },
-            {
-              setting: "workspaceSetupTimeoutMinutes",
-              label: "Timeout (minutes)",
-              placeholder: "15",
-              helperText: "Setup is stopped and marked failed after this long. 15 minutes if empty.",
-              optional: true,
-            },
-          ]}
-        />
         <ChatGptCard />
         <ModelCard
           title="Product manager"

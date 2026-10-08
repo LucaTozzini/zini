@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Alert, Box, Button, Paper, Skeleton, Stack, TextField, Typography } from "@mui/material";
 import type { Decision, PendingCommand } from "shared";
 import { errorMessage } from "../../api/client.ts";
-import { useCreateWorkspace, useRerunSetup, useWorkspace } from "../../api/workspaces.ts";
+import { useCreateWorkspace, useWorkspace } from "../../api/workspaces.ts";
 
 // The cards the pipeline shows when it's waiting on you.
 
@@ -22,17 +22,13 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
   const [note, setNote] = useState("");
   const workspace = useWorkspace(issueId);
   const create = useCreateWorkspace();
-  const rerun = useRerunSetup();
-  const settingUp = workspace.data?.setupStatus === "running";
-  const failed = workspace.data?.setupStatus === "failed";
-  const ready = workspace.data?.setupStatus === "ready";
-  const busy = Boolean(loading || create.isPending || rerun.isPending || settingUp);
-  const failure = create.error ?? rerun.error;
+  const ready = Boolean(workspace.data);
+  const busy = Boolean(loading || create.isPending);
+  const failure = create.error;
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (busy || !workspace.isSuccess) return;
     if (workspace.data === null) create.mutate(issueId);
-    else if (failed) rerun.mutate(issueId);
     else if (ready) onStart(note.trim());
   }
   if (workspace.isPending) return <Skeleton height={100} />;
@@ -45,7 +41,6 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
         {workspace.data === null ? "Create a workspace for this issue before starting the coordinator." :
           "You’ll be asked to approve the plan and any commands that need permission."}
       </Typography>
-      {failed && <Alert severity="error">Workspace setup failed: {workspace.data?.setupError ?? "Unknown error"}</Alert>}
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
       {ready && <TextField
         size="small"
@@ -57,7 +52,7 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
       />}
       <Stack direction="row">
         <Button type="submit" variant="contained" loading={busy}>
-          {settingUp ? "Setting up workspace" : workspace.data === null ? "Create workspace" : failed ? "Retry setup" : "Start"}
+          {workspace.data === null ? "Create workspace" : "Start"}
         </Button>
       </Stack>
     </Stack>

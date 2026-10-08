@@ -54,12 +54,6 @@ settings.put("/", async (req, res) => {
     }
   }
 
-  const timeout = changes.workspaceSetupTimeoutMinutes;
-  if (timeout && !/^[1-9]\d*$/.test(timeout)) {
-    res.status(400).json({ error: "The setup timeout must be a whole number of minutes, 1 or more" });
-    return;
-  }
-
   // The repo is only saved once it's cloned, which also checks the token can read it.
   if (changes.githubRepo) {
     const repo = changes.githubRepo;

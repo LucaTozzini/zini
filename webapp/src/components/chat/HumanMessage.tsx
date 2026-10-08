@@ -1,4 +1,4 @@
-import { Paper, Typography, Box, Card, CardContent } from "@mui/material";
+import { Typography, Box, Card } from "@mui/material";
 import type { Ref } from "react";
 import type { ChatMessage } from "shared";
 

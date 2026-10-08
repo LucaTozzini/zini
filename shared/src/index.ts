@@ -40,20 +40,13 @@ export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
 // A comment on a Linear issue. user is null for comments by integrations and bots.
 export type LinearComment = { body: string; createdAt: string; user: { name: string } | null };
 
-// Where a workspace's setup command is at. A workspace is only ready to work in once
-// setup has succeeded (or there's no setup command).
-export type SetupStatus = "running" | "ready" | "failed";
-
 // A Linear issue's workspace: a git worktree of the repo with the issue's branch
 // checked out, as returned by /api/workspaces. branch is read from the worktree.
-// setupError says why setup failed, e.g. "Exited with code 1".
 export type Workspace = {
   issueId: string;
   branch: string;
   path: string;
   createdAt: string;
-  setupStatus: SetupStatus;
-  setupError: string | null;
   // The issue's coordinator is working; the workspace can't be deleted until it's done.
   coordinatorRunning: boolean;
   // Changes not committed yet (new files included, ignored ones not).
@@ -76,6 +69,7 @@ export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | nu
 // failed first); error is set when it failed or was rejected.
 export type ChatMessage =
   | { role: "user"; content: string; username?: string }
+  | { role: "activity"; content: string; issueId: string; eventId: string; eventType: string }
   | { role: "assistant"; content: string }
   | {
       role: "tool";
@@ -120,23 +114,17 @@ export type Thread = {
 export type ThreadEvent = { type: "thread.updated"; threadId: string };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
-// githubRepo is "owner/name". workspaceSetupCommand runs in each new workspace, and is
-// stopped after workspaceSetupTimeoutMinutes (a whole number; 15 when unset). Each model
-// runs on its provider (a ModelProvider; OpenRouter when unset).
+// Each model runs on its provider (a ModelProvider; OpenRouter when unset).
 export type Settings = {
   productManagerProvider: string | null;
   productManagerModel: string | null;
   coordinatorProvider: string | null;
   coordinatorModel: string | null;
   githubRepo: string | null;
-  workspaceSetupCommand: string | null;
-  workspaceSetupTimeoutMinutes: string | null;
 };
 
 // Settings that can be cleared, by saving an empty value.
 export const OPTIONAL_SETTINGS = [
-  "workspaceSetupCommand",
-  "workspaceSetupTimeoutMinutes",
   "productManagerProvider",
   "coordinatorProvider",
 ] as const;
@@ -175,14 +163,14 @@ export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | Coor
 // work). Each subagent returns a document with only what it needs to say. Every one
 // has blockingQuestions: what it couldn't decide without you (empty if nothing), which
 // pauses the pipeline to ask you.
-export type AgentRole = "planner" | "coder" | "checks" | "reviewer" | "qa";
+export type AgentRole = "planner" | "coder" | "setup" | "checks" | "reviewer" | "qa";
 
 // summary: the approach, in a few sentences. steps: plain instructions, each naming
 // the files it touches.
 export type AcceptanceCriterion = { id: string; requirement: string; source: string };
 export type RepoCommand = {
   id: string;
-  kind: "check" | "start";
+  kind: "setup" | "check" | "start";
   command: string;
   cwd: string;
   purpose: string;
@@ -209,6 +197,11 @@ export type ChecksDocument = {
   // Why none were selected, when none were.
   noChecksReason?: string;
   complete: boolean;
+};
+
+export type EnvironmentSetupDocument = ChecksDocument & {
+  noSetupReason?: string;
+  blockingQuestions: string[];
 };
 
 // The coder follows the approved plan, and its changes are the workspace's diff, so it
@@ -244,21 +237,19 @@ export type WorkspaceDiff = { diff: string; truncated: boolean };
 export type PendingCommand = { tool: string; command: string };
 
 // What the pipeline is paused on, waiting for you: a subagent's questions, approving the
-// plan, approving the QA's commands, or (once finished) feedback on the changes.
+// plan, or approving commands. Finished work has no pending request.
 export type PipelineWaiting =
   | { kind: "questions"; from: AgentRole; questions: string[] }
   | { kind: "approve_plan" }
-  | { kind: "approve_commands"; commands: PendingCommand[]; from?: AgentRole }
-  | { kind: "feedback" };
+  | { kind: "approve_commands"; commands: PendingCommand[]; from?: AgentRole };
 
 // Your reply to what the pipeline is waiting on, as POSTed to
 // /api/coordinator/:issueId/resume: answers to the questions (in order), approving the
-// plan, feedback (on the plan, or on the finished changes), or a decision on each of
+// plan, or a decision on each of
 // the QA's commands (in order; a reject's message goes to the QA).
 export type PipelineResume =
   | { answers: string[] }
   | { approve: true }
-  | { feedback: string }
   | { decisions: Decision[] };
 
 export type CoordinatorHumanMessage = { id: string; t: string; content: string; username?: string };
@@ -274,7 +265,13 @@ export type CoordinatorMessage = { id: string; t: string; agent: AgentRole | nul
 export type PendingApproval = { issueId: string; kind: "approve_plan" | "approve_commands" };
 
 // An issue's pipeline, as returned by GET /api/coordinator/:issueId. One per issue.
+export type SteeringTarget = "planner" | "coder" | "reviewer" | "qa";
+export type PipelineRedirect = { target: SteeringTarget; feedback: string };
+export type SteeringOption = { target: SteeringTarget; reason: string | null };
+
 export type PipelineState = {
+  redirecting?: boolean;
+  steeringOptions?: SteeringOption[];
   started: boolean;
   // The subagent working now, if any.
   running: AgentRole | null;
@@ -288,13 +285,14 @@ export type PipelineState = {
   planApproved: boolean;
   implementation: ImplementationDocument | null;
   checks?: ChecksDocument | null;
+  environmentSetup?: EnvironmentSetupDocument | null;
   review: ReviewDocument | null;
   qa: QaDocument | null;
   clarifications: Clarification[];
   // The page the QA's browser is on, while it's open: it can be watched live, at
   // GET /api/coordinator/:issueId/browser.
   browserUrl: string | null;
-  // The QA passed the changes; the pipeline waits for your feedback, if any.
+  // The pipeline completed. Further revisions use redirect; no reply is pending.
   finished: boolean;
   // Why the last run failed, until the next one starts; lost if the server restarts.
   error: string | null;
@@ -372,7 +370,7 @@ export type RoleMetrics = {
 export type RunMetrics = {
   scenario: string;
   model: string;
-  // Whether the pipeline got to the end (the QA passed, waiting for feedback).
+  // Whether the pipeline got to the end. Further revisions use redirect.
   finished: boolean;
   qaVerdict: "pass" | "fail" | "partial" | null;
   rateLimited?: boolean;

@@ -1,15 +1,17 @@
 import { Annotation } from "@langchain/langgraph";
 import type {
   Clarification,
+  SteeringTarget,
   ImplementationDocument,
   PlanDocument,
   QaDocument,
   ReviewDocument,
   ChecksDocument,
   CoordinatorHumanMessage,
+  EnvironmentSetupDocument,
 } from "shared";
 import type { z } from "zod";
-import type { CHECKS_SCHEMA } from "./documents.js";
+import type { CHECKS_SCHEMA, ENVIRONMENT_SETUP_SCHEMA } from "./documents.js";
 import type { Runbook } from "./validation.js";
 import type { CodebaseContext } from "./codebaseContext.js";
 
@@ -24,11 +26,15 @@ const appended = <T>() =>
 export const PipelineGraphState = Annotation.Root({
   // The note you started it with, for the planner.
   note: latest(""),
+  redirectTarget: latest<SteeringTarget>("planner"),
+  steeringFeedback: appended<string>(),
   humanMessages: appended<CoordinatorHumanMessage>(),
   plan: latest<PlanDocument | null>(null),
   planApproved: latest(false),
   implementation: latest<ImplementationDocument | null>(null),
   runbook: latest<Runbook>({}),
+  environmentPlan: latest<z.infer<typeof ENVIRONMENT_SETUP_SCHEMA> | null>(null),
+  environmentReport: latest<EnvironmentSetupDocument | null>(null),
   checksPlan: latest<z.infer<typeof CHECKS_SCHEMA> | null>(null),
   checksReport: latest<ChecksDocument | null>(null),
   repairAttempts: latest(0),

@@ -1,4 +1,4 @@
-import { Box, useTheme } from "@mui/material";
+import { useTheme } from "@mui/material";
 import { ScaleLoader } from "react-spinners";
 
 <ScaleLoader color="#36d7b7" />;

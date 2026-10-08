@@ -12,7 +12,7 @@ import ToolCallLine from "../ToolCallLine.tsx";
 import ToolCallGroup from "../ToolCallGroup.tsx";
 import { groupMessages } from "./groupMessages.ts";
 
-const titles = { planner: "Planner", coder: "Coder", checks: "Checks", reviewer: "Reviewer", qa: "Product QA" };
+const titles = { planner: "Planner", coder: "Coder", setup: "Environment setup", checks: "Checks", reviewer: "Reviewer", qa: "Product QA" };
 
 export default function CheckpointActivity({ issueId, pipeline, onSelect, onContentChange }: {
   issueId: string; pipeline: PipelineState; onSelect: (role: AgentRole) => void; onContentChange: (key: string) => void;

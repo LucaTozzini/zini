@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CoordinatorMessage, PendingApproval, PipelineResume, PipelineState } from 'shared'
+import type { CoordinatorMessage, PendingApproval, PipelineRedirect, PipelineResume, PipelineState } from 'shared'
 import { api } from './client.ts'
 
 export const coordinatorKey = (issueId: string) => ['coordinator', issueId]
@@ -77,5 +77,13 @@ export function useWritePullRequest(issueId: string) {
       api
         .post(`coordinator/${issueId}/pull-request-text`, { timeout: false })
         .json<{ title: string; body: string }>(),
+  })
+}
+
+export function useRedirectPipeline(issueId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: PipelineRedirect) => api.post(`coordinator/${issueId}/redirect`, { json: request, timeout: false }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: coordinatorKey(issueId) }),
   })
 }

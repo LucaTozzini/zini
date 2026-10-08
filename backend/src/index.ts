@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { initDb } from "./db.js";
 import { subscribe } from "./events.js";
-import { failInterruptedSetups } from "./workspaceSetup.js";
 import { coordinator } from "./routes/coordinator.js";
 import { integrations } from "./routes/integrations.js";
 import { productManager } from "./routes/productManager.js";
@@ -14,6 +13,7 @@ import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
 import { generateUsername } from "unique-username-generator";
+import { startPmCoordinatorUpdates } from "./pmCoordinatorUpdates.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -67,7 +67,7 @@ if (existsSync(webapp)) {
 }
 
 await initDb();
-await failInterruptedSetups();
+startPmCoordinatorUpdates();
 
 app.listen(port, () => {
   console.log(`backend listening on http://localhost:${port}`);

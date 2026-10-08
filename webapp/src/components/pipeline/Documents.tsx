@@ -98,10 +98,11 @@ export function QaView({ qa }: { qa: QaDocument }) {
   );
 }
 
-export function ChecksView({ checks }: { checks: ChecksDocument }) {
+export function ChecksView({ checks, setup = false }: { checks: ChecksDocument; setup?: boolean }) {
   return <Stack spacing={1.5}>
     {checks.results.length === 0 && <Typography color="text.secondary">
-      {checks.noChecksReason ? `No checks selected: ${checks.noChecksReason}`
+      {checks.noChecksReason ? `${setup ? "No setup required" : "No checks selected"}: ${checks.noChecksReason}`
+        : setup ? "Environment setup has not finished yet."
         : checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
     </Typography>}
     {checks.results.map((result, index) => <Alert key={index}

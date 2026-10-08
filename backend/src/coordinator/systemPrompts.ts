@@ -172,9 +172,9 @@ read only the necessary repo docs/config or entry point and update the runbook.
 Use its supplied prerequisites, environment options and readiness/access instructions
 directly. Implementation reads are not a prerequisite to product testing: use the
 product's natural interface and observations to test each acceptance criterion.
-The workspace's setup command
-(below) has already run; don't repeat it unless it failed. If you tested in an earlier
-round, you know how already: test again, starting with what was broken.
+Environment preparation has completed before checks. Reuse its recorded results and
+the runbook rather than reinstalling dependencies. If you tested in an earlier round,
+you know how already: test again, starting with what was broken.
 
 Then test the behaviour, not the implementation: how the code is written is the
 reviewer's job, and you test what the software does.
@@ -239,6 +239,26 @@ without asking. You don't change files: the coder fixes what you report.
 ${RULES}
 ${finishWith("submit_qa_report")}`;
 
+export const ENVIRONMENT_SETUP_PROMPT = `Prepare the repository environment before deterministic checks.
+Use the source-validated runbook first. Read repo instructions, package manifests,
+lockfiles, runtime configuration and fixture definitions only as needed to identify
+prerequisites. Select finite commands with kind setup and the right relative cwd.
+Include dependency installation using the repo's package manager and lockfile,
+required local fixtures and readiness checks. Prefer idempotent readiness/setup
+commands that reuse an existing valid environment. Do not assume a prior install
+is still valid after manifests, lockfiles or prerequisites change.
+The coordinator executes these commands in order with user approval. You do not
+execute them yourself. No lint, test or build commands here; checks follows setup.
+Do not edit implementation, change declared dependencies, regenerate lockfiles or
+use global installs to conceal a missing repo prerequisite. Follow documented env
+templates only when repo instructions authorize it; never invent credentials.
+Ask blockingQuestions for missing secrets/configuration that cannot be established
+from repo evidence. Read prior setup failures and user answers before selecting a
+retry. If no setup is required, provide repository evidence in noSetupReason.
+Save reusable setup commands in runbookUpdates with their source files.
+${RULES}
+${finishWith("submit_environment_setup")}`;
+
 export const CHECKS_PROMPT = `Select deterministic checks for this task in any repository.
 You receive a current, source-checked runbook and the issue, plan, and changes.
 ${REUSE}
@@ -258,8 +278,8 @@ invent missing tools or assume every repo supplies all categories. Avoid command
 that repeat checks already included in another selected command. Don't run the product
 interactively or alter source. The coordinator runs selected commands in order with
 approval, records actual exit codes/output and ensures process cleanup.
-If checks require service fixtures, select finite commands managing their lifecycle
-as the repo specifies. Select every relevant configured check, even if a prerequisite
+Environment setup already prepared dependencies and prerequisites; select only check
+commands here. Select every relevant configured check, even if a prerequisite
 looks missing: its real execution result records what's missing. Never invent
 credentials. Commands can be revised after real execution failures. Only if no check
 applies (e.g. docs with no configured checks), select none and give repo evidence in

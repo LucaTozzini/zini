@@ -1,7 +1,9 @@
 import { Router, type Response } from "express";
+import { workspaceApps } from "../workspaceAppSessions.js";
 import {
   coordinatorThreadId,
   continuePipeline,
+  redirectPipeline,
   getPipeline,
   getPipelineMessages,
   loadSetup as loadPipelineSetup,
@@ -12,6 +14,7 @@ import {
   resumePipeline,
   startPipeline,
 } from "../coordinator.js";
+import { readRedirect } from "../coordinator/steering.js";
 import { addViewer } from "../coordinator/qaBrowser.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
@@ -39,16 +42,15 @@ async function loadSetup(res: Response) {
   return null;
 }
 
-// The pipeline works in the issue's workspace, so it needs one that's set up. false
-// after sending a 404 or 409.
-async function requireReadyWorkspace(issueId: string, res: Response) {
+// The pipeline needs a checkout; environment preparation happens in the pipeline.
+async function requireWorkspace(issueId: string, res: Response) {
+  if (workspaceApps.starting(issueId)) {
+    res.status(409).json({ error: "The user app is still being prepared" });
+    return false;
+  }
   const workspace = await Workspace.findByPk(issueId);
   if (!workspace) {
     res.status(404).json({ error: "This issue has no workspace" });
-    return false;
-  }
-  if (workspace.setupStatus !== "ready") {
-    res.status(409).json({ error: "The workspace isn't set up yet" });
     return false;
   }
   return true;
@@ -81,7 +83,7 @@ coordinator.post("/:issueId/start", async (req, res) => {
     res.status(400).json({ error: "note must be a string" });
     return;
   }
-  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (!(await requireWorkspace(issueId, res))) return;
   if ((await getPipeline(issueId)).started) {
     res.status(409).json({ error: "The pipeline has already started" });
     return;
@@ -100,17 +102,16 @@ coordinator.post("/:issueId/start", async (req, res) => {
 });
 
 // Replies to what the pipeline is waiting on: { answers } to questions, { approve: true }
-// or { feedback } for the plan, { decisions } on the QA's commands, { feedback } once
-// finished. It then carries on.
+// or { decisions } on commands. Revisions use /redirect.
 coordinator.post("/:issueId/resume", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   const reply = readReply(req.body);
   if (!reply) {
-    res.status(400).json({ error: "Expected { answers }, { approve: true }, { feedback } or { decisions }" });
+    res.status(400).json({ error: "Expected { answers }, { approve: true } or { decisions }" });
     return;
   }
-  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (!(await requireWorkspace(issueId, res))) return;
 
   const { waiting } = await getPipeline(issueId);
   if (!replyFits(waiting, reply)) {
@@ -130,7 +131,7 @@ coordinator.post("/:issueId/resume", async (req, res) => {
 // Manual recovery only. Human approval/answer pauses still use /resume above.
 coordinator.post("/:issueId/continue", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId || !(await requireReadyWorkspace(issueId, res))) return;
+  if (!issueId || !(await requireWorkspace(issueId, res))) return;
   if (!(await getPipeline(issueId)).canResume) {
     res.status(409).json({ error: "The pipeline has no interrupted work to resume" });
     return;
@@ -139,6 +140,20 @@ coordinator.post("/:issueId/continue", async (req, res) => {
   if (!setup) return;
   const run = pipelineRun(setup, issueId);
   if (await beginRun(res, coordinatorThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
+});
+
+coordinator.post("/:issueId/redirect", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  const request = readRedirect(req.body);
+  if (!request) { res.status(400).json({ error: "Expected a planner/coder/reviewer/qa target and nonempty feedback" }); return; }
+  if (!await requireWorkspace(issueId, res)) return;
+  const setup = await loadSetup(res);
+  if (!setup) return;
+  try {
+    await redirectPipeline(pipelineRun(setup, issueId, req.cookies?.username), request);
+    res.status(202).end();
+  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
 coordinator.post("/:issueId/pause", async (req, res) => {
@@ -158,7 +173,7 @@ coordinator.post("/:issueId/pause", async (req, res) => {
 coordinator.post("/:issueId/commit-message", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (!(await requireWorkspace(issueId, res))) return;
   if (isRunning(coordinatorThreadId(issueId))) {
     res.status(409).json({ error: "The coordinator is still working in this workspace" });
     return;
@@ -184,7 +199,7 @@ coordinator.post("/:issueId/commit-message", async (req, res) => {
 coordinator.post("/:issueId/pull-request-text", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (!(await requireReadyWorkspace(issueId, res))) return;
+  if (!(await requireWorkspace(issueId, res))) return;
   if (isRunning(coordinatorThreadId(issueId))) {
     res.status(409).json({ error: "The coordinator is still working in this workspace" });
     return;

@@ -23,7 +23,6 @@ import {
 import { initDb, storage } from "../../backend/src/db.js";
 import { addWorktree, workspacePath } from "../../backend/src/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
-import { saveSettings } from "../../backend/src/settings.js";
 import { workspaceDiff } from "../../backend/src/workspaceFiles.js";
 import { startApp } from "./app.js";
 import type { RunMetrics } from "shared";
@@ -101,21 +100,15 @@ function cloneLikeZini(source: string) {
   git(["-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 }
 
-// A workspace like createWorkspace makes, without Linear: its worktree, its row, and its
-// setup, already done (the dependencies come with the eval image).
+// A workspace like createWorkspace makes, without Linear: its worktree and row.
+// Scenarios can omit the image's dependency install to exercise preparation.
 async function makeWorkspace(issueId: string) {
   await addWorktree(issueId, `eval/${scenarioName.replace("/", "-")}`);
   const modules = join(repoDir, "node_modules");
-  if (existsSync(modules)) {
+  if (scenario.preinstalledDependencies !== false && existsSync(modules)) {
     cpSync(modules, join(workspacePath(issueId), "node_modules"), { recursive: true, verbatimSymlinks: true });
   }
-  await saveSettings({ workspaceSetupCommand: "npm ci" });
-  mkdirSync(join(dataDir, "workspace-logs"), { recursive: true });
-  writeFileSync(
-    join(dataDir, "workspace-logs", `${issueId}.log`),
-    "$ npm ci\n(Installed when the eval image was built.)\n\nSetup finished\n",
-  );
-  await Workspace.create({ issueId, setupStatus: "ready" });
+  await Workspace.create({ issueId });
 }
 
 // Linear, as far as the pipeline uses it: fetchLinearIssue's query, answered with the
@@ -196,7 +189,7 @@ function reply(waiting: PipelineWaiting): PipelineResume {
     commandsApproved += waiting.commands.length;
     return { decisions: waiting.commands.map(() => ({ type: "approve" as const })) };
   }
-  throw new Error(`Nothing to answer ${waiting.kind} with`);
+  throw new Error("Unknown pipeline request");
 }
 
 // ---- The run ----------------------------------------------------------------------
@@ -225,7 +218,7 @@ async function main() {
     }
     for (let pauses = 0; pauses < 200; pauses++) {
       const { waiting } = await getPipeline(issueId);
-      if (!waiting || waiting.kind === "feedback") break;
+      if (!waiting) break;
       for await (const _ of await resumePipeline(run, reply(waiting))) {
         // As above.
       }

@@ -32,26 +32,6 @@ export function useDeleteWorkspace() {
   })
 }
 
-// Runs the setup command again; its outcome comes through useServerEvents.
-export function useRerunSetup() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (issueId: string) => api.post(`workspaces/${issueId}/setup`).json<Workspace>(),
-    onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(workspace.issueId), workspace),
-  })
-}
-
-// The end of the workspace's last setup output, fetched while enabled (e.g. the log is
-// open). Under the workspace's key, so it's refetched with it; every 2s while running.
-export function useSetupLog(issueId: string, enabled: boolean, running: boolean) {
-  return useQuery({
-    queryKey: [...workspaceKey(issueId), 'setup-log'],
-    queryFn: () => api.get(`workspaces/${issueId}/setup-log`).text(),
-    enabled,
-    refetchInterval: running ? 2000 : false,
-  })
-}
-
 // The workspace's changes so far. Under the coordinator's key, so it's refetched with
 // it, e.g. after every file the coder writes.
 export function useWorkspaceDiff(issueId: string, enabled: boolean) {

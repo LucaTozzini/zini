@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import type { Decision } from "shared";
-import { getLinearClient } from "../linear.js";
-import { getKey } from "../models/Integration.js";
 import { PmThread } from "../models/PmThread.js";
-import { chat, deleteThreadHistory, loadThread, resume } from "../productManager.js";
+import { chat, deleteThreadHistory, loadThread, resume, loadPmSetup } from "../productManager.js";
 import { sendEvent } from "../events.js";
 import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../runs.js";
-import { getSetting } from "../settings.js";
-import { loadConnection } from "../modelProvider.js";
+import { coordinatorSubscriptions } from "../coordinatorSubscriptions.js";
 
 export const productManager = Router();
 
@@ -27,23 +24,12 @@ const isDecision = (d: unknown): d is Decision =>
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
-  const [linear, connection, githubToken, model, repo] = await Promise.all([
-    getLinearClient(),
-    getSetting("productManagerProvider").then(loadConnection),
-    getKey("github"),
-    getSetting("productManagerModel"),
-    getSetting("githubRepo"),
-  ]);
-  const missing = (error: string) => {
-    res.status(409).json({ error });
+  const setup = await loadPmSetup();
+  if (typeof setup === "string") {
+    res.status(409).json({ error: setup });
     return null;
-  };
-  if (!linear) return missing("Linear isn't connected");
-  if (typeof connection === "string") return missing(connection);
-  if (!githubToken) return missing("GitHub isn't connected");
-  if (!model) return missing("No model set");
-  if (!repo) return missing("No GitHub repository set");
-  return { linear, connection, model, repo };
+  }
+  return setup;
 }
 
 // The chat with this id, or null after sending a 404.
@@ -132,6 +118,7 @@ productManager.post("/threads/:id/messages", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
+  coordinatorSubscriptions.resume(id);
   if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
 });
 
@@ -141,6 +128,7 @@ productManager.post("/threads/:id/stop", async (req, res) => {
   if (!(await findThread(req.params.id, res))) return;
 
   const id = req.params.id;
+  coordinatorSubscriptions.pause(id);
   if (!stopRun(id)) {
     res.status(409).json({ error: "The agent isn't working on this conversation" });
     return;
@@ -169,6 +157,7 @@ productManager.post("/threads/:id/steer", async (req, res) => {
   // is still unwinding. Unlike /messages, which answers 409 while the agent works (which
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
+  coordinatorSubscriptions.resume(id);
   if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
 });
 
@@ -186,6 +175,7 @@ productManager.post("/threads/:id/resume", async (req, res) => {
   if (!setup) return;
   const id = req.params.id;
   const start = (signal: AbortSignal) => resume(setup, id, decisions, signal);
+  coordinatorSubscriptions.resume(id);
   if (await begin(res, id, start)) res.status(202).end();
 });
 
@@ -200,6 +190,7 @@ productManager.delete("/threads/:id", async (req, res) => {
   }
 
   await deleteThreadHistory(thread.id);
+  coordinatorSubscriptions.forget(thread.id);
   await thread.destroy();
   forgetRun(thread.id);
   broadcast(thread.id);

@@ -10,16 +10,11 @@ import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
-import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
-import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
-import ReplayIcon from "@mui/icons-material/Replay";
-import { PRIORITY_NAMES, type Workspace } from "shared";
+import { PRIORITY_NAMES } from "shared";
 import { errorMessage } from "../api/client.ts";
 import {
   useCreateWorkspace,
   useDeleteWorkspace,
-  useRerunSetup,
-  useSetupLog,
   useWorkspace,
 } from "../api/workspaces.ts";
 import { useLinearIssue } from "../api/integrations.ts";
@@ -30,7 +25,6 @@ import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -130,114 +124,6 @@ function Code({ children }: { children: ReactNode }) {
 const vscodeUrl = (path: string) =>
   `vscode://file/${encodeURI(path.replace(/\\/g, "/").replace(/^\//, ""))}?windowId=_blank`;
 
-// The end of the workspace's setup output; refetched every couple of seconds while
-// setup is running, so it can be followed.
-function SetupLogDialog({
-  workspace,
-  open,
-  onClose,
-}: {
-  workspace: Workspace;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const running = workspace.setupStatus === "running";
-  const log = useSetupLog(workspace.issueId, open, running);
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Setup log</DialogTitle>
-      <DialogContent>
-        {log.isPending && <Skeleton height={120} />}
-        {log.isError && <Alert severity="error">{errorMessage(log.error)}</Alert>}
-        {log.isSuccess && (
-          <Box
-            component="pre"
-            sx={{
-              m: 0,
-              fontFamily: "monospace",
-              fontSize: "0.8125rem",
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {log.data || "No setup has run in this workspace."}
-          </Box>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-// Where the workspace's setup is at, with its log and, unless it's running, a way to
-// run it again (e.g. after fixing the command in Settings).
-function SetupStatusRow({ workspace }: { workspace: Workspace }) {
-  const rerun = useRerunSetup();
-  const [showLog, setShowLog] = useState(false);
-  const { setupStatus, setupError } = workspace;
-
-  const status = {
-    running: {
-      label: "Setting up",
-      icon: <CircularProgress size={16} />,
-      text: "Setting up…",
-    },
-    ready: {
-      label: "Set up",
-      icon: <CheckCircleOutlinedIcon fontSize="small" color="success" />,
-      text: "Ready to work in",
-    },
-    failed: {
-      label: "Setup failed",
-      icon: <ErrorOutlineOutlinedIcon fontSize="small" color="error" />,
-      text: `Setup failed: ${setupError ?? "unknown error"}`,
-    },
-  }[setupStatus];
-
-  return (
-    <>
-      <Property
-        label={status.label}
-        icon={status.icon}
-        action={
-          <Stack direction="row">
-            <Tooltip title="Setup log">
-              <IconButton size="small" onClick={() => setShowLog(true)} aria-label="Setup log">
-                <ArticleOutlinedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            {setupStatus !== "running" && (
-              <Tooltip title="Re-run setup">
-                <IconButton
-                  size="small"
-                  loading={rerun.isPending}
-                  onClick={() => rerun.mutate(workspace.issueId)}
-                  aria-label="Re-run setup"
-                >
-                  <ReplayIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-        }
-      >
-        {/* A failed setup needs attention; otherwise it's just status. */}
-        <Box
-          component="span"
-          sx={{ color: setupStatus === "failed" ? "text.primary" : "text.secondary" }}
-        >
-          {status.text}
-        </Box>
-      </Property>
-      {rerun.isError && <Alert severity="error">{errorMessage(rerun.error)}</Alert>}
-      <SetupLogDialog workspace={workspace} open={showLog} onClose={() => setShowLog(false)} />
-    </>
-  );
-}
-
 // A long path shortened in the middle, keeping its start and its end (the
 // workspace's folder).
 function shortPath(path: string, max = 36) {
@@ -334,10 +220,10 @@ function WorkspaceSection({
                 open={Boolean(menuAnchor)}
                 onClose={() => setMenuAnchor(null)}
               >
-                {/* Not while setup or the coordinator is running in it. */}
+                {/* Not while the coordinator is running in it. */}
                 <MenuItem
                   disabled={
-                    workspace.data.setupStatus === "running" || workspace.data.coordinatorRunning
+                    workspace.data.coordinatorRunning
                   }
                   onClick={() => {
                     setMenuAnchor(null);
@@ -408,7 +294,6 @@ function WorkspaceSection({
                 <Code>{workspace.data.branch}</Code>
               </Property>
             ))}
-          <SetupStatusRow workspace={workspace.data} />
           <Dialog
             open={confirming}
             onClose={() => !remove.isPending && setConfirming(false)}

@@ -5,9 +5,16 @@ import type { ServerEvent } from "shared";
 // workspace's setup), after which the webapp refetches whatever changed.
 
 const clients = new Set<Response>();
+const listeners = new Set<(event: ServerEvent) => void>();
+
+export function onServerEvent(listener: (event: ServerEvent) => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export function sendEvent(event: ServerEvent) {
   for (const res of clients) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  for (const listener of listeners) listener(event);
 }
 
 // Keeps res open as an event stream until the client disconnects. A comment every

@@ -17,6 +17,8 @@ export default function PipelineDocument({ issueId, pipeline, role }: {
       diff.isError ? <Alert severity="error">{errorMessage(diff.error)}</Alert> :
       diff.data?.diff ? <DiffView diff={diff.data.diff} truncated={diff.data.truncated} /> :
       <Typography color="text.secondary">No workspace changes yet.</Typography>) :
+    role === "setup" ? pipeline.environmentSetup && <ChecksView setup checks={{ ...pipeline.environmentSetup,
+      noChecksReason: pipeline.environmentSetup.noSetupReason }} /> :
     role === "checks" ? pipeline.checks && <ChecksView checks={pipeline.checks} /> :
     role === "reviewer" ? pipeline.review && <ReviewView review={pipeline.review} /> :
     pipeline.qa && <QaView qa={pipeline.qa} />;

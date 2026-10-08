@@ -11,8 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
+import { stampMessages, timestampedSerializer } from "../messageTimestamps.js";
 
 function saved(ns: string, n: number, values: Record<string, unknown>, versions: Record<string, string> = {}): CheckpointTuple {
+  stampMessages(values, new Date(n * 1000).toISOString());
   return { config: { configurable: { thread_id: "test", checkpoint_ns: ns } },
     checkpoint: { v: 4, id: String(n).padStart(8, "0"), ts: new Date(n * 1000).toISOString(),
       channel_values: values, channel_versions: versions, versions_seen: {} } };
@@ -130,6 +132,7 @@ test("real nested agent checkpoints are readable across fresh invocations and hu
     }
   }
   const saver = new MemorySaver();
+  saver.serde = timestampedSerializer(saver.serde);
   const state = Annotation.Root({ review: Annotation<unknown>(), humanMessages: Annotation<ReturnType<typeof humanMessage>[]>({ reducer: (a, b) => a.concat(b), default: () => [] }) });
   const graph = new StateGraph(state).addNode("reviewer", async () => {
     const agent = createAgent({ model: new Model({}), tools: [tool(async () => "file contents", { name: "read_file", description: "Read file", schema: z.object({ path: z.string() }) })],

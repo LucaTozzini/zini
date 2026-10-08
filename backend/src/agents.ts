@@ -7,6 +7,7 @@ import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "./db.js";
 import { isModelRateLimit } from "./modelErrors.js";
+import { timestampedSerializer } from "./messageTimestamps.js";
 
 // What the agents (product manager, coordinator) share.
 
@@ -14,6 +15,7 @@ import { isModelRateLimit } from "./modelErrors.js";
 // resume later, even after a restart. Its own file next to the main database, since
 // it uses a different SQLite driver (better-sqlite3) than Sequelize.
 export const checkpointer = SqliteSaver.fromConnString(join(dirname(storage), "checkpoints.sqlite"));
+checkpointer.serde = timestampedSerializer(checkpointer.serde);
 
 export const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });
 
@@ -64,6 +66,11 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
   return messages.flatMap((message): ChatMessage[] => {
     if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
     if (message.type === "human") {
+      const { source, issueId, eventId, eventType, content } = message.additional_kwargs;
+      if (source === "coordinator" && typeof issueId === "string" && typeof eventId === "string" &&
+        typeof eventType === "string" && typeof content === "string") {
+        return [{ role: "activity", issueId, eventId, eventType, content }];
+      }
       const username = message.additional_kwargs.username;
       return [
         {

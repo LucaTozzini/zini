@@ -1,7 +1,7 @@
 import type { Clarification, LinearIssueDetails, PlanDocument } from "shared";
 
 // What each subagent is given: the issue and the parts of the pipeline's state it
-// needs, as markdown (the reviewer's input; the planner's and coder's system prompt).
+// needs, as markdown context for the pipeline agents' system prompts.
 
 function issueText(issue: LinearIssueDetails) {
   const comments = issue.comments.map(

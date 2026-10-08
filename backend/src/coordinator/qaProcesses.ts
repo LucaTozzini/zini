@@ -48,9 +48,29 @@ type Process = {
 const processes = new Map<string, Map<string, Process>>();
 const commands = new Map<string, Set<ChildProcess>>();
 let nextId = 1;
+// Keep children until close, even after ordinary cleanup removes their UI records.
+const liveChildren = new Map<string, Set<ChildProcess>>();
+function trackChild(issueId: string, child: ChildProcess) {
+  const children = liveChildren.get(issueId) ?? new Set<ChildProcess>();
+  liveChildren.set(issueId, children);
+  children.add(child);
+  child.once("close", () => { children.delete(child); if (!children.size) liveChildren.delete(issueId); });
+  return child;
+}
+
+export async function drainProcesses(issueId: string) {
+  const children = [...(liveChildren.get(issueId) ?? [])];
+  await Promise.all(children.map((child) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { child.removeListener("close", closed); reject(new Error("Coordinator processes have not stopped yet")); }, 10_000);
+    const closed = () => { clearTimeout(timer); resolve(); };
+    child.once("close", closed);
+    killTree(child);
+  })));
+}
+
 
 const spawnInWorkspace = (issueId: string, command: string) =>
-  spawnShell(command, workspacePath(issueId), QA_ENV);
+  trackChild(issueId, spawnShell(command, workspacePath(issueId), QA_ENV));
 
 // Runs command to completion (or until it times out), and gives its exit code and the
 // end of its output.
@@ -62,7 +82,7 @@ export function runCommand(issueId: string, command: string, timeoutSeconds = DE
 export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const seconds = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_SECONDS);
-  const child = spawnShell(command, await workspaceWorkingDirectory(issueId, cwd), QA_ENV);
+  const child = trackChild(issueId, spawnShell(command, await workspaceWorkingDirectory(issueId, cwd), QA_ENV));
   const abort = () => killTree(child);
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
