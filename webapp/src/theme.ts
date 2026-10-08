@@ -5,19 +5,7 @@ declare module "@mui/material/styles" {
     secondary: string;
   }
 
-  interface Palette {
-    tertiary: Palette["primary"];
-  }
-
-  interface PaletteOptions {
-    tertiary?: PaletteOptions["primary"];
-  }
 }
-
-const tertiary = (main: string) => createTheme().palette.augmentColor({
-  color: { main },
-  name: "tertiary",
-});
 
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: "class" },
@@ -30,7 +18,6 @@ export const theme = createTheme({
         primary: {
           main: "#065dff",
         },
-        tertiary: tertiary("#0da100"),
       }
     },
     dark: {
@@ -41,12 +28,11 @@ export const theme = createTheme({
           secondary: "#252525"
         },
         primary: {
-          main: "#007bff",
+          main: "#3074bc",
         },
         secondary: {
-          main: "#7900ea"
+          main: "#62439a"
         },
-        tertiary: tertiary("#ca6100"),
       },
     },
   },
@@ -74,6 +60,7 @@ export const theme = createTheme({
     },
   },
   typography: {
+    fontFamily: '"IBM Plex Sans", sans-serif',
     button: {
       textTransform: "capitalize"
     }

@@ -5,7 +5,7 @@ import type { ChatMessage, Decision, PendingAction, Todo } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
-import ChatInput from "./ChatInput.tsx";
+import ChatInput from "./chat/ChatInput.tsx";
 import CompactionMarker from "./CompactionMarker.tsx";
 import { HumanMessage } from "./chat/HumanMessage.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
@@ -212,7 +212,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
       >
         <Box
           sx={{
-            py: 3,
+            py: 2,
             position: "absolute",
             bottom: 0,
             left: 0,
