@@ -3,9 +3,6 @@ import BlockIcon from "@mui/icons-material/Block";
 import CircleTwoToneIcon from "@mui/icons-material/CircleTwoTone";
 import FrontHandOutlinedIcon from "@mui/icons-material/FrontHandOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import MouseIcon from "@mui/icons-material/Mouse";
-import LaunchIcon from '@mui/icons-material/Launch';
-import AdsClickIcon from '@mui/icons-material/AdsClick';
 import {
   Box,
   ButtonBase,
@@ -14,28 +11,21 @@ import {
   Typography,
 } from "@mui/material";
 import type { ChatMessage } from "shared";
-import LinearIcon from "./icons/LinearIcon";
-import type { SvgIconComponent } from "@mui/icons-material";
 
-const toolsMap: Record<string, { Icon: SvgIconComponent; title: string }> = {
+const toolsMap: Record<string, { title: string }> = {
   get_issue: {
-    Icon: LinearIcon,
     title: "Get Issue",
   },
   list_issues: {
-    Icon: LinearIcon,
     title: "List Issues"
   },
   browser_scroll: {
-    Icon: MouseIcon,
     title: "Scroll",
   },
   browser_open: {
-    Icon: LaunchIcon,
     title: "Open page"
   },
   browser_click: {
-    Icon: AdsClickIcon,
     title: "Click"
   }
 };
@@ -50,17 +40,11 @@ const valueText = (value: unknown) =>
 export function ToolCallIcon({
   call,
   busy,
-  allowCustom
 }: {
   call: ToolCall;
   busy: boolean;
-  allowCustom?: boolean
 }) {
   if (call.status === "done") {
-    if (toolsMap[call.name] && allowCustom) {
-      const Icon = toolsMap[call.name].Icon;
-      return <Icon fontSize="inherit" />;
-    }
     return <CircleTwoToneIcon fontSize="inherit" color="success" />;
   } else if (call.status === "error") {
     return <CircleTwoToneIcon fontSize="inherit" color="error" />;
@@ -119,7 +103,7 @@ function ToolCallLine({
         }}
       >
         <Box sx={{ display: "flex", flexShrink: 0, mr: .5 }}>
-          <ToolCallIcon call={call} busy={busy} allowCustom/>
+          <ToolCallIcon call={call} busy={busy} />
         </Box>
         <Box component="span" sx={{ flexShrink: 0, color: "text.primary" }}>
           {toolsMap[call.name]?.title || call.name.replaceAll("_", " ")}
