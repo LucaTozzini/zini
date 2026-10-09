@@ -1,5 +1,5 @@
 import { AuthenticationLinearError, LinearClient } from "@linear/sdk";
-import { getKey } from "./models/Integration.js";
+import { getKey } from "../models/Integration.js";
 import type { LinearComment, LinearIssue, LinearIssueDetails, StatusType } from "shared";
 
 // Built per call so a replaced or removed key takes effect immediately.

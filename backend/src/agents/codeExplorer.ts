@@ -5,8 +5,8 @@ import { AIMessage, createAgent } from "langchain";
 import type { RunLogEntry } from "shared";
 import { modelRetry, toolErrors } from "./agents.js";
 import { codeTools, fetchRepoMiddleware } from "./codeTools.js";
-import { logTo } from "./coordinator/runLog.js";
-import { storage } from "./db.js";
+import { logTo } from "../coordinator/runLog.js";
+import { storage } from "../db.js";
 import { npmTools } from "./npmTools.js";
 
 const SYSTEM_PROMPT = `You answer another agent's question about a product's code, or about npm

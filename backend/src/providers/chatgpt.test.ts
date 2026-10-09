@@ -3,7 +3,7 @@ import test from "node:test";
 
 process.env.DB_PATH = ":memory:";
 const { chatGptAccessToken, signOutChatGpt, CHATGPT_API } = await import("./chatgpt.js");
-const { OAuthConnection } = await import("./models/OAuthConnection.js");
+const { OAuthConnection } = await import("../models/OAuthConnection.js");
 
 function connection() {
   return OAuthConnection.build({ provider: "chatgpt", clientId: "test-client", accessToken: "old-access",
@@ -96,7 +96,7 @@ test("a client configuration error retains credentials", async (t) => {
 });
 
 test("startup adds cooldown storage to an existing database without losing its connection", async () => {
-  const { sequelize, initDb } = await import("./db.js");
+  const { sequelize, initDb } = await import("../db.js");
   await OAuthConnection.sync();
   await OAuthConnection.create({ provider: "chatgpt", clientId: "saved-client", accessToken: "saved-access",
     refreshToken: "saved-refresh", idToken: "saved-id", expiresAt: new Date(Date.now() + 3600_000), email: null });

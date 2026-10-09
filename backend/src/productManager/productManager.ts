@@ -22,7 +22,7 @@ import {
   fetchLinearTeams,
   searchLinearIssues,
   updateLinearIssue,
-} from "./linear.js";
+} from "../integrations/linear.js";
 import {
   checkpointer,
   modelRetry,
@@ -30,9 +30,9 @@ import {
   threadConfig,
   toChatMessages,
   toolErrors,
-} from "./agents.js";
-import { compactionMiddleware } from "./compaction.js";
-import { diffForModel } from "./coordinator/tools.js";
+} from "../agents/agents.js";
+import { compactionMiddleware } from "../agents/compaction.js";
+import { diffForModel } from "../coordinator/tools.js";
 import {
   coordinatorThreadId,
   continuePipeline,
@@ -45,26 +45,26 @@ import {
   replyFits,
   resumePipeline,
   startPipeline,
-} from "./coordinator.js";
-import { codeTools, fetchRepoMiddleware } from "./codeTools.js";
-import { exploreCode } from "./codeExplorer.js";
+} from "../coordinator/coordinator.js";
+import { codeTools, fetchRepoMiddleware } from "../agents/codeTools.js";
+import { exploreCode } from "../agents/codeExplorer.js";
 import { notesMiddleware, readNotes } from "./notes.js";
-import { Workspace } from "./models/Workspace.js";
-import { npmTools } from "./npmTools.js";
-import { chatModel as connectModel, type ModelConnection } from "./modelProvider.js";
-import { pauseRun, startRun } from "./runs.js";
-import { sendEvent } from "./events.js";
-import { commitAndPush, createWorkspace, isIssueId } from "./workspaces.js";
-import { coordinatorSubscriptions, type CoordinatorUpdate } from "./coordinatorSubscriptions.js";
-import { getLinearClient } from "./linear.js";
-import { getKey } from "./models/Integration.js";
-import { getSetting } from "./settings.js";
-import { loadConnection } from "./modelProvider.js";
-import { listCoordinators } from "./listCoordinators.js";
-import { launchWorkspaceApp } from "./workspaceApps.js";
-import { workspaceApps } from "./workspaceAppSessions.js";
-import { browserTools } from "./browserTools.js";
-import { closeBrowser } from "./agentBrowser.js";
+import { Workspace } from "../models/Workspace.js";
+import { npmTools } from "../agents/npmTools.js";
+import { chatModel as connectModel, type ModelConnection } from "../providers/modelProvider.js";
+import { pauseRun, startRun } from "../agents/runs.js";
+import { sendEvent } from "../core/events.js";
+import { commitAndPush, createWorkspace, isIssueId } from "../workspaces/workspaces.js";
+import { coordinatorSubscriptions, type CoordinatorUpdate } from "../coordinator/coordinatorSubscriptions.js";
+import { getLinearClient } from "../integrations/linear.js";
+import { getKey } from "../models/Integration.js";
+import { getSetting } from "../core/settings.js";
+import { loadConnection } from "../providers/modelProvider.js";
+import { listCoordinators } from "../coordinator/listCoordinators.js";
+import { launchWorkspaceApp } from "../workspaces/workspaceApps.js";
+import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { browserTools } from "../browser/browserTools.js";
+import { closeBrowser } from "../browser/agentBrowser.js";
 
 // {repo} is the githubRepo setting.
 const SYSTEM_PROMPT = `You are a product manager with access to the user's Linear workspace

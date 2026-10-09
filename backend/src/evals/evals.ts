@@ -3,16 +3,16 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { EvalBatch, EvalScenario, EvalStatus, RunMetrics } from "shared";
-import { sendEvent } from "./events.js";
-import { loadConnection, type ModelConnection } from "./modelProvider.js";
-import { getSetting } from "./settings.js";
+import { sendEvent } from "../core/events.js";
+import { loadConnection, type ModelConnection } from "../providers/modelProvider.js";
+import { getSetting } from "../core/settings.js";
 import { createEvalCredentials } from "./evalCredentials.js";
 
 // zini's evals (see evals/README.md, at the repo's root): runs of the coordinator on test
 // issues in a Docker container, started from the webapp's Evals page. This lists the
 // scenarios and their results, and runs them in Docker.
 
-const ROOT = resolve(import.meta.dirname, "..", "..");
+const ROOT = resolve(import.meta.dirname, "..", "..", "..");
 const EVALS = join(ROOT, "evals");
 const SCENARIOS = join(EVALS, "scenarios");
 const RESULTS = join(EVALS, "results");

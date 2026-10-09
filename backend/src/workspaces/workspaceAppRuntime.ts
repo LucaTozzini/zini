@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { createServer, connect } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { killTree, spawnShell } from "./processes.js";
+import { killTree, spawnShell } from "../core/processes.js";
 
 export type AppCommand = { command: string; cwd: string };
 export type AppService = AppCommand & { id: string; port: number; readiness: "http" | "tcp"; path: string };

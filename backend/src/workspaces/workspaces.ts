@@ -1,13 +1,13 @@
 import type { LinearClient } from "@linear/sdk";
 import type { Workspace as WorkspaceResponse } from "shared";
-import { sendEvent } from "./events.js";
-import { addWorktree, fetchRepo, pushBranch, removeWorktree, workspacePath, worktreeBranch } from "./git.js";
-import { fetchLinearIssue } from "./linear.js";
+import { sendEvent } from "../core/events.js";
+import { addWorktree, fetchRepo, pushBranch, removeWorktree, workspacePath, worktreeBranch } from "../repositories/git.js";
+import { fetchLinearIssue } from "../integrations/linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
-import { Workspace } from "./models/Workspace.js";
-import { coordinatorThreadId, deleteConversation, stopQa } from "./coordinator.js";
-import { deleteRunLogs } from "./coordinator/runLog.js";
-import { forgetRun, isRunning } from "./runs.js";
+import { Workspace } from "../models/Workspace.js";
+import { coordinatorThreadId, deleteConversation, stopQa } from "../coordinator/coordinator.js";
+import { deleteRunLogs } from "../coordinator/runLog.js";
+import { forgetRun, isRunning } from "../agents/runs.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
 
 // Linear issue ids are UUIDs. Checked before an id is used in a folder path.

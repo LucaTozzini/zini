@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Annotation, END, MemorySaver, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { redirectUpdate, readRedirect, steeringOptions } from "./steering.js";
-import { forgetRun, isRunning, startRun, withPausedRun } from "../runs.js";
+import { forgetRun, isRunning, startRun, withPausedRun } from "../agents/runs.js";
 import type { State } from "./graphState.js";
 
 const prepared = {

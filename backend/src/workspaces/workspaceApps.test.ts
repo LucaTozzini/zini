@@ -14,10 +14,10 @@ test("nested launcher pauses, resumes without reinspection and blocks rejected/s
   const dir = await mkdtemp(join(tmpdir(), "zini-launcher-"));
   process.env.DB_PATH = join(dir, "zini.sqlite");
   const { launchWorkspaceApp } = await import("./workspaceApps.js");
-  const { Workspace } = await import("./models/Workspace.js");
-  const { initDb, sequelize } = await import("./db.js");
-  const { git, workspacePath } = await import("./git.js");
-  const { checkpointer, toolErrors } = await import("./agents.js");
+  const { Workspace } = await import("../models/Workspace.js");
+  const { initDb, sequelize } = await import("../db.js");
+  const { git, workspacePath } = await import("../repositories/git.js");
+  const { checkpointer, toolErrors } = await import("../agents/agents.js");
   const { workspaceApps } = await import("./workspaceAppSessions.js");
   const { availableAppPort } = await import("./workspaceAppRuntime.js");
   const issueId = "00000000-0000-4000-8000-000000000001", root = workspacePath(issueId);

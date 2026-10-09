@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { PROVIDERS, STATUS_TYPES, type Provider, type StatusType } from "shared";
-import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations.js";
+import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations/integrations.js";
 import { InvalidInputLinearError } from "@linear/sdk";
-import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../linear.js";
+import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
 
 const isStatusType = (s: string): s is StatusType =>
   (STATUS_TYPES as readonly string[]).includes(s);

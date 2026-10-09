@@ -4,7 +4,7 @@ import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messag
 import { createMiddleware } from "langchain";
 import type { LogRole, RunLogEntry, RunLogEvent, RunLogSummary } from "shared";
 import { storage } from "../db.js";
-import { sendEvent } from "../events.js";
+import { sendEvent } from "../core/events.js";
 
 // A log of each subagent run, for debugging: what it was given, every model call and
 // tool call, and how it ended (see RunLogEntry). One JSON Lines file per run, written

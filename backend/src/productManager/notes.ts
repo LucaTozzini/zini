@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createMiddleware, tool } from "langchain";
 import { z } from "zod";
-import { storage } from "./db.js";
-import { replaceOnce } from "./textEdit.js";
+import { storage } from "../db.js";
+import { replaceOnce } from "../core/textEdit.js";
 
 // The product manager's project notes: what it has learned that should shape every chat,
 // not just the one it learned it in. A markdown file in zini's data folder, which you

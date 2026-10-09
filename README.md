@@ -38,6 +38,28 @@ Turn Linear tickets into merged PRs: a PM chat front-end with an agent pipeline 
 
    This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and you then commit and push the branch yourself from the pipeline panel, where a committer agent writes the commit message for you to edit before you press Commit & push. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the worktree, the setup log, the pipeline conversation and the run logs.
 
+## Backend source layout
+
+`backend/src/index.ts` starts the HTTP server, and `db.ts` configures SQLite.
+The remaining files are grouped by responsibility:
+
+| Folder | Contents |
+| --- | --- |
+| `routes/` | Express endpoints |
+| `models/` | Sequelize models |
+| `coordinator/` | Pipeline execution, history, steering, QA, and subscriptions |
+| `productManager/` | PM conversations, notes, and coordinator updates |
+| `agents/` | Shared agent setup, compaction, run state, and code exploration tools |
+| `providers/` | Model connections, ChatGPT authentication/streaming, and OpenRouter |
+| `integrations/` | Integration management and GitHub/Linear clients |
+| `workspaces/` | Workspace lifecycle, files, app sessions, and preview proxy |
+| `repositories/` | Git operations, repository filesystem, and npm package source |
+| `browser/` | Browser sessions and interaction tools |
+| `evals/` | Evaluation execution and temporary credentials |
+| `core/` | Settings, events, process management, and text editing |
+
+Tests live beside the modules they cover as `*.test.ts` files.
+
 ## Status
 
 What works today: the PM chat; a git worktree per issue; the plan → code → environment setup → checks → review → QA pipeline with its questions, plan approval and command approvals; the diff view, the per-run logs and the QA's live browser; and committing and pushing the branch.

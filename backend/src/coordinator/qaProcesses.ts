@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
-import { workspacePath } from "../git.js";
-import { killTree, spawnShell } from "../processes.js";
-import { workspaceWorkingDirectory } from "../workspaceFiles.js";
+import { workspacePath } from "../repositories/git.js";
+import { killTree, spawnShell } from "../core/processes.js";
+import { workspaceWorkingDirectory } from "../workspaces/workspaceFiles.js";
 
 // The QA's commands, run in the issue's workspace: ones it waits for (run_command), and
 // long-running ones it starts and checks on (start_process, e.g. a dev server). Every

@@ -1,7 +1,7 @@
 # The eval container: zini, the test repos with their dependencies installed, Chromium
 # for the QA's browser, and git. Built from the repo's root:
 #   docker build -f evals/Dockerfile -t zini-evals .
-# zini's backend builds and runs it when an eval starts (see backend/src/evals.ts).
+# zini's backend builds and runs it when an eval starts (see backend/src/evals/evals.ts).
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 RUN apt-get update \

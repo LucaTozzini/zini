@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { x as extract } from "tar";
-import { storage } from "./db.js";
+import { storage } from "../db.js";
 import { cleanPath, formatMatches, git, numberedLines } from "./git.js";
 
 // Packages from the public npm registry, for the agents to read a dependency's code

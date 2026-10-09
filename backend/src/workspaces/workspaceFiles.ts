@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
-import { cleanPath, git, workspacePath } from "./git.js";
+import { cleanPath, git, workspacePath } from "../repositories/git.js";
 
 // The files of an issue's workspace, as the pipeline's subagents see and change them:
 // the checkout on disk, uncommitted edits included. Paths are relative to the

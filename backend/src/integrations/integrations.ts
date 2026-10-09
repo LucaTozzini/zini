@@ -1,8 +1,8 @@
 import { PROVIDERS, type Integrations, type Provider } from "shared";
 import { testGitHubKey } from "./github.js";
 import { testLinearKey } from "./linear.js";
-import { Integration } from "./models/Integration.js";
-import { testOpenRouterKey } from "./openrouter.js";
+import { Integration } from "../models/Integration.js";
+import { testOpenRouterKey } from "../providers/openrouter.js";
 
 // Each service's display name, and a check that calls it with the key: true if it
 // accepts the key, false if it rejects it. Adding a service means adding it here

@@ -15,8 +15,8 @@ import type {
 import { z } from "zod";
 import { createMiddleware } from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
-import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "./agents.js";
-import { compactionMiddleware } from "./compaction.js";
+import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "../agents/agents.js";
+import { compactionMiddleware } from "../agents/compaction.js";
 import {
   IMPLEMENTATION_SCHEMA,
   PLAN_SCHEMA,
@@ -24,25 +24,25 @@ import {
   REVIEW_SCHEMA,
   CHECKS_SCHEMA,
   ENVIRONMENT_SETUP_SCHEMA,
-} from "./coordinator/documents.js";
-import { requireSubmission } from "./coordinator/submission.js";
-import { PipelineExecution } from "./coordinator/execution.js";
-import { environmentSetupNext, executeEnvironmentSetup, validateEnvironmentSetup } from "./coordinator/environmentSetup.js";
-import { checkpointMessages, humanMessage, replyMessage } from "./coordinator/messages.js";
-import { loadCoordinatorHistory } from "./coordinator/history.js";
-import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./coordinator/validation.js";
-import { redirectUpdate, steeringOptions } from "./coordinator/steering.js";
-import { workspaceApps } from "./workspaceAppSessions.js";
-import { PipelineGraphState, type State } from "./coordinator/graphState.js";
-import { contextText, freshContext, updateContext } from "./coordinator/codebaseContext.js";
+} from "./documents.js";
+import { requireSubmission } from "./submission.js";
+import { PipelineExecution } from "./execution.js";
+import { environmentSetupNext, executeEnvironmentSetup, validateEnvironmentSetup } from "./environmentSetup.js";
+import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
+import { loadCoordinatorHistory } from "./history.js";
+import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./validation.js";
+import { redirectUpdate, steeringOptions } from "./steering.js";
+import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { PipelineGraphState, type State } from "./graphState.js";
+import { contextText, freshContext, updateContext } from "./codebaseContext.js";
 import {
   answersText,
   clarificationsText,
   inputText,
   listText,
   planText,
-} from "./coordinator/inputs.js";
-import { logTo, openRunLog, type RunLog } from "./coordinator/runLog.js";
+} from "./inputs.js";
+import { logTo, openRunLog, type RunLog } from "./runLog.js";
 import {
   CODER_PROMPT,
   PLANNER_PROMPT,
@@ -50,19 +50,19 @@ import {
   REVIEWER_PROMPT,
   CHECKS_PROMPT,
   ENVIRONMENT_SETUP_PROMPT,
-} from "./coordinator/systemPrompts.js";
-import { browserUrl, closeBrowser } from "./agentBrowser.js";
-import { drainProcesses, runCommandResult, stopAllProcesses } from "./coordinator/qaProcesses.js";
-import { browserTools, COMMAND_TOOLS, commandTools } from "./coordinator/qaTools.js";
-import { diffTool, workspaceFilesystem, writeTools } from "./coordinator/tools.js";
-import { sendEvent } from "./events.js";
-import { npmTools } from "./npmTools.js";
-import { fetchLinearIssue, getLinearClient } from "./linear.js";
-import { Workspace } from "./models/Workspace.js";
-import { chatModel, loadConnection, type ModelConnection } from "./modelProvider.js";
-import { isRunning, isRedirecting, runStatus, startRun, withPausedRun } from "./runs.js";
-import { getSetting } from "./settings.js";
-import { fingerprintWorkspaceFile, workspaceRevision } from "./workspaceFiles.js";
+} from "./systemPrompts.js";
+import { browserUrl, closeBrowser } from "../browser/agentBrowser.js";
+import { drainProcesses, runCommandResult, stopAllProcesses } from "./qaProcesses.js";
+import { browserTools, COMMAND_TOOLS, commandTools } from "./qaTools.js";
+import { diffTool, workspaceFilesystem, writeTools } from "./tools.js";
+import { sendEvent } from "../core/events.js";
+import { npmTools } from "../agents/npmTools.js";
+import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
+import { Workspace } from "../models/Workspace.js";
+import { chatModel, loadConnection, type ModelConnection } from "../providers/modelProvider.js";
+import { isRunning, isRedirecting, runStatus, startRun, withPausedRun } from "../agents/runs.js";
+import { getSetting } from "../core/settings.js";
+import { fingerprintWorkspaceFile, workspaceRevision } from "../workspaces/workspaceFiles.js";
 
 // The coordinator: a fixed pipeline per issue, run as a LangGraph graph in the issue's
 // workspace. The planner plans (it can ask you questions), you approve the plan (or

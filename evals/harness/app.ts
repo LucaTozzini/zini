@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { killTree } from "../../backend/src/processes.js";
+import { killTree } from "../../backend/src/core/processes.js";
 import type { RunningApp } from "./types.js";
 
 // Starts a test repo's app with npm run dev, PORT and DATA_FILE (for the repos that keep

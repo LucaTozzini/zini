@@ -2,7 +2,7 @@ import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messag
 import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
 import type { AgentRole, CoordinatorHumanMessage, CoordinatorMessage, PipelineResume, PipelineWaiting } from "shared";
 import { randomUUID } from "node:crypto";
-import { isSummary, summaryText } from "../compaction.js";
+import { isSummary, summaryText } from "../agents/compaction.js";
 
 const roles = new Set(["planner", "coder", "setup", "checks", "reviewer", "qa"]);
 const documents: [string, AgentRole][] = [["plan", "planner"], ["implementation", "coder"],

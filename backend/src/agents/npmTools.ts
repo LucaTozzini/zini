@@ -5,7 +5,7 @@ import {
   packageVersions,
   readPackageFile,
   searchPackage,
-} from "./npmPackages.js";
+} from "../repositories/npmPackages.js";
 
 // Tools for reading npm packages (see npmPackages.ts), the same for every agent: the
 // repo's files never include node_modules, so this is how an agent reads a

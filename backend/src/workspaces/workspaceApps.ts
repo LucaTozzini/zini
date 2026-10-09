@@ -2,20 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createAgent, humanInTheLoopMiddleware, tool, toolStrategy } from "langchain";
 import { isGraphInterrupt } from "@langchain/langgraph";
-import { isRunning } from "./runs.js";
+import { isRunning } from "../agents/runs.js";
 import { z } from "zod";
-import { checkpointer, modelRetry, toolErrors } from "./agents.js";
-import { workspaceFilesystem } from "./coordinator/tools.js";
-import { requireSubmission } from "./coordinator/submission.js";
-import { freshRunbook, runbookText, type Runbook } from "./coordinator/validation.js";
+import { checkpointer, modelRetry, toolErrors } from "../agents/agents.js";
+import { workspaceFilesystem } from "../coordinator/tools.js";
+import { requireSubmission } from "../coordinator/submission.js";
+import { freshRunbook, runbookText, type Runbook } from "../coordinator/validation.js";
 import { fingerprintWorkspaceFile, workspaceRevision, workspaceWorkingDirectory } from "./workspaceFiles.js";
-import { Workspace } from "./models/Workspace.js";
+import { Workspace } from "../models/Workspace.js";
 import { availableAppPort, previewBase, validateAppLaunchPlan } from "./workspaceAppRuntime.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { storage } from "./db.js";
-import { logTo } from "./coordinator/runLog.js";
+import { storage } from "../db.js";
+import { logTo } from "../coordinator/runLog.js";
 
 const command = z.object({ command: z.string().min(1), cwd: z.string().min(1) });
 const APP_LAUNCH_PLAN = z.object({

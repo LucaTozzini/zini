@@ -3,9 +3,9 @@ import { existsSync } from "node:fs";
 import { rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { storage } from "./db.js";
-import { getKey } from "./models/Integration.js";
-import { getSetting } from "./settings.js";
+import { storage } from "../db.js";
+import { getKey } from "../models/Integration.js";
+import { getSetting } from "../core/settings.js";
 
 const execFileAsync = promisify(execFile);
 

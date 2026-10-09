@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { setImmediate } from "node:timers/promises";
-import { forgetRun, isRunning, pauseRun, startRun } from "../runs.js";
+import { forgetRun, isRunning, pauseRun, startRun } from "../agents/runs.js";
 import { PipelineExecution } from "./execution.js";
 
 test("a rebuilt pipeline continues its durable checkpoint without rerunning completed nodes", async () => {

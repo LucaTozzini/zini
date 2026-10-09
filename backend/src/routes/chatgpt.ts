@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { chatGptModels, chatGptStatus, signOutChatGpt, startSignIn } from "../chatgpt.js";
+import { chatGptModels, chatGptStatus, signOutChatGpt, startSignIn } from "../providers/chatgpt.js";
 
 // Sign in with ChatGPT, at /api/chatgpt (see chatgpt.ts): whether zini is signed in,
 // starting a sign-in, signing out, and the models the plan offers.

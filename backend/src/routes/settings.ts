@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { MODEL_PROVIDERS } from "shared";
-import { cloneRepo } from "../git.js";
+import { cloneRepo } from "../repositories/git.js";
 import { getKey } from "../models/Integration.js";
 import { Workspace } from "../models/Workspace.js";
 import {
@@ -11,7 +11,7 @@ import {
   saveSettings,
   SETTING_KEYS,
   type SettingKey,
-} from "../settings.js";
+} from "../core/settings.js";
 
 export const settings = Router();
 

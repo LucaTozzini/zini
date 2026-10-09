@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import type { Decision } from "shared";
 import { PmThread } from "../models/PmThread.js";
-import { chat, deleteThreadHistory, loadThread, resume, loadPmSetup } from "../productManager.js";
-import { sendEvent } from "../events.js";
-import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../runs.js";
-import { coordinatorSubscriptions } from "../coordinatorSubscriptions.js";
-import { addViewer, browserState } from "../agentBrowser.js";
+import { chat, deleteThreadHistory, loadThread, resume, loadPmSetup } from "../productManager/productManager.js";
+import { sendEvent } from "../core/events.js";
+import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../agents/runs.js";
+import { coordinatorSubscriptions } from "../coordinator/coordinatorSubscriptions.js";
+import { addViewer, browserState } from "../browser/agentBrowser.js";
 
 export const productManager = Router();
 

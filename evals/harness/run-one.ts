@@ -19,18 +19,18 @@ import {
   resumePipeline,
   startPipeline,
   stopQa,
-} from "../../backend/src/coordinator.js";
+} from "../../backend/src/coordinator/coordinator.js";
 import { initDb, storage } from "../../backend/src/db.js";
-import { addWorktree, workspacePath } from "../../backend/src/git.js";
+import { addWorktree, workspacePath } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
-import { workspaceDiff } from "../../backend/src/workspaceFiles.js";
+import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
 import { startApp } from "./app.js";
 import type { RunMetrics } from "shared";
 import { roleMetrics, totals } from "./metrics.js";
 import type { Check, Scenario } from "./types.js";
-import { isModelRateLimit } from "../../backend/src/modelErrors.js";
+import { isModelRateLimit } from "../../backend/src/providers/modelErrors.js";
 import { codeVersion } from "./version.js";
-import type { ModelConnection } from "../../backend/src/modelProvider.js";
+import type { ModelConnection } from "../../backend/src/providers/modelProvider.js";
 
 // One eval run, in its own process (see run.ts): DB_PATH puts all of zini's data (its
 // database, the repo's clone, the workspace, the run logs) in a fresh folder. The run

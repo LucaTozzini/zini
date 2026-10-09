@@ -2,7 +2,7 @@ import { tool } from "langchain";
 import type { Page } from "playwright";
 import { z } from "zod";
 import { closeBrowser, DEFAULT_VIEWPORT, getPage, noteUrl } from "./agentBrowser.js";
-import { inspectElements } from "./coordinator/browserInspection.js";
+import { inspectElements } from "../coordinator/browserInspection.js";
 
 const SETTLE_MS = 500;
 const MAX_TEXT = 8_000;

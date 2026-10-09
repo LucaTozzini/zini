@@ -1,5 +1,5 @@
 import { OPTIONAL_SETTINGS, type Settings } from "shared";
-import { Setting } from "./models/Setting.js";
+import { Setting } from "../models/Setting.js";
 
 export type SettingKey = keyof Settings;
 

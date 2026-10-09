@@ -3,13 +3,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { summarizeRuns, type RunMetrics } from "shared";
-import { killTree } from "../backend/src/processes.js";
+import { killTree } from "../backend/src/core/processes.js";
 import { codeVersion } from "./harness/version.js";
 
 // Runs scenarios through the coordinator, each --repeat times, every run in its own
 // process with its own data folder (see harness/run-one.ts), then summarises each
 // scenario's batch. The eval container's entry point (see Dockerfile), started by zini's
-// backend from the webapp's Evals page (see backend/src/evals.ts); the container is the
+// backend from the webapp's Evals page (see backend/src/evals/evals.ts); the container is the
 // only place the QA's commands are approved.
 //   run.ts <repo/scenario ...|all> [--repeat N] [--run N]
 // --run N does only run N of the batch: zini's backend starts a container per run, each

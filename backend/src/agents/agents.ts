@@ -5,8 +5,8 @@ import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messag
 import { modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
-import { storage } from "./db.js";
-import { isModelRateLimit } from "./modelErrors.js";
+import { storage } from "../db.js";
+import { isModelRateLimit } from "../providers/modelErrors.js";
 import { timestampedSerializer } from "./messageTimestamps.js";
 
 // What the agents (product manager, coordinator) share.

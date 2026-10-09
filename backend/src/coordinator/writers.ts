@@ -1,8 +1,8 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { LinearIssueDetails, LogRole } from "shared";
-import { commitContext, coordinatorModel, type Setup } from "../coordinator.js";
-import { fetchLinearIssue } from "../linear.js";
-import { branchCommitMessages, branchCommits } from "../workspaceFiles.js";
+import { commitContext, coordinatorModel, type Setup } from "./coordinator.js";
+import { fetchLinearIssue } from "../integrations/linear.js";
+import { branchCommitMessages, branchCommits } from "../workspaces/workspaceFiles.js";
 import { clarificationsText, inputText, listText, planText } from "./inputs.js";
 import { openRunLog } from "./runLog.js";
 import { COMMITTER_PROMPT, PR_WRITER_PROMPT } from "./systemPrompts.js";

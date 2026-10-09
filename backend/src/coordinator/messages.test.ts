@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
-import { stampMessages, timestampedSerializer } from "../messageTimestamps.js";
+import { stampMessages, timestampedSerializer } from "../agents/messageTimestamps.js";
 
 function saved(ns: string, n: number, values: Record<string, unknown>, versions: Record<string, string> = {}): CheckpointTuple {
   stampMessages(values, new Date(n * 1000).toISOString());

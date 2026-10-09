@@ -5,9 +5,9 @@ import {
   moveWorkspaceFile,
   workspaceChanges,
   workspaceDiff,
-} from "../workspaceFiles.js";
-import { git, workspacePath } from "../git.js";
-import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesystem } from "../repositoryFilesystem.js";
+} from "../workspaces/workspaceFiles.js";
+import { git, workspacePath } from "../repositories/git.js";
+import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
 
 // The subagents' tools, each working in the issue's workspace.
 

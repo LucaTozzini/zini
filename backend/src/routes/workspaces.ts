@@ -2,13 +2,13 @@ import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
 import type { PullRequestStatus } from "shared";
 import { withIdentifier } from "../coordinator/writers.js";
-import { defaultBranch } from "../git.js";
-import { createPullRequest, findPullRequest } from "../github.js";
-import { fetchLinearIssue, getLinearClient } from "../linear.js";
+import { defaultBranch } from "../repositories/git.js";
+import { createPullRequest, findPullRequest } from "../integrations/github.js";
+import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
-import { getSetting } from "../settings.js";
-import { isPushed, workspaceDiff } from "../workspaceFiles.js";
-import { workspaceApps } from "../workspaceAppSessions.js";
+import { getSetting } from "../core/settings.js";
+import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
+import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import {
   commitAndPush,
   createWorkspace,
@@ -16,7 +16,7 @@ import {
   getWorkspace,
   isCoordinatorRunning,
   isIssueId,
-} from "../workspaces.js";
+} from "../workspaces/workspaces.js";
 
 export const workspaces = Router();
 

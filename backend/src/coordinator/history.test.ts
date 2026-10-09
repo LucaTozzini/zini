@@ -4,7 +4,7 @@ import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { loadCoordinatorHistory } from "./history.js";
 import { checkpointMessages } from "./messages.js";
-import { timestampedSerializer } from "../messageTimestamps.js";
+import { timestampedSerializer } from "../agents/messageTimestamps.js";
 
 test("latest namespace histories preserve earlier turns, compaction, live results and document timing", async () => {
   const saver = SqliteSaver.fromConnString(":memory:");

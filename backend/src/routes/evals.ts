@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { evalStatus, listBatches, listScenarios, runDiff, startEval, stopEval } from "../evals.js";
+import { evalStatus, listBatches, listScenarios, runDiff, startEval, stopEval } from "../evals/evals.js";
 
 // zini's evals, at /api/evals (see evals.ts): the scenarios, the eval going on and its
 // output, starting and stopping one, and past results.

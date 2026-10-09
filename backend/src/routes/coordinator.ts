@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { workspaceApps } from "../workspaceAppSessions.js";
+import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import {
   coordinatorThreadId,
   continuePipeline,
@@ -13,16 +13,16 @@ import {
   replyFits,
   resumePipeline,
   startPipeline,
-} from "../coordinator.js";
+} from "../coordinator/coordinator.js";
 import { readRedirect } from "../coordinator/steering.js";
-import { addViewer } from "../agentBrowser.js";
+import { addViewer } from "../browser/agentBrowser.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { Workspace } from "../models/Workspace.js";
-import { beginRun, isRunning, pauseRun } from "../runs.js";
-import { sendEvent } from "../events.js";
-import { branchCommits, hasUncommitted } from "../workspaceFiles.js";
-import { isIssueId } from "../workspaces.js";
+import { beginRun, isRunning, pauseRun } from "../agents/runs.js";
+import { sendEvent } from "../core/events.js";
+import { branchCommits, hasUncommitted } from "../workspaces/workspaceFiles.js";
+import { isIssueId } from "../workspaces/workspaces.js";
 
 // An issue's coordinator pipeline, at /api/coordinator/:issueId (see coordinator.ts).
 export const coordinator = Router();

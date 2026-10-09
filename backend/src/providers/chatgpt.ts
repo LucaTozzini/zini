@@ -1,9 +1,9 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify, type JsonWebKey } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { ChatGptStatus } from "shared";
-import { sendEvent } from "./events.js";
-import { OAuthConnection } from "./models/OAuthConnection.js";
-import { Setting } from "./models/Setting.js";
+import { sendEvent } from "../core/events.js";
+import { OAuthConnection } from "../models/OAuthConnection.js";
+import { Setting } from "../models/Setting.js";
 
 // Sign in with ChatGPT: zini signs in to the user's ChatGPT plan (Plus or Pro) and runs
 // models on it, through OpenAI's plan usage for open-source apps

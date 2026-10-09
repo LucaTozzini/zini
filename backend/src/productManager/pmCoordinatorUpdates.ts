@@ -1,10 +1,10 @@
-import { getPipeline, outsideAgentRun } from "./coordinator.js";
-import { coordinatorSnapshot, coordinatorSubscriptions, type CoordinatorSnapshot } from "./coordinatorSubscriptions.js";
-import { onServerEvent, sendEvent } from "./events.js";
-import { PmThread } from "./models/PmThread.js";
-import { Workspace } from "./models/Workspace.js";
+import { getPipeline, outsideAgentRun } from "../coordinator/coordinator.js";
+import { coordinatorSnapshot, coordinatorSubscriptions, type CoordinatorSnapshot } from "../coordinator/coordinatorSubscriptions.js";
+import { onServerEvent, sendEvent } from "../core/events.js";
+import { PmThread } from "../models/PmThread.js";
+import { Workspace } from "../models/Workspace.js";
 import { loadPmSetup, pmAwaitingApproval, receiveCoordinatorUpdates } from "./productManager.js";
-import { isRunning, startRun } from "./runs.js";
+import { isRunning, startRun } from "../agents/runs.js";
 
 async function snapshot(issueId: string): Promise<CoordinatorSnapshot | null> {
   const workspace = await Workspace.findByPk(issueId);

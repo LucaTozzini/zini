@@ -1,6 +1,6 @@
 import { createMiddleware, tool, ToolMessage } from "langchain";
 import { z } from "zod";
-import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "./git.js";
+import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "../repositories/git.js";
 
 // Read-only tools over the repo's default branch. Fetching is left to fetchRepoMiddleware.
 export const codeTools = [

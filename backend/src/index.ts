@@ -2,10 +2,10 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { createServer } from "node:http";
-import { workspacePreview, workspacePreviewUpgrades } from "./workspacePreview.js";
-import { workspaceApps } from "./workspaceAppSessions.js";
+import { workspacePreview, workspacePreviewUpgrades } from "./workspaces/workspacePreview.js";
+import { workspaceApps } from "./workspaces/workspaceAppSessions.js";
 import { initDb } from "./db.js";
-import { subscribe } from "./events.js";
+import { subscribe } from "./core/events.js";
 import { coordinator } from "./routes/coordinator.js";
 import { integrations } from "./routes/integrations.js";
 import { productManager } from "./routes/productManager.js";
@@ -16,7 +16,7 @@ import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
 import { generateUsername } from "unique-username-generator";
-import { startPmCoordinatorUpdates } from "./pmCoordinatorUpdates.js";
+import { startPmCoordinatorUpdates } from "./productManager/pmCoordinatorUpdates.js";
 
 const port = Number(process.env.PORT ?? 3000);
 

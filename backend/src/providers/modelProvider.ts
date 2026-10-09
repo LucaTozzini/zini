@@ -1,7 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { CHATGPT_API, chatGptAccessToken } from "./chatgpt.js";
-import { getKey } from "./models/Integration.js";
-import { OAuthConnection } from "./models/OAuthConnection.js";
+import { getKey } from "../models/Integration.js";
+import { OAuthConnection } from "../models/OAuthConnection.js";
 import { OPENROUTER_URL } from "./openrouter.js";
 import { preserveChatGptOutput } from "./chatgptStream.js";
 

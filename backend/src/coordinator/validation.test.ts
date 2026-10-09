@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { ChecksDocument, RepoCommand } from "shared";
 import { enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./validation.js";
 import { REPO_COMMAND } from "./documents.js";
-import { isModelRateLimit } from "../modelErrors.js";
+import { isModelRateLimit } from "../providers/modelErrors.js";
 
 test("runbook preserves commands for different packages and invalidates edited sources", async () => {
   const files = new Map([["Makefile", "a"], ["python/pyproject.toml", "b"]]);

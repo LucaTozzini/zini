@@ -110,4 +110,4 @@ export function commandTools(issueId: string, { productOnly = false, completedCh
   ];
 }
 
-export { browserTools } from "../browserTools.js";
+export { browserTools } from "../browser/browserTools.js";
