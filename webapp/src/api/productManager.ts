@@ -56,6 +56,7 @@ export function useCreateThread() {
         pending: [],
         notes: '',
         todos: [],
+        subscriptions: [],
         running: true,
         error: null,
       })

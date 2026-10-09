@@ -1,6 +1,6 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import type { FormEvent, KeyboardEvent } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import type { ChatMessage, Decision, PendingAction, Todo } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
@@ -71,10 +71,11 @@ type ChatProps = {
   // Shown in an empty chat.
   emptyText: string;
   placeholder: string;
+  headerActions?: ReactNode;
 };
 
 // A chat with any agent role: messages, approvals and the input box.
-function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
+function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps) {
   const {
     loading,
     content,
@@ -143,6 +144,7 @@ function Chat({ chat, avatar, emptyText, placeholder }: ChatProps) {
           label={avatar.label}
           todos={todos}
           notes={notes}
+          actions={headerActions}
         />
         <Container maxWidth={"md"}>
           <Stack spacing={3} sx={{ pt: 3 }}>

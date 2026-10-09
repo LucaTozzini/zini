@@ -8,6 +8,16 @@ Turn Linear tickets into merged PRs: a PM chat front-end with an agent pipeline 
 
    This works today: the PM chat reads and writes Linear and the repo's code, and you approve every issue create or update before it runs.
 
+   Each PM chat also has its own browser for HTTP/HTTPS websites, including external
+   sites. The browser button in the chat header opens a live, read-only viewer with
+   the current URL. Sessions persist between turns until the PM closes its browser,
+   the chat is deleted, or the backend restarts. Closing the viewer leaves the
+   browser running. QA uses the same browser controls and viewer transport but
+   continues to open only localhost addresses and closes its browser after each run.
+   Browser tools include screenshots the model can see, keyboard input, hover, scrolling,
+   drag, native select/checkbox controls, conditional waits, and viewport/media emulation.
+   Emulation persists until reset or the browser closes.
+
 2. **Spec** — the spec lands on the Linear issue.
 
    This works today too: the PM writes the spec onto the issue.

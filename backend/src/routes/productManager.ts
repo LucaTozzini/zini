@@ -6,6 +6,7 @@ import { chat, deleteThreadHistory, loadThread, resume, loadPmSetup } from "../p
 import { sendEvent } from "../events.js";
 import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../runs.js";
 import { coordinatorSubscriptions } from "../coordinatorSubscriptions.js";
+import { addViewer, browserState } from "../agentBrowser.js";
 
 export const productManager = Router();
 
@@ -102,6 +103,17 @@ productManager.get("/threads/:id", async (req, res) => {
     ...(await loadThread(setup, thread.id, isRunning(thread.id))),
     ...runStatus(thread.id),
   });
+});
+
+productManager.get("/threads/:id/browser/status", async (req, res) => {
+  if (!(await findThread(req.params.id, res))) return;
+  res.json(browserState(`pm:${req.params.id}`));
+});
+
+productManager.get("/threads/:id/browser", async (req, res) => {
+  if (!(await findThread(req.params.id, res))) return;
+  if (!(await addViewer(`pm:${req.params.id}`, res)))
+    res.status(404).json({ error: "This chat's browser isn't open." });
 });
 
 // Sends a message, answering once it's saved; the agent's reply comes later, as the

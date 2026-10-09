@@ -64,8 +64,7 @@ const markdownComponents: Components = {
       {...props}
       target="_blank"
       rel="noreferrer"
-      color="primary"
-
+      sx={{color: "DarkSeaGreen"}}
     >
       <LaunchIcon sx={{fontSize: 12, mx: .3}}/>
       {props.children}

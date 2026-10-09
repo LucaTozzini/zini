@@ -1,5 +1,4 @@
 import {
-  Avatar,
   Badge,
   Box,
   ButtonGroup,
@@ -24,21 +23,6 @@ import StickyNote2Icon from "@mui/icons-material/StickyNote2";
 import { useState, type ReactNode } from "react";
 import type { Todo } from "shared";
 import MarkdownText from "./MarkdownText.tsx";
-
-const MyAvatar = ({ src, label }: { src: string; label: string }) => (
-  <Tooltip title={label} enterDelay={600}>
-    <Avatar
-      variant="rounded"
-      sx={{
-        height: 50,
-        width: 50,
-        m: 0.2,
-        
-      }}
-      src={src}
-    />
-  </Tooltip>
-);
 
 const MyDialog = ({
   title,
@@ -94,8 +78,9 @@ type ChatHeaderProps = {
   // The agent's to-do list and project notes (markdown), for the dialogs.
   todos: Todo[];
   notes: string;
+  actions?: ReactNode;
 };
-const ChatHeader = ({ src, label, todos, notes }: ChatHeaderProps) => {
+const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
   const [showModal, setShowModal] = useState(0);
   const openTodos = todos.filter((todo) => todo.status !== "completed").length;
 
@@ -123,25 +108,24 @@ const ChatHeader = ({ src, label, todos, notes }: ChatHeaderProps) => {
             display: "flex",
             alignItems: "center",
             gap: 0.5,
-            pr: 1.5,
-            pointerEvents: "all"
+            pointerEvents: "all",
+            p:1,
           }}
         >
-          <MyAvatar src={src} label={label} />
-
           <ButtonGroup>
+            {actions}
             <Tooltip title="To-Do">
               <IconButton onClick={() => setShowModal(2)} size="small">
                 {/* Hidden when there are none. */}
                 <Badge badgeContent={openTodos} color="primary">
-                  <FormatListNumberedRtlIcon fontSize="small" />
+                  <FormatListNumberedRtlIcon />
                 </Badge>
               </IconButton>
             </Tooltip>
 
             <Tooltip title="Project notes">
               <IconButton onClick={() => setShowModal(3)} size="small">
-                <StickyNote2Icon fontSize="small"/>
+                <StickyNote2Icon />
               </IconButton>
             </Tooltip>
           </ButtonGroup>

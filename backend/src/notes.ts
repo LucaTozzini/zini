@@ -19,6 +19,8 @@ const MAX_NOTES_CHARS = 8_000;
 // A missing or empty file starts as this, so edit_notes always has text to anchor on.
 const SKELETON = `# Project notes
 
+## Repository overview
+
 ## Preferences
 
 ## Conventions
@@ -30,10 +32,20 @@ const NOTES_PROMPT = `## Project notes
 
 These notes are shared by all your chats and put in this prompt in every one. They
 aren't in the repo; change them only with edit_notes, when you learn something that
-should shape future chats: the user's preferences, the project's conventions, decisions
-and why they were made. Leave out what the code or Linear already says, and what only matters to this
-chat. Remove or correct notes that are no longer true, and
-keep them short.`;
+should help future chats: a concise repository overview, the user's preferences, the
+project's conventions, decisions and why they were made.
+
+After exploring the repository, save or update a brief overview of what the product
+does, its main components and their responsibilities, its stack, and useful entry
+points. Summarizing verified code facts is encouraged: future chats should not need
+to rediscover the basic project context. Only record what you have actually verified;
+do not invent an overview or explore the whole repo just to fill the notes.
+
+Avoid copying source code, exhaustive file lists, full issue descriptions, temporary
+issue/coordinator status, and details that only matter to this chat. The overview is
+orientation, not authoritative implementation documentation: check current code before
+making claims or changes, and correct or remove notes when you discover they are stale.
+Keep all notes short and focused.`;
 
 // Sync, so reading, editing and writing the file can't interleave with another edit.
 export function readNotes() {
@@ -60,10 +72,16 @@ const editNotes = tool(
   {
     name: "edit_notes",
     description:
-      "Replace oldText with newText in the project notes. oldText must appear exactly once: " +
+      "Save shared project knowledge for future PM chats: a concise verified repo overview, " +
+      "preferences, conventions, and decisions with their rationale. Summaries of code facts " +
+      "belong here; copied source, detailed inventories and temporary issue status do not. " +
+      "Correct stale notes as you learn more. Replace oldText with newText. oldText must appear exactly once: " +
       "copy it from the notes in your prompt. To add a note, use a nearby line as oldText " +
       "(e.g. its section's heading) and repeat it in newText with the note added.",
-    schema: z.object({ oldText: z.string().min(1), newText: z.string() }),
+    schema: z.object({
+      oldText: z.string().min(1).describe("Exact text occurring once in the current notes; include a nearby heading when adding a section or note."),
+      newText: z.string().describe("Replacement Markdown. Keep verified project context concise; an empty string removes the matched text."),
+    }),
   },
 );
 

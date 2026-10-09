@@ -1,5 +1,7 @@
 import { useLocation, useParams } from "react-router";
 import Chat from "../components/Chat.tsx";
+import PmBrowserButton from "../components/chat/PmBrowserButton.tsx";
+import PmSubscriptionsButton from "../components/chat/PmSubscriptionsButton.tsx";
 import { useChat, type CreatedChatState } from "../hooks/useChat.ts";
 
 const BASE_PATH = "/product-manager";
@@ -11,6 +13,7 @@ function ProductManagerChat({ threadId }: { threadId?: string }) {
   return (
     <Chat
       chat={chat}
+      headerActions={<><PmBrowserButton threadId={threadId} /><PmSubscriptionsButton threadId={threadId} /></>}
       avatar={{
         src: "/pm-avatar.jpg",
         label: "Product Manager",

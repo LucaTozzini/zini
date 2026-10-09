@@ -51,7 +51,7 @@ import {
   CHECKS_PROMPT,
   ENVIRONMENT_SETUP_PROMPT,
 } from "./coordinator/systemPrompts.js";
-import { browserUrl, closeBrowser } from "./coordinator/qaBrowser.js";
+import { browserUrl, closeBrowser } from "./agentBrowser.js";
 import { drainProcesses, runCommandResult, stopAllProcesses } from "./coordinator/qaProcesses.js";
 import { browserTools, COMMAND_TOOLS, commandTools } from "./coordinator/qaTools.js";
 import { diffTool, workspaceFilesystem, writeTools } from "./coordinator/tools.js";

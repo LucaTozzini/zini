@@ -15,7 +15,7 @@ import {
   startPipeline,
 } from "../coordinator.js";
 import { readRedirect } from "../coordinator/steering.js";
-import { addViewer } from "../coordinator/qaBrowser.js";
+import { addViewer } from "../agentBrowser.js";
 import { writeCommitMessage, writePullRequest } from "../coordinator/writers.js";
 import { listRunLogs, readRunLog } from "../coordinator/runLog.js";
 import { Workspace } from "../models/Workspace.js";

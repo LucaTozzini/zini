@@ -1,9 +1,11 @@
 import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 
-// The QA's browser: one headless Chromium page per issue (Playwright's own build,
-// installed with the backend), opened on its first browser tool and closed when its run
-// ends (closeBrowser). Anyone can watch it live (addViewer): while someone does, Chrome
+// The agent's browser: one headless Chromium page per session key (Playwright's own build,
+// installed with the backend), opened on its first browser tool. QA closes it at the end
+// of a run; PM chats keep it between turns until explicitly closed or deleted.
+// Anyone can watch it live (addViewer): while someone does, Chrome
 // sends a frame whenever the page repaints (CDP screencast), passed on as MJPEG, which
 // an <img> shows as it comes.
 
@@ -12,6 +14,7 @@ import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 const MIN_FRAME_MS = 100;
 // The most console lines kept between reads.
 const MAX_CONSOLE = 200;
+export const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 
 type Session = {
   browser: Browser;
@@ -26,21 +29,22 @@ type Session = {
 };
 
 const sessions = new Map<string, Promise<Session>>();
+const sessionIds = new Map<string, string>();
 
-async function launch(issueId: string): Promise<Session> {
+async function launch(key: string): Promise<Session> {
   let browser: Browser;
   try {
     browser = await chromium.launch();
   } catch (err) {
     throw new Error(
-      "The QA's browser couldn't start. If it isn't installed, run `npx playwright install " +
+      "The agent's browser couldn't start. If it isn't installed, run `npx playwright install " +
         `chromium --only-shell\` in zini's backend folder (npm install does it). ${String(err)}`,
     );
   }
   // Allowed to use the clipboard, as a visitor's browser would after a click, so copying
   // works rather than failing on a permission headless Chromium doesn't grant.
   const page = await browser.newPage({
-    viewport: { width: 1280, height: 800 },
+    viewport: DEFAULT_VIEWPORT,
     permissions: ["clipboard-read", "clipboard-write"],
   });
   const session: Session = {
@@ -62,6 +66,9 @@ async function launch(issueId: string): Promise<Session> {
       note(`console.${message.type()}: ${message.text()}`);
     }
   });
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) noteUrl(key, page);
+  });
   page.on("pageerror", (err) => note(`Uncaught error: ${err.message}`));
   page.on("requestfailed", (request) =>
     note(`Request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? "unknown"})`),
@@ -78,40 +85,61 @@ async function launch(issueId: string): Promise<Session> {
   });
   // Closed, or crashed: the next browser tool opens a new one.
   browser.on("disconnected", () => {
-    sessions.delete(issueId);
-    urls.delete(issueId);
+    const pending = sessions.get(key);
+    void pending?.then((current) => {
+      if (current === session && sessions.get(key) === pending) {
+        sessions.delete(key);
+        urls.delete(key);
+        sessionIds.delete(key);
+      }
+    }).catch(() => {});
     endViewers(session);
   });
   return session;
 }
 
-// The issue's page, opening the browser first if it isn't open.
-export async function getPage(issueId: string) {
-  let session = sessions.get(issueId);
+// The session's page, opening the browser first if it isn't open.
+export async function getPage(key: string) {
+  let session = sessions.get(key);
   if (!session) {
-    session = launch(issueId);
-    sessions.set(issueId, session);
+    session = launch(key);
+    sessions.set(key, session);
     // A failed launch isn't kept, so the next tool tries again.
-    session.catch(() => sessions.delete(issueId));
+    const opening = session;
+    session.catch(() => {
+      if (sessions.get(key) === opening) sessions.delete(key);
+    });
   }
   const { page, console } = await session;
+  if (sessions.get(key) === session) {
+    if (!sessionIds.has(key)) sessionIds.set(key, randomUUID());
+    noteUrl(key, page);
+  }
   return { page, console };
 }
 
-// The page's address, or null if the issue's browser isn't open (or still opening).
+// The page's address, or null if the session's browser isn't open (or still opening).
 const urls = new Map<string, string>();
-export const browserUrl = (issueId: string) => urls.get(issueId) ?? null;
-export const noteUrl = (issueId: string, page: Page) => urls.set(issueId, page.url());
+export const browserUrl = (key: string) => urls.get(key) ?? null;
+export const browserState = (key: string) => ({ url: browserUrl(key), sessionId: sessionIds.get(key) ?? null });
+export const noteUrl = (key: string, page: Page) => {
+  if (sessions.has(key)) urls.set(key, page.url());
+};
 
-// Closes the issue's browser, ending its viewers' streams.
-export async function closeBrowser(issueId: string) {
-  const session = sessions.get(issueId);
-  sessions.delete(issueId);
-  urls.delete(issueId);
+// Closes the session's browser, ending its viewers' streams.
+export async function closeBrowser(key: string) {
+  const session = sessions.get(key);
+  sessions.delete(key);
+  urls.delete(key);
+  sessionIds.delete(key);
   if (!session) return;
   try {
     const { browser } = await session;
     await browser.close();
+    if (!sessions.has(key)) {
+      urls.delete(key);
+      sessionIds.delete(key);
+    }
   } catch {
     // It never opened, or is already closed.
   }
@@ -147,10 +175,10 @@ function endViewers(session: Session) {
   session.viewers.clear();
 }
 
-// Streams the issue's browser to res as MJPEG, until the browser closes or res does.
+// Streams the session's browser to res as MJPEG, until the browser closes or res does.
 // false (nothing sent) if the browser isn't open.
-export async function addViewer(issueId: string, res: Response) {
-  const pending = sessions.get(issueId);
+export async function addViewer(key: string, res: Response) {
+  const pending = sessions.get(key);
   if (!pending) return false;
   let session: Session;
   try {

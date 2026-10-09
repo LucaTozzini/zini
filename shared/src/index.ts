@@ -106,6 +106,7 @@ export type Thread = {
   pending: PendingAction[];
   notes: string;
   todos: Todo[];
+  subscriptions: string[];
   running: boolean;
   error: string | null;
 };
