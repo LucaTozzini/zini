@@ -5,13 +5,17 @@ import { killTree, spawnShell } from "./processes.js";
 
 export type AppCommand = { command: string; cwd: string };
 export type AppService = AppCommand & { id: string; port: number; readiness: "http" | "tcp"; path: string };
-export type AppLaunchPlan = { setup: AppCommand[]; services: AppService[]; app: { serviceId: string; path: string } };
+export type PreviewRoute = { prefix: string; serviceId: string; stripPrefix: boolean };
+export type AppLaunchPlan = { setup: AppCommand[]; services: AppService[];
+  app: { serviceId: string; path: string; preservePreviewPath?: boolean }; routes?: PreviewRoute[] };
+export const previewBase = (issueId: string) => `/preview/${encodeURIComponent(issueId)}`;
 type Session = {
   status: "starting" | "ready" | "failed";
   url: string;
   error: string | null;
   output: string;
   children: Set<ChildProcess>;
+  plan: AppLaunchPlan;
 };
 
 export async function availableAppPort() {
@@ -53,6 +57,15 @@ export function validateAppLaunchPlan(plan: AppLaunchPlan) {
   if (plan.services.find((service) => service.id === plan.app.serviceId)?.readiness !== "http")
     throw new Error("The browser-facing service must use HTTP readiness.");
   localPath(plan.app.path);
+  const prefixes = new Set<string>();
+  for (const route of plan.routes ?? []) {
+    localPath(route.prefix);
+    if (route.prefix === "/" || /[?#%]/.test(route.prefix) || route.prefix.endsWith("/") || prefixes.has(route.prefix))
+      throw new Error("Preview route prefixes must be unique paths without trailing slashes, queries or fragments.");
+    prefixes.add(route.prefix);
+    if (plan.services.find((service) => service.id === route.serviceId)?.readiness !== "http")
+      throw new Error("Preview routes must refer to declared HTTP services.");
+  }
 }
 
 async function isReady(service: AppService) {
@@ -85,10 +98,27 @@ export class WorkspaceAppRuntime {
     const session = this.sessions.get(issueId);
     if (!session) return { status: "stopped" as const };
     return { status: session.status, url: session.status === "ready" ? session.url : null,
+      previewUrl: session.status === "ready" ? `${previewBase(issueId)}${session.plan.app.path}` : null,
       error: session.error, output: session.output.slice(-8000) };
   }
 
   starting(issueId: string) { return this.sessions.get(issueId)?.status === "starting"; }
+
+  // Only an active, ready session's declared HTTP services can be reached by the proxy.
+  previewTarget(issueId: string, path: string) {
+    const session = this.sessions.get(issueId);
+    if (session?.status !== "ready") return null;
+    const plan = session.plan;
+    const pathname = path.split("?")[0]!;
+    const route = [...(plan.routes ?? [])].sort((a, b) => b.prefix.length - a.prefix.length)
+      .find((entry) => pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`));
+    const service = plan.services.find((entry) => entry.id === (route?.serviceId ?? plan.app.serviceId))!;
+    let upstreamPath = path;
+    if (route?.stripPrefix) upstreamPath = path.slice(route.prefix.length) || "/";
+    if (upstreamPath.startsWith("?")) upstreamPath = `/${upstreamPath}`;
+    if (!route && plan.app.preservePreviewPath) upstreamPath = `${previewBase(issueId)}${path}`;
+    return { port: service.port, path: upstreamPath, prefix: route?.prefix ?? "", stripPrefix: route?.stripPrefix ?? false };
+  }
 
   async stop(issueId: string) {
     const session = this.sessions.get(issueId);
@@ -112,8 +142,8 @@ export class WorkspaceAppRuntime {
     if (existing && existing.status !== "failed") return this.status(issueId);
     validateAppLaunchPlan(plan);
     const appService = plan.services.find((service) => service.id === plan.app.serviceId)!;
-    const session: Session = { status: "starting", url: `http://127.0.0.1:${appService.port}${plan.app.path}`,
-      error: null, output: "", children: new Set() };
+    const session: Session = { status: "starting", url: `http://127.0.0.1:${appService.port}${plan.app.preservePreviewPath ? previewBase(issueId) : ""}${plan.app.path}`,
+      error: null, output: "", children: new Set(), plan };
     this.sessions.set(issueId, session);
     const append = (text: string) => { session.output = (session.output + text).slice(-200_000); };
     const fail = (error: string) => {

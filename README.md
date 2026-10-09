@@ -57,14 +57,27 @@ delivery until the next human turn. Subscriptions and undelivered updates are in
 for this MVP and reset on backend restart; delivered messages remain in chat history.
 
 The PM can launch an existing workspace's web app for manual use. A read-only launcher
-subagent (`inspect_workspace_app`) discovers whether the workspace contains a web app,
+subagent (`launch_workspace_app`, taking `issueId` and `request`) discovers whether the workspace contains a web app,
 its prerequisites, startup commands, ports and readiness endpoints, or asks about
-missing configuration. `launch_workspace_app` presents the entire plan for approval,
-then runs setup and starts the services in dependency order. Changed workspace files
+missing configuration. Inside the subagent, `start_app_services` presents the entire plan for approval,
+then runs setup and starts the services in dependency order. The checkpointed launcher
+resumes after approval, diagnoses failed launches and proposes revised plans for fresh
+approval, returning the preview URL to the PM when ready. Changed workspace files
 invalidate a plan before execution. `workspace_app_status` reports readiness, errors
 and recent output; `stop_workspace_app` stops the session. Servers survive the PM turn
 and are owned separately from QA. Sessions are in memory for this MVP. The returned
-URL is local to the machine running Zini; remote preview routing is a separate step.
+`previewUrl` is a relative `/preview/<issueId>/...` link through Zini, usable from any
+device that can reach Zini. The local `url` is retained for diagnostics. The proxy
+streams HTTP bodies and WebSockets, including HMR, to declared loopback services.
+The launcher configures supported asset/router bases (e.g. Vite `--base`) and optional
+backend routes `{ prefix, serviceId, stripPrefix }`; frontend requests must use URLs
+under the preview base, rather than browser-local `localhost` or Zini's root `/api`.
+`app.preservePreviewPath` tells the proxy whether the frontend server expects that
+base in incoming requests. If this needs source changes, the launcher reports them
+instead of editing the repo. Stopping the session removes preview access. Preview
+access is unauthenticated in this MVP, as is Zini itself; no tunnel or DNS setup is
+created. Any reverse proxy in front of Zini must forward `/preview/` and WebSocket
+upgrades. Development Vite also forwards `/preview/` to the backend.
 
 Ahead of the code: opening a pull request, and tearing a workspace down after a merge.
 

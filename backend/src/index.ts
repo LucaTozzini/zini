@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
+import { createServer } from "node:http";
+import { workspacePreview, workspacePreviewUpgrades } from "./workspacePreview.js";
+import { workspaceApps } from "./workspaceAppSessions.js";
 import { initDb } from "./db.js";
 import { subscribe } from "./events.js";
 import { coordinator } from "./routes/coordinator.js";
@@ -18,6 +21,7 @@ import { startPmCoordinatorUpdates } from "./pmCoordinatorUpdates.js";
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
+app.use(workspacePreview(workspaceApps));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -69,6 +73,8 @@ if (existsSync(webapp)) {
 await initDb();
 startPmCoordinatorUpdates();
 
-app.listen(port, () => {
+const server = createServer(app);
+workspacePreviewUpgrades(server, workspaceApps);
+server.listen(port, () => {
   console.log(`backend listening on http://localhost:${port}`);
 });

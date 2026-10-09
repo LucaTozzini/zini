@@ -61,10 +61,8 @@ import { getKey } from "./models/Integration.js";
 import { getSetting } from "./settings.js";
 import { loadConnection } from "./modelProvider.js";
 import { listCoordinators } from "./listCoordinators.js";
-import { APP_LAUNCH_PLAN, inspectWorkspaceApp } from "./workspaceApps.js";
+import { launchWorkspaceApp } from "./workspaceApps.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
-import { workspaceRevision } from "./workspaceFiles.js";
-import { isRunning } from "./runs.js";
 import { browserTools } from "./browserTools.js";
 import { closeBrowser } from "./agentBrowser.js";
 
@@ -158,16 +156,19 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   CAPTCHA, a timed-out wait, and content not yet visible. An early empty snapshot is
   not evidence of failure. Correct earlier conclusions when new content appears.
 - When the user wants to use an existing workspace's web app, use workspace_app_status
-  first. If no app is running, delegate to inspect_workspace_app, passing the requested
-  app and any answers or previous startup failures. That agent reads the workspace;
-  it may report not_webapp or ask for missing configuration. Never invent credentials.
-  For a webapp report, pass its exact revision and launch plan to launch_workspace_app.
-  The user approves the complete setup/start plan before execution; never approve it
-  yourself. A failed launch returns output: inspect again with that evidence to revise
-  the plan. The servers stay up after this chat turn; use stop_workspace_app on request.
+  first. If no app is running, delegate once to launch_workspace_app with the requested
+  app and any user answers. The launcher inspects, proposes the complete setup/start
+  plan for user approval inside its workflow, executes it, diagnoses failures and
+  retries with fresh approval. Do not construct or relay launch plans yourself.
+  It returns ready with the preview URL, not_webapp, needs_input with questions, or
+  failed with diagnostics. Ask the user its questions and pass their answers in a new
+  launch request. Never invent credentials or approve commands yourself.
+  The servers stay up after this chat turn; use stop_workspace_app on request.
   Acceptance such as "Looks good" does not request stopping the preview server.
-  Share the URL only when status is ready. This first version returns a host-local URL,
-  usable on the machine running Zini. Remote access is not available yet.`;
+  Share previewUrl only when status is ready: it is a relative link served by Zini,
+  usable from any device that can reach Zini. The url field is for host-local diagnostics.
+  Apps requiring code changes for preview routing are reported by the launcher; request
+  those changes through the coordinator rather than inventing a working preview.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -243,29 +244,14 @@ const ISSUE_ID = z.string().describe("Linear issue id or identifier, e.g. ENG-12
 
 function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
   return [
-    tool(async ({ issueId, request }, config) => JSON.stringify(await inspectWorkspaceApp(model,
+    tool(async ({ issueId, request }, config) => JSON.stringify(await launchWorkspaceApp(model,
       await toIssueId(linear, issueId), request, config.signal)), {
-      name: "inspect_workspace_app",
-      description: "Delegate to a workspace launcher to find whether a web app exists and how to run it. " +
-        "Reads current workspace files, returns not_webapp, needs_input, or a webapp plan. Does not execute commands. " +
-        "Include the requested app, user answers and previous launch errors in request.",
-      schema: z.object({ issueId: ISSUE_ID, request: z.string() }),
-    }),
-    tool(async ({ issueId, revision, plan }, config) => {
-      const id = await toIssueId(linear, issueId);
-      if (!await Workspace.findByPk(id)) throw new Error("This issue has no workspace.");
-      if (isRunning(coordinatorThreadId(id))) throw new Error("Pause the coordinator before preparing the user app.");
-      if (await workspaceRevision(id) !== revision) throw new Error("Workspace changed since inspection. Inspect again before launch.");
-      return JSON.stringify({ ...await workspaceApps.launch(id, plan, config.signal), localOnly: true });
-    }, {
       name: "launch_workspace_app",
-      description: "Execute the launcher's exact plan after user approval. Runs setup, then starts services in order " +
-        "and verifies readiness. Returns ready with a host-local URL or failed with logs. Servers stay running until stopped. " +
-        "Requires the current revision from inspect_workspace_app and a paused/idle coordinator.",
-      schema: z.object({ issueId: ISSUE_ID, revision: z.string(), plan: APP_LAUNCH_PLAN }),
+      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, pauses for user approval of exact setup/server commands, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (relative to Zini), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle coordinator. Servers stay running until stopped.",
+      schema: z.object({ issueId: ISSUE_ID, request: z.string().min(1).describe("Which app to run and any user answers or constraints. The launcher handles command discovery, approval and startup; do not supply a guessed launch plan.") }),
     }),
-    tool(async ({ issueId }) => JSON.stringify({ ...workspaceApps.status(await toIssueId(linear, issueId)), localOnly: true }), {
-      name: "workspace_app_status", description: "Read the user app session's status, local URL, startup errors and recent server output.",
+    tool(async ({ issueId }) => JSON.stringify(workspaceApps.status(await toIssueId(linear, issueId))), {
+      name: "workspace_app_status", description: "Read the user app session's status, previewUrl (relative to Zini), diagnostic local URL, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
     tool(async ({ issueId }) => JSON.stringify(await workspaceApps.stop(await toIssueId(linear, issueId))), {
@@ -614,7 +600,6 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           update_issue: { allowedDecisions: ["approve", "reject"] },
           reply_to_pipeline: { allowedDecisions: ["approve", "reject"] },
           commit_and_push: { allowedDecisions: ["approve", "reject"] },
-          launch_workspace_app: { allowedDecisions: ["approve", "reject"] },
           stop_workspace_app: { allowedDecisions: ["approve", "reject"] },
         },
       }),
