@@ -1,4 +1,14 @@
-import { Box, Typography, type TypographyProps } from "@mui/material";
+import {
+  Box,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+  type TypographyProps,
+} from "@mui/material";
 import type { ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -32,6 +42,25 @@ const markdownComponents: Components = {
   h5: text("subtitle2", "h5"),
   h6: text("subtitle2", "h6"),
   p: text("body1", "p"),
+  table: ({ node: _node, ...props }) => (
+    <TableContainer sx={{ my: 1, maxWidth: "100%", overflowX: "auto" }}>
+      <Table size="small" {...props} />
+    </TableContainer>
+  ),
+  thead: ({ node: _node, ...props }) => <TableHead {...props} />,
+  tbody: ({ node: _node, ...props }) => <TableBody {...props} />,
+  tr: ({ node: _node, ...props }) => <TableRow {...props} />,
+  th: ({ node: _node, align, ...props }) => (
+    <TableCell
+      component="th"
+      {...props}
+      align={align === "char" ? undefined : align}
+      sx={{ fontWeight: 600 }}
+    />
+  ),
+  td: ({ node: _node, align, ...props }) => (
+    <TableCell component="td" {...props} align={align === "char" ? undefined : align} />
+  ),
   // Inline code, and the code in a fenced block.
   code: ({ node: _node, ...props }) => (
     <Typography
