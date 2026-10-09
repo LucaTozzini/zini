@@ -1,4 +1,5 @@
-import { Box, CircularProgress, Typography, ListItem, ListItemButton } from "@mui/material";
+import { Box, CircularProgress, IconButton, Typography, ListItem, ListItemButton } from "@mui/material";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import { Link } from "react-router";
 import type { ReactNode } from "react";
 import TimeAgo, { type Unit } from "react-timeago";
@@ -18,7 +19,14 @@ type SessionItemProps = {
 };
 
 export default function SessionItem({ itemId, title, updatedAt, selected, loading, needsApproval, leadingIcon, onMenu }: SessionItemProps) {
-  return <ListItem disablePadding>
+  return <ListItem disablePadding sx={onMenu ? {
+    "&:hover .session-time": { visibility: "hidden" },
+    "&:hover .session-menu": { opacity: 1, pointerEvents: "auto" },
+    "@media (hover: none)": {
+      "& .session-time": { visibility: "hidden" },
+      "& .session-menu": { opacity: 1, pointerEvents: "auto" },
+    },
+  } : undefined}>
     <ListItemButton component={Link} to={itemId} sx={{
       py: 0.375, px: 1, borderRadius: 0.5, gap: 0.75, minWidth: 0,
       minHeight: { xs: 32, md: 26 },
@@ -41,10 +49,28 @@ export default function SessionItem({ itemId, title, updatedAt, selected, loadin
       {leadingIcon && <Box component="span" sx={{ display: "inline-flex", flexShrink: 0, color: "text.secondary" }}>{leadingIcon}</Box>}
       <Typography variant="body2" noWrap color={needsApproval ? "warning" : selected ? "textPrimary" : "textSecondary"}
         sx={{ minWidth: 0, flex: 1 }}>{title}</Typography>
-      <Typography component="span" variant="body2" color="textSecondary" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+      <Typography className="session-time" component="span" variant="body2" color="textSecondary"
+        sx={{ flexShrink: 0, minWidth: onMenu ? 24 : undefined, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
         <TimeAgo date={updatedAt} formatter={noSuffixFormatter} />
       </Typography>
       {loading && <CircularProgress size={10} aria-label="Running" sx={{ flexShrink: 0 }} />}
     </ListItemButton>
+    {onMenu && <IconButton
+      className="session-menu"
+      size="small"
+      aria-label={`Open menu for ${title}`}
+      aria-haspopup="menu"
+      onClick={(event) => {
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onMenu({ top: rect.bottom, left: rect.right });
+      }}
+      sx={{
+        position: "absolute", right: loading ? 24 : 8, top: "50%", transform: "translateY(-50%)",
+        width: 24, height: 24, opacity: 0, pointerEvents: "none", color: "text.secondary",
+      }}
+    >
+      <MoreHorizIcon fontSize="small" />
+    </IconButton>}
   </ListItem>;
 }
