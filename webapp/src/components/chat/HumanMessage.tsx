@@ -4,7 +4,7 @@ import type { ChatMessage } from "shared";
 
 import MarkdownText from "../MarkdownText.tsx";
 import LineLimit from "../LineLimit.tsx";
-import { useProfile } from "../../api/profile.ts";
+import { useUserMe } from "../../api/users.ts";
 
 type HumanMessageProps = {
   message: Extract<ChatMessage, { role: "user" }>;
@@ -17,13 +17,14 @@ export function HumanMessage({
   ref,
   lineLimit = 12,
 }: HumanMessageProps) {
-  const { data: profile } = useProfile();
+  const { data: user } = useUserMe();
 
-  const username = profile?.username;
+  const username = user?.username;
+  const ownMessage = Boolean(username && username === message.username);
   const bgcolor =
-    username == message.username ? "primary.main" : "secondary.main";
+    ownMessage ? "primary.main" : "secondary.main";
   const color =
-    username == message.username
+    ownMessage
       ? "primary.contrastText"
       : "secondary.contrastText";
 

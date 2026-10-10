@@ -2,17 +2,13 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  Divider,
   IconButton,
-  TextField,
-  Alert,
   DialogActions,
   Button,
-  Snackbar,
+  Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { useProfile, useSaveProfile } from "../api/profile.ts";
-import { useState, useEffect } from "react";
+import { useUserLogout, useUserMe } from "../api/users.ts";
 
 const ProfileDialog = ({
   showDialog,
@@ -21,38 +17,8 @@ const ProfileDialog = ({
   showDialog: boolean;
   setShowDialog: (show: boolean) => void;
 }) => {
-  const { data: profileData, error: profileError, refetch } = useProfile();
-  const {
-    mutate: saveProfile,
-    error: saveError,
-    isPending: isSaving,
-  } = useSaveProfile();
-  const [newUsername, setNewUsername] = useState("");
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    if (showDialog) {
-      refetch();
-    }
-  }, [showDialog, refetch]);
-
-  useEffect(() => {
-    if (profileData) {
-      setNewUsername(profileData.username);
-    }
-  }, [profileData, showDialog]);
-
-  function save() {
-    saveProfile(
-      { username: newUsername },
-      {
-        onSuccess: () => {
-          setSuccess(true);
-          setShowDialog(false);
-        },
-      },
-    );
-  }
+  const logout = useUserLogout();
+  const me = useUserMe();
 
   return (
     <>
@@ -61,11 +27,6 @@ const ProfileDialog = ({
         onClose={() => setShowDialog(false)}
         maxWidth="xs"
         fullWidth
-        component="form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
       >
         <DialogTitle
           sx={{
@@ -77,40 +38,28 @@ const ProfileDialog = ({
         >
           Profile{" "}
           <IconButton onClick={() => setShowDialog(false)} size="small">
-            <CloseIcon />
+            <CloseIcon fontSize="small" />
           </IconButton>
         </DialogTitle>
-        <Divider />
+
         <DialogContent>
-          {profileError && (
-            <Alert severity="error">{profileError.message}</Alert>
-          )}
-          {saveError && <Alert severity="error">{saveError.message}</Alert>}
-          <TextField
-            required
-            fullWidth
-            label="Username"
-            value={newUsername}
-            onChange={(e) => setNewUsername(e.target.value)}
-          />
+          <Typography gutterBottom>
+            Userame: {me.data?.username || "-"}
+          </Typography>
+          <Typography gutterBottom>
+            Authority: {me.data?.authority.toString() ?? "-"}
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDialog(false)}>Cancel</Button>
-          <Button loading={isSaving} variant="contained" type="submit">
-            Save
+          <Button
+            variant="contained"
+            loading={logout.isPending}
+            onClick={() => logout.mutate()}
+          >
+            Logout
           </Button>
         </DialogActions>
       </Dialog>
-      <Snackbar
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        open={success}
-        autoHideDuration={6000}
-        onClose={() => setSuccess(false)}
-      >
-        <Alert severity="success" onClose={() => setSuccess(false)}>
-          Profile saved successfully!
-        </Alert>
-      </Snackbar>
     </>
   );
 };

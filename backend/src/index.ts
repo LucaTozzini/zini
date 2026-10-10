@@ -2,7 +2,10 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { createServer } from "node:http";
-import { workspacePreview, workspacePreviewUpgrades } from "./workspaces/workspacePreview.js";
+import {
+  workspacePreview,
+  workspacePreviewUpgrades,
+} from "./workspaces/workspacePreview.js";
 import { workspaceApps } from "./workspaces/workspaceAppSessions.js";
 import { initDb } from "./db.js";
 import { subscribe } from "./core/events.js";
@@ -11,12 +14,12 @@ import { integrations } from "./routes/integrations.js";
 import { productManager } from "./routes/productManager.js";
 import { evals } from "./routes/evals.js";
 import { chatgpt } from "./routes/chatgpt.js";
-import { profileRouter } from "./routes/profile.js";
+import { usersRouter } from "./routes/users.js";
 import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
-import { generateUsername } from "unique-username-generator";
 import { startPmCoordinatorUpdates } from "./productManager/pmCoordinatorUpdates.js";
+import { requireApiUser } from "./auth/session.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -24,21 +27,7 @@ const app = express();
 app.use(workspacePreview(workspaceApps));
 app.use(express.json());
 app.use(cookieParser());
-
-app.use("/api", (req, res, next) => {
-  // if call going to set the username cookie, don't overwrite it
-  if (req.path === "/profile" && req.method === "POST") {
-    return next();
-  }
-
-  // check if username cookie is set, if not set it to a random name
-  if (!req.cookies?.username) {
-    const newUsername = generateUsername();
-    req.cookies.username = newUsername;
-    res.cookie("username", newUsername, { httpOnly: true, sameSite: "strict", maxAge: 1000 * 60 * 60 * 24 * 365 });
-  }
-  next();
-});
+app.use("/api", requireApiUser);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -54,9 +43,9 @@ app.use("/api/integrations", integrations);
 app.use("/api/product-manager", productManager);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);
-app.use("/api/profile", profileRouter);
 app.use("/api/evals", evals);
 app.use("/api/chatgpt", chatgpt);
+app.use("/api/users", usersRouter);
 
 // The built webapp (npm run build), so one server runs the whole app. Any other GET
 // gets its index.html, so the webapp's own routes work on reload. In development the

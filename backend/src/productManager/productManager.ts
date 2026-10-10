@@ -652,7 +652,8 @@ const RECURSION_LIMIT = 250;
 // Sends the user's next message on a thread. The run ends with a reply, or paused
 // on actions to approve. Aborting it stops the run in flight, leaving the checkpoint
 // its finished steps were saved to, which the next turn carries on from. The sender's
-// username (null if they haven't set one) is saved with the message.
+// authenticated username is saved with the message. Null remains supported for
+// internal callers and older conversation history.
 export function chat(
   setup: Setup,
   threadId: string,

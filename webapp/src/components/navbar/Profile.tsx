@@ -1,17 +1,17 @@
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { useState } from "react";
 import ProfileDialog from "../ProfileDialog.tsx";
-import { useProfile } from "../../api/profile.ts";
 import NavBarItem from "./NavBarItem.tsx";
+import { useUserMe } from "../../api/users.ts";
 
 const Profile = () => {
   const [showModal, setShowModal] = useState(false);
-  const { data: profile, isPending } = useProfile();
+  const user = useUserMe();
 
   return (
     <>
       <NavBarItem
-        title={isPending ? "Loading..." : profile?.username || ""}
+        title={user.isPending ? "Loading..." : user.data?.username || ""}
         handleClick={() => setShowModal(true)}
         Icon={AccountCircleIcon}
       />

@@ -91,7 +91,7 @@ coordinator.post("/:issueId/start", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId, req.cookies?.username);
+  const run = pipelineRun(setup, issueId, req.user!.username);
   const started = await beginRun(
     res,
     coordinatorThreadId(issueId),
@@ -123,7 +123,7 @@ coordinator.post("/:issueId/resume", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId, req.cookies?.username);
+  const run = pipelineRun(setup, issueId, req.user!.username);
   const started = await beginRun(res, coordinatorThreadId(issueId), (signal) => resumePipeline(run, reply, signal), run.notify);
   if (started) res.status(202).end();
 });
@@ -138,7 +138,7 @@ coordinator.post("/:issueId/continue", async (req, res) => {
   }
   const setup = await loadSetup(res);
   if (!setup) return;
-  const run = pipelineRun(setup, issueId);
+  const run = pipelineRun(setup, issueId, req.user!.username);
   if (await beginRun(res, coordinatorThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
 });
 
@@ -151,7 +151,7 @@ coordinator.post("/:issueId/redirect", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   try {
-    await redirectPipeline(pipelineRun(setup, issueId, req.cookies?.username), request);
+    await redirectPipeline(pipelineRun(setup, issueId, req.user!.username), request);
     res.status(202).end();
   } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
 });

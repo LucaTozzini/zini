@@ -1,4 +1,11 @@
-import { Box, Divider, Drawer, IconButton, useMediaQuery, useTheme } from "@mui/material";
+import {
+  Box,
+  Divider,
+  Drawer,
+  IconButton,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
@@ -10,8 +17,10 @@ import SettingsPage from "./pages/SettingsPage.tsx";
 import EvalsPage from "./pages/EvalsPage.tsx";
 import ProductManagerPage from "./pages/ProductManagerPage.tsx";
 import IssuePage from "./pages/IssuePage.tsx";
+import LoginPage from "./pages/LoginPage.tsx";
+import { useUserMe } from "./api/users.ts";
 
-function App() {
+function SignedInApp() {
   const setup = useSetup();
   // Live updates for every page: chat replies, running chats, workspace setup.
   useServerEvents();
@@ -34,38 +43,66 @@ function App() {
 
   return (
     <>
-    <Box sx={{ display: "flex", flexDirection: small ? "column" : "row", overflow: "hidden", height: "100dvh" }}>
-      {small ? (
-        <>
-          <Box sx={{ flexShrink: 0, px: 1, py: 0.5, borderBottom: 1, borderColor: "divider" }}>
-            <IconButton aria-label="Open navigation" onClick={() => setNavOpen(true)}>
-              <MenuIcon />
-            </IconButton>
-          </Box>
-          <Drawer open={navOpen} onClose={() => setNavOpen(false)}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: small ? "column" : "row",
+          overflow: "hidden",
+          height: "100dvh",
+        }}
+      >
+        {small ? (
+          <>
+            <Box
+              sx={{
+                flexShrink: 0,
+                px: 1,
+                py: 0.5,
+                borderBottom: 1,
+                borderColor: "divider",
+              }}
+            >
+              <IconButton
+                aria-label="Open navigation"
+                onClick={() => setNavOpen(true)}
+              >
+                <MenuIcon />
+              </IconButton>
+            </Box>
+            <Drawer open={navOpen} onClose={() => setNavOpen(false)}>
+              <NavBar />
+            </Drawer>
+          </>
+        ) : (
+          <>
             <NavBar />
-          </Drawer>
-        </>
-      ) : (
-        <>
-          <NavBar />
-          <Divider flexItem orientation={"vertical"} />
-        </>
-      )}
-      <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto" }}>
-        <SetupBanner missing={setup?.missing} />
-        <Routes>
-          <Route path="/" element={<Navigate to="/product-manager" replace />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/evals" element={<EvalsPage />} />
-          <Route path="/product-manager" element={productManager} />
-          <Route path="/product-manager/:threadId" element={productManager} />
-          <Route path="/issues/:issueId" element={<IssuePage/>}/>
-        </Routes>
+            <Divider flexItem orientation={"vertical"} />
+          </>
+        )}
+        <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto" }}>
+          <SetupBanner missing={setup?.missing} />
+          <Routes>
+            <Route
+              path="/"
+              element={<Navigate to="/product-manager" replace />}
+            />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/evals" element={<EvalsPage />} />
+            <Route path="/product-manager" element={productManager} />
+            <Route path="/product-manager/:threadId" element={productManager} />
+            <Route path="/issues/:issueId" element={<IssuePage />} />
+          </Routes>
+        </Box>
       </Box>
-    </Box>
     </>
   );
+}
+
+function App() {
+  const me = useUserMe();
+  if (me.isPending) return <Box sx={{ p: 3 }}>Checking sign-in…</Box>;
+  if (!me.data) return <LoginPage />;
+  return <SignedInApp key={me.data.username} />;
 }
 
 export default App;

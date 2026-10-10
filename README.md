@@ -47,6 +47,7 @@ The remaining files are grouped by responsibility:
 | --- | --- |
 | `routes/` | Express endpoints |
 | `models/` | Sequelize models |
+| `auth/` | Access-token session lookup and authenticated request identity |
 | `coordinator/` | Pipeline execution, history, steering, QA, and subscriptions |
 | `productManager/` | PM conversations, notes, and coordinator updates |
 | `agents/` | Shared agent setup, compaction, run state, and code exploration tools |
@@ -97,8 +98,12 @@ under the preview base, rather than browser-local `localhost` or Zini's root `/a
 `app.preservePreviewPath` tells the proxy whether the frontend server expects that
 base in incoming requests. If this needs source changes, the launcher reports them
 instead of editing the repo. Stopping the session removes preview access. Preview
-access is unauthenticated in this MVP, as is Zini itself; no tunnel or DNS setup is
-created. Any reverse proxy in front of Zini must forward `/preview/` and WebSocket
+access is unauthenticated in this MVP; no tunnel or DNS setup is created.
+All `/api` endpoints except `POST /api/users/login` require a signed-in user.
+Chat messages use the username
+from the access-token session, including optimistic messages and author highlighting.
+Conversations remain shared, and previously saved authors are preserved.
+Any reverse proxy in front of Zini must forward `/preview/` and WebSocket
 upgrades. Development Vite also forwards `/preview/` to the backend.
 
 Ahead of the code: opening a pull request, and tearing a workspace down after a merge.

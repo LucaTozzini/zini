@@ -9,6 +9,11 @@ export const STATUS_TYPES = [
   "duplicate",
 ] as const;
 
+export type User = {
+  username: string;
+  authority: number;
+}
+
 export type StatusType = (typeof STATUS_TYPES)[number];
 
 // Linear's priority numbers, 0 to 4, by name.

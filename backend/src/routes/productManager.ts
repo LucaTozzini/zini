@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Router, type Request, type Response } from "express";
+import { Router, type Response } from "express";
 import type { Decision } from "shared";
 import { PmThread } from "../models/PmThread.js";
 import { chat, deleteThreadHistory, loadThread, resume, loadPmSetup } from "../productManager/productManager.js";
@@ -11,10 +11,6 @@ import { addViewer, browserState } from "../browser/agentBrowser.js";
 export const productManager = Router();
 
 const nonEmptyString = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
-
-// The sender's username, from the cookie their profile sets; null if they haven't set one.
-const username = (req: Request): string | null =>
-  nonEmptyString(req.cookies?.username) ? req.cookies.username : null;
 
 const isDecision = (d: unknown): d is Decision =>
   typeof d === "object" &&
@@ -79,7 +75,7 @@ productManager.post("/threads", async (req, res) => {
   const title = message.trim().replace(/\s+/g, " ").slice(0, 60);
   const thread = await PmThread.create({ id: randomUUID(), title });
   const start = (signal: AbortSignal) =>
-    chat(setup, thread.id, message, username(req), signal);
+    chat(setup, thread.id, message, req.user!.username, signal);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
@@ -131,7 +127,7 @@ productManager.post("/threads/:id/messages", async (req, res) => {
   if (!setup) return;
   const id = req.params.id;
   coordinatorSubscriptions.resume(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal))) res.status(202).end();
 });
 
 // Stops the run going on the chat. It shows as stopped straight away, while the run
@@ -170,7 +166,7 @@ productManager.post("/threads/:id/steer", async (req, res) => {
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
   coordinatorSubscriptions.resume(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, username(req), signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal))) res.status(202).end();
 });
 
 // Approves or rejects the actions a thread is paused on, one decision per action.

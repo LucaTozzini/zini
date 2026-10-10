@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import type { ChatMessage, Decision, Thread, ThreadSummary } from 'shared'
+import type { ChatMessage, Decision, Thread, ThreadSummary, User } from 'shared'
 import { api } from './client.ts'
-import { profileKey, type Profile } from './profile.ts'
+import { userKey } from './users.ts'
 
 export const threadsKey = ['product-manager', 'threads']
 export const threadKey = (id: string) => [...threadsKey, id]
@@ -35,10 +35,9 @@ async function updateNow<T>(queryClient: QueryClient, key: unknown[], change: (d
   return () => queryClient.setQueryData(key, previous)
 }
 
-// The user's message as the server will save it: with their username, if they've set
-// one, so it doesn't change when the chat is fetched.
+// Match the signed-in author the server saves with the message.
 function userMessage(queryClient: QueryClient, content: string): ChatMessage {
-  const username = queryClient.getQueryData<Profile>(profileKey)?.username
+  const username = queryClient.getQueryData<User>(userKey)?.username
   return { role: 'user', content, ...(username && { username }) }
 }
 
