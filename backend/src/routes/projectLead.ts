@@ -8,9 +8,18 @@ import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } fr
 import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { addViewer, browserState } from "../browser/agentBrowser.js";
 
+import { parseMessageInput } from "../projectLead/messageInput.js";
+
 export const projectLead = Router();
 
-const nonEmptyString = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+function readMessage(body: unknown, res: Response) {
+  try { return parseMessageInput(body); }
+  catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid message" });
+    return null;
+  }
+}
+
 
 const isDecision = (d: unknown): d is Decision =>
   typeof d === "object" &&
@@ -63,19 +72,17 @@ projectLead.get("/threads", async (_req, res) => {
 // Starts a chat with its first message, which also becomes its title, answering once
 // the message is saved. The reply comes later: the run goes on in the background.
 projectLead.post("/threads", async (req, res) => {
-  const { message } = req.body ?? {};
-  if (!nonEmptyString(message)) {
-    res.status(400).json({ error: "message is required" });
-    return;
-  }
+  const input = readMessage(req.body, res);
+  if (!input) return;
+  const { message, images } = input;
 
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const title = message.trim().replace(/\s+/g, " ").slice(0, 60);
+  const title = message.trim().replace(/\s+/g, " ").slice(0, 60) || "Image attachment";
   const thread = await ProjectLeadThread.create({ id: randomUUID(), title });
   const start = (signal: AbortSignal) =>
-    chat(setup, thread.id, message, req.user!.username, signal);
+    chat(setup, thread.id, message, req.user!.username, signal, images);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
@@ -116,18 +123,16 @@ projectLead.get("/threads/:id/browser", async (req, res) => {
 // run goes on in the background. A conversation with a run going on it answers 409:
 // the client steers it instead (see /steer).
 projectLead.post("/threads/:id/messages", async (req, res) => {
-  const { message } = req.body ?? {};
-  if (!nonEmptyString(message)) {
-    res.status(400).json({ error: "message is required" });
-    return;
-  }
+  const input = readMessage(req.body, res);
+  if (!input) return;
+  const { message, images } = input;
   if (!(await findThread(req.params.id, res))) return;
 
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
   forgeSubscriptions.resume(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
 });
 
 // Stops the run going on the chat. It shows as stopped straight away, while the run
@@ -148,11 +153,9 @@ projectLead.post("/threads/:id/stop", async (req, res) => {
 // Sends a message that redirects the agent while it's working: stops the run and starts
 // a new one, seeded with the message, from the checkpoint the stopped run left.
 projectLead.post("/threads/:id/steer", async (req, res) => {
-  const { message } = req.body ?? {};
-  if (!nonEmptyString(message)) {
-    res.status(400).json({ error: "message is required" });
-    return;
-  }
+  const input = readMessage(req.body, res);
+  if (!input) return;
+  const { message, images } = input;
   if (!(await findThread(req.params.id, res))) return;
 
   const setup = await loadSetup(res);
@@ -166,7 +169,7 @@ projectLead.post("/threads/:id/steer", async (req, res) => {
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
   forgeSubscriptions.resume(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
 });
 
 // Approves or rejects the actions a thread is paused on, one decision per action.

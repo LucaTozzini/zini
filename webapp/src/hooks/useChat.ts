@@ -31,6 +31,7 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
   const stop = useStopThread(threadId ?? "");
   const resume = useResumeThread(threadId ?? "");
   const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<string[]>([]);
 
   const messages = thread.data?.messages ?? [];
   const pending = thread.data?.pending ?? [];
@@ -41,19 +42,20 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
   // message, so the two appear at once.
   const busy = creating || Boolean(thread.data?.running);
   const posting = send.isPending || steer.isPending || stop.isPending || resume.isPending;
-  const canSend = pending.length === 0 && !posting && draft.trim().length > 0;
+  const canSend = pending.length === 0 && !creating && !posting && (draft.trim().length > 0 || images.length > 0);
   const runError = thread.data?.error ? new Error(thread.data.error) : null;
   const error =
     thread.error ?? create.error ?? send.error ?? steer.error ?? stop.error ?? resume.error ?? runError;
 
   function sendDraft(e?: FormEvent) {
     e?.preventDefault();
-    const message = draft.trim();
-    if (!message || !canSend) return;
+    const message = { message: draft.trim(), images };
+    if (!canSend) return;
 
     // If sending fails, the message goes back in the input.
     setDraft("");
-    const restore = () => setDraft(message);
+    setImages([]);
+    const restore = () => { setDraft(message.message); setImages(message.images); };
     if (threadId) {
       // While the agent works, the message redirects it: the server stops the run and
       // starts a new one with the message. A run paused on approval isn't running, so
@@ -96,6 +98,8 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
     todos: thread.data?.todos ?? [],
     draft,
     setDraft,
+    images,
+    setImages,
     sending: creating ? create.variables : null,
     busy,
     canSend,

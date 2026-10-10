@@ -1,7 +1,7 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
-import type { ChatMessage, Decision, PendingAction, Todo } from "shared";
+import type { ChatMessage, ProjectLeadMessage, Decision, PendingAction, Todo } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
@@ -31,7 +31,9 @@ export type ChatState = {
   draft: string;
   setDraft: (draft: string) => void;
   // A message on its way that isn't in messages yet.
-  sending: string | null | undefined;
+  sending: ProjectLeadMessage | null | undefined;
+  images: string[];
+  setImages: (images: string[]) => void;
   // The agent is working.
   busy: boolean;
   canSend: boolean;
@@ -190,7 +192,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
               ),
             )}
             {sending && (
-              <HumanMessage message={{ role: "user", content: sending }} />
+              <HumanMessage message={{ role: "user", content: sending.message, images: sending.images }} />
             )}
             {pending.length > 0 && (
               <ApprovalCard
@@ -257,6 +259,8 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
           )}
           <Container maxWidth={"md"}>
             <ChatInput
+              images={chat.images}
+              onImagesChange={chat.setImages}
               value={draft}
               loading={sendLoading}
               onChange={setDraft}

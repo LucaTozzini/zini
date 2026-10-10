@@ -26,6 +26,7 @@ const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
 app.use(workspacePreview(workspaceApps));
+app.use("/api/project-lead", express.json({ limit: "30mb" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use("/api", requireApiUser);

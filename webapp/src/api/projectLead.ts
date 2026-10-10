@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import type { ChatMessage, Decision, Thread, ThreadSummary, User } from 'shared'
+import type { ChatMessage, ProjectLeadMessage, Decision, Thread, ThreadSummary, User } from 'shared'
 import { api } from './client.ts'
 import { userKey } from './users.ts'
 
@@ -36,9 +36,9 @@ async function updateNow<T>(queryClient: QueryClient, key: unknown[], change: (d
 }
 
 // Match the signed-in author the server saves with the message.
-function userMessage(queryClient: QueryClient, content: string): ChatMessage {
+function userMessage(queryClient: QueryClient, payload: ProjectLeadMessage): ChatMessage {
   const username = queryClient.getQueryData<User>(userKey)?.username
-  return { role: 'user', content, ...(username && { username }) }
+  return { role: 'user', content: payload.message, images: payload.images, ...(username && { username }) }
 }
 
 // Starts a chat with its first message; resolves to the new chat, cached with that
@@ -46,7 +46,7 @@ function userMessage(queryClient: QueryClient, content: string): ChatMessage {
 export function useCreateThread() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => post('threads', { message }).json<ThreadSummary>(),
+    mutationFn: (message: ProjectLeadMessage) => post('threads', message).json<ThreadSummary>(),
     onSuccess: ({ id, title }, message) => {
       queryClient.setQueryData<Thread>(threadKey(id), {
         id,
@@ -68,7 +68,7 @@ export function useCreateThread() {
 export function useSendMessage(threadId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => post(`threads/${threadId}/messages`, { message }),
+    mutationFn: (message: ProjectLeadMessage) => post(`threads/${threadId}/messages`, message),
     onMutate: (message) =>
       updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
@@ -102,7 +102,7 @@ export function useStopThread(id: string) {
 export function useSteerThread(threadId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => post(`threads/${threadId}/steer`, { message }),
+    mutationFn: (message: ProjectLeadMessage) => post(`threads/${threadId}/steer`, message),
     onMutate: (message) =>
       updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,

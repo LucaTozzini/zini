@@ -251,6 +251,9 @@ function ModelCard({ title, provider: providerSetting, model: modelSetting, help
         <Stack spacing={2}>
           <Typography variant="h6">{title}</Typography>
           {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
+          <Alert severity="info">
+            The model must support text and image inputs.
+          </Alert>
           {settings.isSuccess && (
             <Stack component="form" spacing={2} onSubmit={handleSubmit}>
               <TextField

@@ -76,6 +76,11 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
         {
           role: "user",
           content: message.text,
+          ...(Array.isArray(message.content) && { images: message.content.flatMap((block) => {
+            if (typeof block === "string" || block.type !== "image_url") return [];
+            const image = block.image_url;
+            return typeof image === "string" ? [image] : image && typeof image === "object" && "url" in image && typeof image.url === "string" ? [image.url] : [];
+          }) }),
           ...(typeof username === "string" && { username }),
         },
       ];

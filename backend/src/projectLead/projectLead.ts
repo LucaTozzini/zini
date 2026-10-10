@@ -49,6 +49,7 @@ import {
 import { codeTools, fetchRepoMiddleware } from "../agents/codeTools.js";
 import { exploreCode } from "../agents/codeExplorer.js";
 import { notesMiddleware, readNotes } from "./notes.js";
+import { userMessage, withSenderName } from "./messageInput.js";
 import { Workspace } from "../models/Workspace.js";
 import { npmTools } from "../agents/npmTools.js";
 import { chatModel as connectModel, type ModelConnection } from "../providers/modelProvider.js";
@@ -564,15 +565,7 @@ const senderNames = createMiddleware({
   wrapModelCall: (request, handler) =>
     handler({
       ...request,
-      messages: request.messages.map((m) => {
-        const username = m.additional_kwargs.username;
-        if (m.type !== "human" || typeof username !== "string") return m;
-        return new HumanMessage({
-          id: m.id,
-          content: `[${username}]: ${m.text}`,
-          additional_kwargs: m.additional_kwargs,
-        });
-      }),
+      messages: request.messages.map(withSenderName),
     }),
 });
 
@@ -687,9 +680,10 @@ export function chat(
   message: string,
   username: string | null,
   signal?: AbortSignal,
+  images: string[] = [],
 ) {
   return buildAgent(setup, threadId).stream(
-    { messages: [new HumanMessage({ content: message, additional_kwargs: { username } })] },
+    { messages: [userMessage(message, images, username)] },
     streamConfig(threadId, RECURSION_LIMIT, signal),
   );
 }

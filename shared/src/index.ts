@@ -73,7 +73,7 @@ export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | nu
 // waits on approval, and never_ran when it can't get a result anymore (e.g. the run
 // failed first); error is set when it failed or was rejected.
 export type ChatMessage =
-  | { role: "user"; content: string; username?: string }
+  | { role: "user"; content: string; username?: string; images?: string[] }
   | { role: "activity"; content: string; issueId: string; eventId: string; eventType: string }
   | { role: "assistant"; content: string }
   | {
@@ -464,3 +464,8 @@ export function summarizeRuns(runs: RunMetrics[], compare?: RunMetrics[]): Summa
     return { label, value: here.text, was: there.text, change };
   });
 }
+
+// Images are base64 data URLs, sent alongside the message text.
+export type ProjectLeadMessage = { message: string; images?: string[] };
+export const MAX_CHAT_IMAGES = 4;
+export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
