@@ -52,8 +52,8 @@ export type Workspace = {
   branch: string;
   path: string;
   createdAt: string;
-  // The issue's coordinator is working; the workspace can't be deleted until it's done.
-  coordinatorRunning: boolean;
+  // The issue's forge is working; the workspace can't be deleted until it's done.
+  forgeRunning: boolean;
   // Changes not committed yet (new files included, ignored ones not).
   uncommitted: boolean;
   // Commits on the branch that aren't on GitHub yet.
@@ -67,7 +67,7 @@ export type PullRequest = { number: number; url: string; state: "open" | "closed
 // GitHub, and its newest pull request (whatever its state), if it has one.
 export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | null };
 
-// One turn of the product manager chat, as shown in the webapp: a message, one of
+// One turn of the project lead chat, as shown in the webapp: a message, one of
 // the agent's tool calls (without its result), or where the conversation was
 // compacted (the messages before it are replaced by a summary for the model). A call is pending while it runs or
 // waits on approval, and never_ran when it can't get a result anymore (e.g. the run
@@ -93,14 +93,14 @@ export type PendingAction = { name: string; args: Record<string, unknown>; quest
 // The user's answer to one pending action. A reject message is passed to the agent.
 export type Decision = { type: "approve" } | { type: "reject"; message?: string };
 
-// A saved product manager chat, as listed by GET /api/product-manager/threads.
+// A saved project lead chat, as listed by GET /api/project-lead/threads.
 // running: the agent is working on it now.
 export type ThreadSummary = { id: string; title: string; createdAt: string; running: boolean };
 
 // An item of the agent's to-do list, which it keeps for work with several steps.
 export type Todo = { content: string; status: "pending" | "in_progress" | "completed" };
 
-// A chat reopened with GET /api/product-manager/threads/:id. pending is non-empty
+// A chat reopened with GET /api/project-lead/threads/:id. pending is non-empty
 // when the agent is paused on actions to approve. notes are the agent's project notes
 // (markdown), shared by every chat. error is why the last run failed, until the next one starts;
 // it's lost if the server restarts.
@@ -116,23 +116,23 @@ export type Thread = {
   error: string | null;
 };
 
-// A product manager chat changed: refetch it (and the chat list).
+// A project lead chat changed: refetch it (and the chat list).
 export type ThreadEvent = { type: "thread.updated"; threadId: string };
 
 // App settings, as returned by GET /api/settings. A setting that was never saved is null.
 // Each model runs on its provider (a ModelProvider; OpenRouter when unset).
 export type Settings = {
-  productManagerProvider: string | null;
-  productManagerModel: string | null;
-  coordinatorProvider: string | null;
-  coordinatorModel: string | null;
+  projectLeadProvider: string | null;
+  projectLeadModel: string | null;
+  forgeProvider: string | null;
+  forgeModel: string | null;
   githubRepo: string | null;
 };
 
 // Settings that can be cleared, by saving an empty value.
 export const OPTIONAL_SETTINGS = [
-  "productManagerProvider",
-  "coordinatorProvider",
+  "projectLeadProvider",
+  "forgeProvider",
 ] as const;
 
 // Where a model runs: on OpenRouter, with its key, or on the user's ChatGPT plan, through
@@ -149,21 +149,21 @@ export type ChatGptEvent = { type: "chatgpt.updated" };
 // A workspace's setup started, finished or failed: refetch it.
 export type WorkspaceEvent = { type: "workspace.updated"; issueId: string };
 
-// An issue's coordinator conversation changed: refetch it.
-export type CoordinatorEvent = { type: "coordinator.updated"; issueId: string };
+// An issue's forge conversation changed: refetch it.
+export type ForgeEvent = { type: "forge.updated"; issueId: string };
 
 // A line was added to a subagent run's log (a new run starts one): refetch that run,
 // and the issue's list of runs.
-export type CoordinatorLogEvent = { type: "coordinator.log"; issueId: string; runId: string };
+export type ForgeLogEvent = { type: "forge.log"; issueId: string; runId: string };
 
 // An eval started, printed a line, or ended: refetch its status (and, once it ends, the
 // results).
 export type EvalEvent = { type: "eval.updated" };
 
 // Everything sent on GET /api/events.
-export type ServerEvent = ThreadEvent | WorkspaceEvent | CoordinatorEvent | CoordinatorLogEvent | EvalEvent | ChatGptEvent;
+export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEvent | EvalEvent | ChatGptEvent;
 
-// The coordinator's pipeline for an issue: the planner plans (you answer its questions
+// The forge's pipeline for an issue: the planner plans (you answer its questions
 // and approve the plan), then the coder and reviewer loop until the review requires no
 // changes, and the QA runs the software to test them (a failure sends the coder back to
 // work). Each subagent returns a document with only what it needs to say. Every one
@@ -220,7 +220,7 @@ export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: str
 
 // The QA's report. coverage: each acceptance criterion's result, with its evidence.
 // failures: what doesn't work, each with how to reproduce it and the evidence. The
-// coordinator adds verdict and couldNotTest (what wasn't verified, and why) from these
+// forge adds verdict and couldNotTest (what wasn't verified, and why) from these
 // and the deterministic checks.
 export type QaDocument = {
   verdict: "pass" | "fail" | "partial";
@@ -250,7 +250,7 @@ export type PipelineWaiting =
   | { kind: "approve_commands"; commands: PendingCommand[]; from?: AgentRole };
 
 // Your reply to what the pipeline is waiting on, as POSTed to
-// /api/coordinator/:issueId/resume: answers to the questions (in order), approving the
+// /api/forge/:issueId/resume: answers to the questions (in order), approving the
 // plan, or a decision on each of
 // the QA's commands (in order; a reject's message goes to the QA).
 export type PipelineResume =
@@ -258,8 +258,8 @@ export type PipelineResume =
   | { approve: true }
   | { decisions: Decision[] };
 
-export type CoordinatorHumanMessage = { id: string; t: string; content: string; username?: string };
-export type CoordinatorMessage = { id: string; t: string; agent: AgentRole | null } & (
+export type ForgeHumanMessage = { id: string; t: string; content: string; username?: string };
+export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
   | { kind: "stage" }
   | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
   | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string }
@@ -267,10 +267,10 @@ export type CoordinatorMessage = { id: string; t: string; agent: AgentRole | nul
 );
 
 // An issue whose pipeline is waiting for you to approve something (its plan, or the QA's
-// commands), as listed by GET /api/coordinator/approvals.
+// commands), as listed by GET /api/forge/approvals.
 export type PendingApproval = { issueId: string; kind: "approve_plan" | "approve_commands" };
 
-// An issue's pipeline, as returned by GET /api/coordinator/:issueId. One per issue.
+// An issue's pipeline, as returned by GET /api/forge/:issueId. One per issue.
 export type SteeringTarget = "planner" | "coder" | "reviewer" | "qa";
 export type PipelineRedirect = { target: SteeringTarget; feedback: string };
 export type SteeringOption = { target: SteeringTarget; reason: string | null };
@@ -296,7 +296,7 @@ export type PipelineState = {
   qa: QaDocument | null;
   clarifications: Clarification[];
   // The page the QA's browser is on, while it's open: it can be watched live, at
-  // GET /api/coordinator/:issueId/browser.
+  // GET /api/forge/:issueId/browser.
   browserUrl: string | null;
   // The pipeline completed. Further revisions use redirect; no reply is pending.
   finished: boolean;
@@ -341,10 +341,10 @@ export type RunLogEntry =
   | { event: "end"; outcome: "error"; error: string };
 
 // An entry with when it was written, as returned by
-// GET /api/coordinator/:issueId/logs/:runId.
+// GET /api/forge/:issueId/logs/:runId.
 export type RunLogEvent = RunLogEntry & { t: string };
 
-// A subagent run, as listed by GET /api/coordinator/:issueId/logs (oldest first).
+// A subagent run, as listed by GET /api/forge/:issueId/logs (oldest first).
 // outcome is null while it runs, or if the server stopped before it ended.
 export type RunLogSummary = {
   id: string;
@@ -355,7 +355,7 @@ export type RunLogSummary = {
 
 // ---- Evals (see evals/README.md) ---------------------------------------------------
 
-// A scenario the coordinator can be evaluated on: evals/scenarios/<repo>/<name>. id is
+// A scenario the forge can be evaluated on: evals/scenarios/<repo>/<name>. id is
 // "<repo>/<name>".
 export type EvalScenario = { id: string; repo: string; name: string; title: string };
 

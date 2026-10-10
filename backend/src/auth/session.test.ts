@@ -13,12 +13,12 @@ test("chat identity comes from a revocable user session", async (t) => {
   process.env.DB_PATH = join(directory, "users.sqlite");
   const { sequelize } = await import("../db.js");
   const { User } = await import("../models/User.js");
-  const { PmThread } = await import("../models/PmThread.js");
+  const { ProjectLeadThread } = await import("../models/ProjectLeadThread.js");
   const { checkpointer } = await import("../agents/agents.js");
   const { requireUser, requireApiUser } = await import("./session.js");
   const { usersRouter } = await import("../routes/users.js");
-  const { productManager } = await import("../routes/productManager.js");
-  const { coordinator } = await import("../routes/coordinator.js");
+  const { projectLead } = await import("../routes/projectLead.js");
+  const { forge } = await import("../routes/forge.js");
 
   const app = express();
   app.use(express.json());
@@ -28,8 +28,8 @@ test("chat identity comes from a revocable user session", async (t) => {
     app.get(`/api/${route}`, (req, res) => res.json(req.user));
   }
   app.use("/api/users", usersRouter);
-  app.use("/api/product-manager", productManager);
-  app.use("/api/coordinator", coordinator);
+  app.use("/api/project-lead", projectLead);
+  app.use("/api/forge", forge);
   app.post("/identity", requireUser, (req, res) => res.json(req.user));
   const server = app.listen(0, "127.0.0.1");
 
@@ -39,7 +39,7 @@ test("chat identity comes from a revocable user session", async (t) => {
     assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     await User.sync();
-    await PmThread.sync();
+    await ProjectLeadThread.sync();
     const user = await User.create({
       username: "session-user",
       password_hash: await bcrypt.hash("test-password", 4),
@@ -50,7 +50,7 @@ test("chat identity comes from a revocable user session", async (t) => {
 
     await t.test("missing, unknown, and legacy username cookies cannot open chats", async () => {
       for (const cookie of ["", "username=forged-user", "access_token=unknown-token"]) {
-        for (const route of ["/api/users/me", "/api/product-manager/threads", "/api/coordinator/approvals", "/api/health", "/api/events", "/api/settings", "/api/integrations", "/api/workspaces", "/api/evals", "/api/chatgpt"]) {
+        for (const route of ["/api/users/me", "/api/project-lead/threads", "/api/forge/approvals", "/api/health", "/api/events", "/api/settings", "/api/integrations", "/api/workspaces", "/api/evals", "/api/chatgpt"]) {
           const response = await fetch(base + route, { headers: { cookie } });
           assert.equal(response.status, 401, `${route}: ${cookie}`);
         }
@@ -80,15 +80,15 @@ test("chat identity comes from a revocable user session", async (t) => {
       assert.deepEqual(await response.json(), identity);
     });
 
-    await t.test("authenticated sessions reach the PM and coordinator routes", async () => {
+    await t.test("authenticated sessions reach the Project Lead and Forge routes", async () => {
       const headers = { cookie: "access_token=saved-token" };
-      const threads = await fetch(base + "/api/product-manager/threads", { headers });
+      const threads = await fetch(base + "/api/project-lead/threads", { headers });
       assert.equal(threads.status, 200);
       assert.deepEqual(await threads.json(), []);
       const settings = await fetch(base + "/api/settings", { headers });
       assert.equal(settings.status, 200);
       assert.deepEqual(await settings.json(), identity);
-      const pipeline = await fetch(base + "/api/coordinator/invalid-issue-id", { headers });
+      const pipeline = await fetch(base + "/api/forge/invalid-issue-id", { headers });
       assert.equal(pipeline.status, 400);
       assert.deepEqual(await pipeline.json(), { error: "Expected a Linear issue id" });
     });
@@ -120,7 +120,7 @@ test("chat identity comes from a revocable user session", async (t) => {
       assert.match(response.headers.get("set-cookie") ?? "", /access_token=; Path=\/api;/);
       await user.reload();
       assert.equal(user.access_token, null);
-      for (const route of ["/api/users/me", "/api/product-manager/threads", "/api/coordinator/approvals"]) {
+      for (const route of ["/api/users/me", "/api/project-lead/threads", "/api/forge/approvals"]) {
         const response = await fetch(base + route, { headers: { cookie: sessionCookie } });
         assert.equal(response.status, 401);
       }

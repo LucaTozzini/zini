@@ -13,7 +13,7 @@ import {
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
-  isCoordinatorRunning,
+  isForgeRunning,
   isIssueId,
 } from "../workspaces/workspaces.js";
 
@@ -70,7 +70,7 @@ workspaces.get("/:issueId/diff", async (req, res) => {
 
 // Commits the uncommitted changes, if any, with { message }, then pushes the branch to
 // GitHub, and answers with the workspace. With nothing uncommitted it only pushes (e.g.
-// after a push that failed). Not while the coordinator is running in it.
+// after a push that failed). Not while the forge is running in it.
 workspaces.post("/:issueId/commit", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
@@ -157,7 +157,7 @@ workspaces.post("/", async (req, res) => {
   }
 });
 
-// Not while the coordinator is running in it.
+// Not while the forge is running in it.
 workspaces.delete("/:issueId", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
@@ -165,8 +165,8 @@ workspaces.delete("/:issueId", async (req, res) => {
     res.status(409).json({ error: "Stop the app launch before deleting its workspace" });
     return;
   }
-  if (isCoordinatorRunning(issueId)) {
-    res.status(409).json({ error: "The coordinator is still working in this workspace" });
+  if (isForgeRunning(issueId)) {
+    res.status(409).json({ error: "The Forge is still working in this workspace" });
     return;
   }
   try {

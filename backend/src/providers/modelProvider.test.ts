@@ -11,9 +11,9 @@ test("ChatGPT sends system prompts as developer instructions for newer models", 
     return Response.json({ error: { message: "Captured request" } }, { status: 400 });
   });
   const model = chatModel({ provider: "chatgpt", token: async () => "test" }, "gpt-6-sol", { maxRetries: 0 });
-  await assert.rejects(model.invoke([new SystemMessage("PM instructions"), new HumanMessage("Hello")]), /Captured request/);
+  await assert.rejects(model.invoke([new SystemMessage("Project Lead instructions"), new HumanMessage("Hello")]), /Captured request/);
   assert.deepEqual(request?.input, [
-    { type: "message", role: "developer", content: "PM instructions" },
+    { type: "message", role: "developer", content: "Project Lead instructions" },
     { type: "message", role: "user", content: "Hello" },
   ]);
 });

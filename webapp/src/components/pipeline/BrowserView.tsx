@@ -11,7 +11,7 @@ function BrowserView({ issueId, url }: { issueId: string; url: string }) {
       </Typography>
       <Box
         component="img"
-        src={`/api/coordinator/${issueId}/browser`}
+        src={`/api/forge/${issueId}/browser`}
         alt="The QA's browser"
         sx={{ display: "block", width: "100%", border: 1, borderColor: "divider" }}
       />

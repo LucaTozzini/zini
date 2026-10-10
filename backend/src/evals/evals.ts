@@ -10,7 +10,7 @@ import { createEvalCredentials } from "./evalCredentials.js";
 import { killTree } from "../core/processes.js";
 import { BatchConsole, followConsole, readConsoleTail } from "./batchConsole.js";
 
-// zini's evals (see evals/README.md, at the repo's root): runs of the coordinator on test
+// zini's evals (see evals/README.md, at the repo's root): runs of the forge on test
 // issues with a trusted host harness and an isolated workspace container per run.
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..");
@@ -76,13 +76,13 @@ export function batchLogFile(repo: string, name: string, batch: string) {
 
 // ---- Running ----------------------------------------------------------------------
 
-// The coordinator's provider and model (EVAL_MODEL overrides it), or what's missing.
+// The forge's provider and model (EVAL_MODEL overrides it), or what's missing.
 export async function evalSettings() {
-  const [provider, model] = await Promise.all([getSetting("coordinatorProvider"), getSetting("coordinatorModel")]);
+  const [provider, model] = await Promise.all([getSetting("forgeProvider"), getSetting("forgeModel")]);
   const connection = await loadConnection(provider);
   if (typeof connection === "string") return connection;
   const evalModel = process.env.EVAL_MODEL ?? model;
-  if (!evalModel) return "No coordinator model set";
+  if (!evalModel) return "No Forge model set";
   return { connection, model: evalModel };
 }
 

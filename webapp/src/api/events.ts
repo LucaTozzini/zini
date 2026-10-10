@@ -1,15 +1,15 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ServerEvent } from 'shared'
-import { approvalsKey, coordinatorKey, coordinatorMessagesKey } from './coordinator.ts'
+import { approvalsKey, forgeKey, forgeMessagesKey } from './forge.ts'
 import { chatGptKey } from './chatgpt.ts'
 import { evalsKey } from './evals.ts'
-import { threadKey, threadsKey } from './productManager.ts'
+import { threadKey, threadsKey } from './projectLead.ts'
 import { workspaceKey, workspacesKey } from './workspaces.ts'
 
 // Keeps the app up to date, from one connection to the server's events (mounted once,
 // in App). Each event says what changed, and that's refetched: a chat (and the chat
-// list) when a product manager run starts, finishes a step, ends or fails; a
+// list) when a project lead run starts, finishes a step, ends or fails; a
 // workspace when its setup starts or ends. On (re)connect everything is refetched, in
 // case events were missed while disconnected.
 export function useServerEvents() {
@@ -19,7 +19,7 @@ export function useServerEvents() {
     events.onopen = () => {
       queryClient.invalidateQueries({ queryKey: threadsKey })
       queryClient.invalidateQueries({ queryKey: workspacesKey })
-      queryClient.invalidateQueries({ queryKey: ['coordinator'] })
+      queryClient.invalidateQueries({ queryKey: ['forge'] })
     }
     events.onmessage = (e: MessageEvent<string>) => {
       const event = JSON.parse(e.data) as ServerEvent
@@ -34,13 +34,13 @@ export function useServerEvents() {
       } else if (event.type === 'eval.updated') {
         // The status and its output, and the results, which change as runs end.
         queryClient.invalidateQueries({ queryKey: evalsKey })
-      } else if (event.type === 'coordinator.updated') {
+      } else if (event.type === 'forge.updated') {
         // The pipeline and chat both come from saved checkpoints.
-        queryClient.invalidateQueries({ queryKey: coordinatorKey(event.issueId), exact: true })
-        queryClient.invalidateQueries({ queryKey: coordinatorMessagesKey(event.issueId) })
+        queryClient.invalidateQueries({ queryKey: forgeKey(event.issueId), exact: true })
+        queryClient.invalidateQueries({ queryKey: forgeMessagesKey(event.issueId) })
         // Whether it's waiting for an approval, for the issue lists.
         queryClient.invalidateQueries({ queryKey: approvalsKey })
-        // The workspace says whether its coordinator is working (it can't be deleted then).
+        // The workspace says whether its forge is working (it can't be deleted then).
         queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId), exact: true })
       }
     }

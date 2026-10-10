@@ -3,7 +3,7 @@ import { Button, Card, CardContent, Stack, TextField, Typography } from "@mui/ma
 import { PRIORITY_NAMES, type Decision, type PendingAction } from "shared";
 import MarkdownText from "./MarkdownText.tsx";
 
-// One reply_to_pipeline call: what will be sent to the issue's coordinator.
+// One reply_to_pipeline call: what will be sent to the issue's forge.
 function PipelineReplyDetails({ action }: { action: PendingAction }) {
   const { issueId, answers, approve, feedback, decisions } = action.args as {
     issueId: string;
@@ -14,7 +14,7 @@ function PipelineReplyDetails({ action }: { action: PendingAction }) {
   };
   return (
     <Stack spacing={0.5}>
-      <Typography variant="subtitle2">Reply to the coordinator for {issueId}</Typography>
+      <Typography variant="subtitle2">Reply to the Forge for {issueId}</Typography>
       {answers && (
         // Each answer under the question it's for (when known), matched by position.
         <Stack component="ol" sx={{ m: 0, pl: 3 }}>

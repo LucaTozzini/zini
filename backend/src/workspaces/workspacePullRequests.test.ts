@@ -11,7 +11,7 @@ test("PR creation rejects unfinished work and uses the workspace branch and conf
   process.env.DB_PATH = join(dir, "db.sqlite");
   const { openWorkspacePullRequest: open } = await import("./workspacePullRequests.js");
   type Dependencies = NonNullable<Parameters<typeof open>[3]>;
-  let workspace: Workspace = { issueId: "issue", branch: "feature/email", path: "docker-volume:fixture/repo", createdAt: "", coordinatorRunning: false, uncommitted: false, unpushed: false };
+  let workspace: Workspace = { issueId: "issue", branch: "feature/email", path: "docker-volume:fixture/repo", createdAt: "", forgeRunning: false, uncommitted: false, unpushed: false };
   let pushed = true, running = false;
   const calls: Parameters<Dependencies["create"]>[] = [];
   const deps: Dependencies = {
@@ -32,10 +32,10 @@ test("PR creation rejects unfinished work and uses the workspace branch and conf
       }
       assert.equal(calls.length, 0);
     });
-    await t.test("active coordinators block publication", async () => {
+    await t.test("active Forges block publication", async () => {
       running = true;
       const result = await open("issue", "Copy email", "", deps);
-      assert.ok("error" in result); assert.match(result.error, /coordinator is still working/); assert.equal(calls.length, 0);
+      assert.ok("error" in result); assert.match(result.error, /Forge is still working/); assert.equal(calls.length, 0);
       running = false;
     });
     await t.test("a clean pushed workspace opens a PR with normalized content and returns its link", async () => {

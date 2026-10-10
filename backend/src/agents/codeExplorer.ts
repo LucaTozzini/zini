@@ -5,7 +5,7 @@ import { AIMessage, createAgent } from "langchain";
 import type { RunLogEntry } from "shared";
 import { modelRetry, toolErrors } from "./agents.js";
 import { codeTools, fetchRepoMiddleware } from "./codeTools.js";
-import { logTo } from "../coordinator/runLog.js";
+import { logTo } from "../forge/runLog.js";
 import { storage } from "../db.js";
 import { npmTools } from "./npmTools.js";
 
@@ -26,15 +26,15 @@ and search_code, and packages as published on npm with the npm_ tools.
 // answered still ends.
 const RECURSION_LIMIT = 100;
 
-// A log of each explorer run, for debugging, in the coordinator's run log format (see
+// A log of each explorer run, for debugging, in the forge's run log format (see
 // runLog.ts): the question, every model call and tool call, and the answer. One JSON
 // Lines file per run, written as the run goes, so it can be watched live:
 //   data/explorer-logs/<when it started>.jsonl
-// The start line names the caller's thread (a PM chat's id, or coordinator:<issueId>),
+// The start line names the caller's thread (a Project Lead chat's id, or forge:<issueId>),
 // to find a caller's runs by.
 const LOG_DIR = resolve(dirname(storage), "explorer-logs");
 
-// The coordinator's entries (which logTo writes), with the explorer's own start and
+// The forge's entries (which logTo writes), with the explorer's own start and
 // end.
 type ExplorerLogEntry =
   | RunLogEntry

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PullRequest, PullRequestStatus, Workspace, WorkspaceDiff } from 'shared'
 import { api } from './client.ts'
-import { coordinatorKey } from './coordinator.ts'
+import { forgeKey } from './forge.ts'
 
 export const workspacesKey = ['workspaces']
 export const workspaceKey = (issueId: string) => [...workspacesKey, issueId]
@@ -32,11 +32,11 @@ export function useDeleteWorkspace() {
   })
 }
 
-// The workspace's changes so far. Under the coordinator's key, so it's refetched with
+// The workspace's changes so far. Under the forge's key, so it's refetched with
 // it, e.g. after every file the coder writes.
 export function useWorkspaceDiff(issueId: string, enabled: boolean) {
   return useQuery({
-    queryKey: [...coordinatorKey(issueId), 'diff'],
+    queryKey: [...forgeKey(issueId), 'diff'],
     queryFn: () => api.get(`workspaces/${issueId}/diff`).json<WorkspaceDiff>(),
     enabled,
   })

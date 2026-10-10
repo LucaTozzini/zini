@@ -1,11 +1,11 @@
 import type { PullRequest } from "shared";
 import { createPullRequest } from "../integrations/github.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
-import { withIdentifier } from "../coordinator/writers.js";
+import { withIdentifier } from "../forge/writers.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
 import { defaultBranch } from "../repositories/git.js";
-import { getWorkspace, isCoordinatorRunning } from "./workspaces.js";
+import { getWorkspace, isForgeRunning } from "./workspaces.js";
 import { isPushed } from "./workspaceFiles.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
@@ -13,7 +13,7 @@ import { sendEvent } from "../core/events.js";
 
 const dependencies = {
   starting: (id: string) => workspaceApps.starting(id),
-  running: (id: string) => isCoordinatorRunning(id),
+  running: (id: string) => isForgeRunning(id),
   workspace: getWorkspace,
   pushed: isPushed,
   github: async () => {
@@ -26,7 +26,7 @@ const dependencies = {
   create: createPullRequest,
 };
 
-// Shared by the workspace UI and PM. Never commits or pushes implicitly.
+// Shared by the workspace UI and Project Lead. Never commits or pushes implicitly.
 export async function openWorkspacePullRequest(
   issueId: string,
   title: string,
@@ -35,7 +35,7 @@ export async function openWorkspacePullRequest(
 ): Promise<{ pullRequest: PullRequest } | { status: number; error: string }> {
   return withWorkspaceLock(issueId, async () => {
     if (deps.starting(issueId)) return { status: 409, error: "The user app is still being prepared" };
-    if (deps.running(issueId)) return { status: 409, error: "The coordinator is still working in this workspace" };
+    if (deps.running(issueId)) return { status: 409, error: "The Forge is still working in this workspace" };
     if (!title.trim()) return { status: 400, error: "Expected a title" };
     try {
       const workspace = await deps.workspace(issueId);

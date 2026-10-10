@@ -46,7 +46,7 @@ settings.put("/", async (req, res) => {
     changes[key] = trimmed;
   }
 
-  for (const key of ["productManagerProvider", "coordinatorProvider"] as const) {
+  for (const key of ["projectLeadProvider", "forgeProvider"] as const) {
     const provider = changes[key];
     if (provider && !(MODEL_PROVIDERS as readonly string[]).includes(provider)) {
       res.status(400).json({ error: `${key} must be one of ${MODEL_PROVIDERS.join(", ")}` });

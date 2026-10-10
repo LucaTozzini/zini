@@ -19,7 +19,7 @@ function resolveIn(issueId: string, path: string) {
 const inWorkspace = (issueId: string, args: string[], exit1Ok = false) =>
   git(["-C", workspacePath(issueId), ...args], undefined, { exit1Ok });
 
-// A source-backed coordinator fact is usable only while the file it describes is
+// A source-backed forge fact is usable only while the file it describes is
 // unchanged. Paths go through the same workspace boundary checks as read_file.
 export async function fingerprintWorkspaceFile(issueId: string, path: string) {
   return workspaceRequest<string | null>(issueId, "file", { operation: "fingerprint", path });

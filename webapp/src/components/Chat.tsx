@@ -16,7 +16,7 @@ import SystemMessage from "./chat/SystemMessage.tsx";
 import AiMessage from "./chat/AiMessage.tsx";
 
 // Everything the chat shows and does, whatever agent and API are behind it (e.g.
-// useChat for the product manager).
+// useChat for the project lead).
 export type ChatState = {
   messages: ChatMessage[];
   // Actions waiting on approval.

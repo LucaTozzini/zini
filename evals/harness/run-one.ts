@@ -19,14 +19,14 @@ import {
   resumePipeline,
   startPipeline,
   stopQa,
-} from "../../backend/src/coordinator/coordinator.js";
+} from "../../backend/src/forge/forge.js";
 import { initDb, storage } from "../../backend/src/db.js";
 import { cloneWorkspace } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
 import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
 import { ensureSandbox, removeSandbox, sandboxRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
 import { chromium } from "playwright";
-import { runCommandResult } from "../../backend/src/coordinator/qaProcesses.js";
+import { runCommandResult } from "../../backend/src/forge/qaProcesses.js";
 import { startApp } from "./app.js";
 import type { RunMetrics } from "shared";
 import { roleMetrics, totals } from "./metrics.js";
@@ -204,7 +204,7 @@ async function main() {
   // The run logs go straight to the results folder ("junction": no admin rights needed
   // on Windows; ignored elsewhere).
   mkdirSync(join(runDir, "logs"), { recursive: true });
-  symlinkSync(join(runDir, "logs"), join(dataDir, "coordinator-logs"), "junction");
+  symlinkSync(join(runDir, "logs"), join(dataDir, "forge-logs"), "junction");
 
   await initDb();
   cloneLikeZini(makeSourceRepo());

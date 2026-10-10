@@ -1,7 +1,7 @@
 # Workspace sandbox
 
 Start Docker Desktop and run `npm run sandbox:build` from the repository root before
-starting a coordinator or preview. This installs git, Node.js/npm, curl, CA certificates,
+starting a Forge or preview. This installs git, Node.js/npm, curl, CA certificates,
 and Playwright Chromium in one common Linux image. Rebuild after gateway/image changes;
 existing containers keep their image until recreated. No per-repository configuration
 or additional application service containers are required.
@@ -44,9 +44,9 @@ and disables hooks, credential helpers, fsmonitor and untrusted system/global co
 A helper-owned temporary config permits only its read-only /source cache for Git's
 local clone transport.
 
-Use the PM `sync_workspace` tool or `POST /api/workspaces/:issueId/sync` with
+Use the Project Lead `sync_workspace` tool or `POST /api/workspaces/:issueId/sync` with
 `{"merge":false}` to fetch, or `{"merge":true}` to merge the configured default branch.
-Pause the coordinator first. Merging refuses unfinished edits, preserves commit history,
+Pause the Forge first. Merging refuses unfinished edits, preserves commit history,
 and leaves conflicts for resolution. Source revision checks invalidate prior validation
 and source-backed facts on subsequent pipeline runs. Git mutations and container
 lifecycle operations use workspace locks; credentials use the backend's configured

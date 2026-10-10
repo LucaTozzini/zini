@@ -13,7 +13,7 @@ import {
 export type RepositoryGit = (args: string[], exit1Ok?: boolean) => Promise<string>;
 
 // Tool paths are virtual, never host paths. Reject Windows drive/UNC/ADS paths even
-// on Linux, so moving a coordinator between hosts does not change its permissions.
+// on Linux, so moving a forge between hosts does not change its permissions.
 export function repositoryPath(path: string) {
   if (/[\0:]/.test(path) || path.startsWith("\\\\") || path.startsWith("//"))
     throw new Error("Use a path inside the repository, not a host path");

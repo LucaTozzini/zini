@@ -14,7 +14,7 @@ test("Docker workspace isolates commands, recovers previews and keeps QA cleanup
   process.env.DB_PATH = join(dir, "db.sqlite");
   const { git, workspacePath } = await import("../repositories/git.js");
   const { ensureSandbox, removeSandbox, workspaceRequest, docker } = await import("./workspaceSandbox.js");
-  const { runCommandResult, startProcess, stopAllProcesses } = await import("../coordinator/qaProcesses.js");
+  const { runCommandResult, startProcess, stopAllProcesses } = await import("../forge/qaProcesses.js");
   const { WorkspaceAppRuntime, availableAppPort } = await import("./workspaceAppRuntime.js");
   const { getPage, closeBrowser } = await import("../browser/agentBrowser.js");
   const { sequelize } = await import("../db.js");
@@ -23,7 +23,7 @@ test("Docker workspace isolates commands, recovers previews and keeps QA cleanup
     const { createTestWorkspace } = await import("./testFixtures.js");
     for (const id of [issue, other]) await createTestWorkspace(id, { "README.md": "sandbox\n" });
     const { startRun } = await import("../agents/runs.js");
-    assert.equal(await startRun(`coordinator:${issue}`, async () => {
+    assert.equal(await startRun(`forge:${issue}`, async () => {
       assert.equal(await workspaceRequest(issue, "file", { operation: "readText", path: "README.md" }), "sandbox\n");
       return (async function* () { yield {}; })();
     }, () => {}), true);

@@ -10,7 +10,7 @@ test("volume clones keep source off the host; trusted Git preserves staging and 
   const { workspacePath, git, removeWorkspaceMarker } = await import("./git.js");
   const { createTestWorkspace } = await import("../workspaces/testFixtures.js");
   const { ensureWorkspaceVolume } = await import("../workspaces/workspaceVolumes.js");
-  const { runCommandResult } = await import("../coordinator/qaProcesses.js");
+  const { runCommandResult } = await import("../forge/qaProcesses.js");
   const { removeSandbox, workspaceRequest } = await import("../workspaces/workspaceSandbox.js");
   const { sequelize } = await import("../db.js");
   const root = workspacePath("new");

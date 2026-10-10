@@ -228,8 +228,8 @@ function ChatGptCard() {
 // models. Both are saved together.
 function ModelCard({ title, provider: providerSetting, model: modelSetting, helperText }: {
   title: string;
-  provider: "productManagerProvider" | "coordinatorProvider";
-  model: "productManagerModel" | "coordinatorModel";
+  provider: "projectLeadProvider" | "forgeProvider";
+  model: "projectLeadModel" | "forgeModel";
   helperText: string;
 }) {
   const settings = useSettings();
@@ -365,16 +365,16 @@ function SettingsPage() {
         />
         <ChatGptCard />
         <ModelCard
-          title="Product manager"
-          provider="productManagerProvider"
-          model="productManagerModel"
+          title="Project Lead"
+          provider="projectLeadProvider"
+          model="projectLeadModel"
           helperText="An OpenRouter model ID that supports tool calling."
         />
         <ModelCard
-          title="Coordinator"
-          provider="coordinatorProvider"
-          model="coordinatorModel"
-          helperText="An OpenRouter model ID for the coordinator, which guides implementing an issue in its workspace."
+          title="Forge"
+          provider="forgeProvider"
+          model="forgeModel"
+          helperText="An OpenRouter model ID for the Forge, which guides implementing an issue in its workspace."
         />
         <AppearanceCard />
       </Stack>

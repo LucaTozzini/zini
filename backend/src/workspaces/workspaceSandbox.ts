@@ -23,9 +23,23 @@ export async function existingSandbox(issueId: string): Promise<Sandbox | null> 
   if (!info.Mounts?.some((mount: { Name?: string; Destination: string }) => mount.Name === workspaceVolume(issueId) && mount.Destination === "/workspace")) return null;
   if (info.Config.Labels?.["zini.storage"] !== workspaceIdentity) throw new Error("Workspace container belongs to a different data directory");
   if (!info.State.Running) return null;
-  const mapping = info.NetworkSettings.Ports["7777/tcp"]?.[0];
-  const token = info.Config.Env.find((entry: string) => entry.startsWith("WORKSPACE_TOKEN="))?.slice(16);
-  if (!mapping || mapping.HostIp !== "127.0.0.1" || !token) throw new Error("Invalid workspace gateway configuration");
+  const mappings = info.NetworkSettings?.Ports?.["7777/tcp"] ?? [];
+  const mapping = mappings[0];
+  const token = info.Config.Env?.find((entry: string) => entry.startsWith("WORKSPACE_TOKEN="))?.slice(16);
+  if (!mapping || mapping.HostIp !== "127.0.0.1" || !token) {
+    const failures = [
+      !mapping && "no published port for 7777/tcp",
+      mapping && mapping.HostIp !== "127.0.0.1" && "gateway port is not bound to 127.0.0.1",
+      !token && "WORKSPACE_TOKEN is missing or empty",
+    ].filter(Boolean);
+    // Log selected configuration fields only: Env contains the gateway secret.
+    throw new Error(`Invalid workspace gateway configuration: ${failures.join("; ")}. ${JSON.stringify({
+      issueId, container: name, containerId: info.Id, status: info.State.Status,
+      startedAt: info.State.StartedAt, restartCount: info.RestartCount,
+      publishedPorts: mappings, configuredPorts: info.HostConfig?.PortBindings?.["7777/tcp"] ?? [],
+      networks: Object.keys(info.NetworkSettings?.Networks ?? {}), hasToken: Boolean(token),
+    })}`);
+  }
   registerGitSandbox(workspacePath(issueId), name);
   return { name, port: Number(mapping.HostPort), token };
 }

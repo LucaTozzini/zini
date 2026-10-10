@@ -90,7 +90,7 @@ async function isReady(service: AppService) {
   } catch { return false; }
 }
 
-// User launch sessions own their processes independently of coordinator/QA cleanup.
+// User launch sessions own their processes independently of forge/QA cleanup.
 // Used by the in-container gateway, which persists its launch plan for recovery.
 export class WorkspaceAppRuntime {
   private sessions = new Map<string, Session>();

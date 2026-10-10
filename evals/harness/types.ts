@@ -1,4 +1,4 @@
-// A scenario: an issue for the coordinator to work on, in a copy of a test repo, with an
+// A scenario: an issue for the forge to work on, in a copy of a test repo, with an
 // optional patch applied first (e.g. a planted bug) and answers for the questions the
 // subagents may ask. Each lives in evals/scenarios/<repo>/<name>/, under the folder of
 // the repo in evals/repos it runs on, as scenario.json, and can also hold check.ts, a

@@ -9,16 +9,16 @@ import {
 import { workspaceApps } from "./workspaces/workspaceAppSessions.js";
 import { initDb } from "./db.js";
 import { subscribe } from "./core/events.js";
-import { coordinator } from "./routes/coordinator.js";
+import { forge } from "./routes/forge.js";
 import { integrations } from "./routes/integrations.js";
-import { productManager } from "./routes/productManager.js";
+import { projectLead } from "./routes/projectLead.js";
 import { evals } from "./routes/evals.js";
 import { chatgpt } from "./routes/chatgpt.js";
 import { usersRouter } from "./routes/users.js";
 import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
-import { startPmCoordinatorUpdates } from "./productManager/pmCoordinatorUpdates.js";
+import { startProjectLeadForgeUpdates } from "./projectLead/projectLeadForgeUpdates.js";
 import { requireApiUser } from "./auth/session.js";
 import { Workspace } from "./models/Workspace.js";
 
@@ -39,9 +39,9 @@ app.get("/api/events", (_req, res) => {
   subscribe(res);
 });
 
-app.use("/api/coordinator", coordinator);
+app.use("/api/forge", forge);
 app.use("/api/integrations", integrations);
-app.use("/api/product-manager", productManager);
+app.use("/api/project-lead", projectLead);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);
 app.use("/api/evals", evals);
@@ -68,12 +68,12 @@ function recoverPreviews() {
 }
 async function refreshPreviews() {
   for (const workspace of await Workspace.findAll()) {
-    await workspaceApps.refresh(workspace.issueId).catch(error => console.error("Workspace preview recovery:", String(error)));
+    await workspaceApps.refresh(workspace.issueId).catch(error => console.error(`Workspace preview recovery [${workspace.issueId}]:`, error));
   }
 }
 await recoverPreviews();
 setInterval(() => { void recoverPreviews(); }, 5000).unref();
-startPmCoordinatorUpdates();
+startProjectLeadForgeUpdates();
 
 const server = createServer(app);
 workspacePreviewUpgrades(server, workspaceApps);

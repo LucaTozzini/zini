@@ -7,7 +7,7 @@ import {
 } from "sequelize";
 import { sequelize } from "../db.js";
 
-// A product manager chat. The messages live in the LangGraph checkpointer under
+// A project lead chat. The messages live in the LangGraph checkpointer under
 // the same id; this row is just what the chat list needs.
 export class User extends Model<
   InferAttributes<User>,

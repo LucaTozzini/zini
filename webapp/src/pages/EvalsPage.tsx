@@ -33,7 +33,7 @@ import {
 } from "../api/evals.ts";
 import DiffView from "../components/pipeline/DiffView.tsx";
 
-// Runs the coordinator on test scenarios (see evals/README.md) and shows the results: start
+// Runs the forge on test scenarios (see evals/README.md) and shows the results: start
 // one, watch its output, and look at past batches, alone or compared with another.
 
 // When a batch started, from its id (an ISO time with : and . as -).
@@ -106,7 +106,7 @@ function StartEval({ disabled }: { disabled: boolean }) {
             />
             <Typography variant="body2" color="text.secondary">
               Each run is a full pipeline run in a Docker container. It spends OpenRouter credit, with the
-              coordinator's model, and can take a while.
+              Forge's model, and can take a while.
             </Typography>
           </Stack>
         </DialogContent>

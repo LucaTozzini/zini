@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { RoleMetrics, RunMetrics } from "shared";
 
 // Metrics for one eval run, from its run logs (one JSON Lines file per subagent run; see
-// backend/src/coordinator/runLog.ts) and what the harness saw.
+// backend/src/forge/runLog.ts) and what the harness saw.
 
 type LogEvent = {
   t: string;

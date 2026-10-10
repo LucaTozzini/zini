@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from "@mui/material";
 import type { PipelineState, SteeringTarget } from "shared";
-import { useRedirectPipeline } from "../../api/coordinator.ts";
+import { useRedirectPipeline } from "../../api/forge.ts";
 import { errorMessage } from "../../api/client.ts";
 
 export default function SteeringControls({ issueId, pipeline, disabled }: { issueId: string; pipeline: PipelineState; disabled: boolean }) {
@@ -18,7 +18,7 @@ export default function SteeringControls({ issueId, pipeline, disabled }: { issu
       {busy ? "Stopping before redirecting…" : "Redirect…"}
     </Button>
     <Dialog open={open} onClose={() => { if (!busy) setOpen(false); }} fullWidth maxWidth="sm">
-      <DialogTitle>Redirect coordinator</DialogTitle>
+      <DialogTitle>Redirect Forge</DialogTitle>
       <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
         <TextField select label="Start from" value={target} disabled={busy}
           onChange={(event) => setTarget(event.target.value as SteeringTarget)}>
@@ -27,7 +27,7 @@ export default function SteeringControls({ issueId, pipeline, disabled }: { issu
           </MenuItem>)}
         </TextField>
         <TextField label="Feedback" required multiline minRows={4} value={feedback} disabled={busy}
-          onChange={(event) => setFeedback(event.target.value)} helperText="The coordinator keeps existing edits and reruns the pipeline from this stage." />
+          onChange={(event) => setFeedback(event.target.value)} helperText="The Forge keeps existing edits and reruns the pipeline from this stage." />
         {busy && <Alert severity="info">Stopping before redirecting…</Alert>}
         {redirect.error && <Alert severity="error">{errorMessage(redirect.error)}</Alert>}
       </Stack></DialogContent>

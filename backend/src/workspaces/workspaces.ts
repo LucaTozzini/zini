@@ -5,8 +5,8 @@ import { cloneWorkspace, fetchRepo, pushBranch, removeWorkspaceMarker, workspace
 import { fetchLinearIssue } from "../integrations/linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "../models/Workspace.js";
-import { coordinatorThreadId, deleteConversation, stopQa } from "../coordinator/coordinator.js";
-import { deleteRunLogs } from "../coordinator/runLog.js";
+import { forgeThreadId, deleteConversation, stopQa } from "../forge/forge.js";
+import { deleteRunLogs } from "../forge/runLog.js";
 import { forgetRun, isRunning } from "../agents/runs.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
 import { removeSandbox } from "./workspaceSandbox.js";
@@ -28,7 +28,7 @@ async function toResponse(row: Workspace): Promise<WorkspaceResponse> {
     branch,
     path: `docker-volume:${workspaceVolume(row.issueId)}/repo`,
     createdAt: row.createdAt.toISOString(),
-    coordinatorRunning: isCoordinatorRunning(row.issueId),
+    forgeRunning: isForgeRunning(row.issueId),
     uncommitted,
     unpushed,
   };
@@ -62,9 +62,9 @@ export async function createWorkspace(linear: LinearClient, issueId: string) {
   return { workspace: await toResponse(await row.reload()), created: true };
 }
 
-// Removes the issue's Docker resources, host marker and coordinator
+// Removes the issue's Docker resources, host marker and forge
 // conversation (which was about this workspace), then its row. false if it had none.
-// Not while the coordinator is running.
+// Not while the forge is running.
 // What the QA left running while it waits on you is stopped first: its files would
 // otherwise be in use.
 export async function deleteWorkspace(issueId: string) {
@@ -79,16 +79,16 @@ async function deleteWorkspaceLocked(issueId: string) {
   await removeWorkspaceMarker(issueId);
   await deleteConversation(issueId);
   await deleteRunLogs(issueId);
-  forgetRun(coordinatorThreadId(issueId));
+  forgetRun(forgeThreadId(issueId));
   await row.destroy();
   return true;
 }
 
-export const isCoordinatorRunning = (issueId: string) => isRunning(coordinatorThreadId(issueId));
+export const isForgeRunning = (issueId: string) => isRunning(forgeThreadId(issueId));
 
 // Commits the workspace's uncommitted changes, if any, with message, then pushes its
 // branch to GitHub. With nothing uncommitted it only pushes (e.g. after a push that
-// failed). Not while the coordinator is running in it. Answers with the
+// failed). Not while the forge is running in it. Answers with the
 // workspace, or with what stopped it and the HTTP status that goes with it.
 export async function commitAndPush(
   issueId: string,
@@ -96,7 +96,7 @@ export async function commitAndPush(
 ): Promise<{ workspace: WorkspaceResponse } | { status: number; error: string }> {
   return withWorkspaceLock(issueId, async () => {
     if (workspaceApps.starting(issueId)) return { status: 409, error: "The user app is still being prepared" };
-    if (isCoordinatorRunning(issueId)) return { status: 409, error: "The coordinator is still working in this workspace" };
+    if (isForgeRunning(issueId)) return { status: 409, error: "The Forge is still working in this workspace" };
     if (!(await Workspace.findByPk(issueId))) return { status: 404, error: "This issue has no workspace" };
     await ensureWorkspaceVolume(issueId);
     return trustedGit(workspacePath(issueId), () => commitAndPushLocked(issueId, message));

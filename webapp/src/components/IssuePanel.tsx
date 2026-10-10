@@ -220,10 +220,10 @@ function WorkspaceSection({
                 open={Boolean(menuAnchor)}
                 onClose={() => setMenuAnchor(null)}
               >
-                {/* Not while the coordinator is running in it. */}
+                {/* Not while the forge is running in it. */}
                 <MenuItem
                   disabled={
-                    workspace.data.coordinatorRunning
+                    workspace.data.forgeRunning
                   }
                   onClick={() => {
                     setMenuAnchor(null);
@@ -303,7 +303,7 @@ function WorkspaceSection({
               <DialogContentText>
                 This deletes the folder and the local branch{" "}
                 <Code>{workspace.data.branch}</Code>, including any uncommitted
-                changes, and the coordinator conversation. The branch on GitHub is kept.
+                changes, and the Forge conversation. The branch on GitHub is kept.
               </DialogContentText>
               {remove.isError && (
                 <Alert severity="error" sx={{ mt: 2 }}>

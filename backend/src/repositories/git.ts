@@ -125,7 +125,7 @@ export function cloneRepo(repo: string) {
   });
 }
 
-// The fetch in progress, if any. Callers that arrive while it runs (e.g. the PM's
+// The fetch in progress, if any. Callers that arrive while it runs (e.g. the Project Lead's
 // parallel tool calls) share it, and its outcome, instead of each fetching.
 let fetching: Promise<void> | null = null;
 
@@ -193,7 +193,7 @@ export async function syncWorkspace(issueId: string, merge = false) {
   await ensureWorkspaceVolume(issueId);
   return withWorkspaceLock(issueId, () => trustedGit(workspacePath(issueId), async () => {
     const { isRunning } = await import("../agents/runs.js");
-    if (isRunning(`coordinator:${issueId}`)) throw new Error("Pause the coordinator before syncing its workspace");
+    if (isRunning(`forge:${issueId}`)) throw new Error("Pause the Forge before syncing its workspace");
     const path = workspacePath(issueId);
     const token = await requireToken();
     await git(["-C", path, "fetch", "--quiet", "--prune", repoUrl(String(await getSetting("githubRepo"))), "+refs/heads/*:refs/remotes/origin/*"], token);

@@ -6,12 +6,12 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { browserAddress, browserTools } from "./browserTools.js";
 import { addViewer, browserState, closeBrowser, getPage } from "./agentBrowser.js";
 
-test("PM browser opens external pages, persists per chat, streams frames and closes independently of other chats", async () => {
+test("Project Lead browser opens external pages, persists per chat, streams frames and closes independently of other chats", async () => {
   assert.equal(browserAddress("https://example.com", true).hostname, "example.com");
   assert.throws(() => browserAddress("https://example.com"), /Only addresses on this machine/);
   assert.throws(() => browserAddress("file:///etc/passwd", true), /Only HTTP and HTTPS/);
-  const key = "pm:browser-test";
-  const qaKey = "pm:other-browser-test";
+  const key = "project-lead:browser-test";
+  const qaKey = "project-lead:other-browser-test";
   let notifications = 0;
   const tools = browserTools(key, () => notifications++, { external: true });
   const call = (name: string, args: Record<string, unknown>) =>
@@ -53,7 +53,7 @@ test("PM browser opens external pages, persists per chat, streams frames and clo
 });
 
 test("browser tools interact, wait, emulate and return real screenshot image content", async () => {
-  const key = "pm:browser-controls-test";
+  const key = "project-lead:browser-controls-test";
   const tools = browserTools(key, () => {}, { external: true });
   const call = (name: string, args: Record<string, unknown>) =>
     (tools.find((tool) => tool.name === name)! as StructuredToolInterface).invoke(args);

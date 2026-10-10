@@ -11,7 +11,7 @@ import {
 import { useParams } from "react-router";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
-import CoordinatorView from "../components/CoordinatorView.tsx";
+import ForgeView from "../components/ForgeView.tsx";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import IssuePanel from "../components/IssuePanel.tsx";
 import { useState } from "react";
@@ -107,7 +107,7 @@ function IssueDetails({ issueId }: { issueId: string }) {
         linearUrl={issue.data.url}
         handleShowDetails={() => setShowDetails(true)}
       />
-      <CoordinatorView key={issue.data.id} issueId={issue.data.id} />
+      <ForgeView key={issue.data.id} issueId={issue.data.id} />
       <Dialog
         open={showDetails}
         onClose={() => setShowDetails(false)}

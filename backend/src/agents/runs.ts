@@ -1,6 +1,6 @@
 import type { Response } from "express";
 
-// Agent runs (product manager chats, coordinator conversations) happen in the
+// Agent runs (project lead chats, forge conversations) happen in the
 // background: the request that starts one returns once its input is saved, and the
 // webapp learns about progress from an event, sent whenever the conversation changes,
 // after which it refetches it. What isn't in the checkpointer (whether a run is going,
@@ -61,7 +61,7 @@ export function pauseRun(runId: string, reservation?: symbol): boolean {
   return true;
 }
 
-// Chat Stop frees the slot immediately; coordinator Pause frees it after draining.
+// Chat Stop frees the slot immediately; forge Pause frees it after draining.
 function endRun(
   runId: string,
   control: AbortController,
@@ -100,10 +100,10 @@ export async function startRun(
     if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
     runs.set(runId, status); controls.set(runId, control); return true;
   };
-  if (runId.startsWith("coordinator:")) {
+  if (runId.startsWith("forge:")) {
     const { withWorkspaceLock } = await import("../workspaces/workspaceLocks.js");
     const { ensureWorkspaceVolume } = await import("../workspaces/workspaceVolumes.js");
-    const issueId = runId.slice("coordinator:".length);
+    const issueId = runId.slice("forge:".length);
     if (!await withWorkspaceLock(issueId, async () => {
       if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
       // Verify storage before claiming the run.
@@ -156,7 +156,7 @@ export async function beginRun(
 // Reserve the workspace across cancellation and checkpoint replacement. Other starts
 // remain blocked even between the old run ending and the replacement starting.
 export async function withPausedRun<T>(runId: string, notify: () => void, work: (reservation: symbol) => Promise<T>) {
-  if (reservations.has(runId)) throw new Error("The coordinator is already redirecting");
+  if (reservations.has(runId)) throw new Error("The Forge is already redirecting");
   const reservation = Symbol(runId);
   reservations.set(runId, reservation);
   try {
@@ -164,7 +164,7 @@ export async function withPausedRun<T>(runId: string, notify: () => void, work: 
     notify();
     const deadline = Date.now() + 60_000;
     while (runStatus(runId).running) {
-      if (Date.now() >= deadline) throw new Error("Cancellation has not finished. The coordinator remains paused; try again once it stops.");
+      if (Date.now() >= deadline) throw new Error("Cancellation has not finished. The Forge remains paused; try again once it stops.");
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     return await work(reservation);

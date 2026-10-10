@@ -5,7 +5,7 @@ import { ensureSandbox, sandboxRequest } from "../workspaces/workspaceSandbox.js
 
 // The agent's browser: one headless Chromium page per session key (Playwright's own build,
 // installed with the backend), opened on its first browser tool. QA closes it at the end
-// of a run; PM chats keep it between turns until explicitly closed or deleted.
+// of a run; Project Lead chats keep it between turns until explicitly closed or deleted.
 // Anyone can watch it live (addViewer): while someone does, Chrome
 // sends a frame whenever the page repaints (CDP screencast), passed on as MJPEG, which
 // an <img> shows as it comes.
@@ -35,14 +35,14 @@ const sessionIds = new Map<string, string>();
 async function launch(key: string): Promise<Session> {
   let browser: Browser;
   try {
-    if (key.startsWith("pm:")) browser = await chromium.launch();
+    if (key.startsWith("project-lead:")) browser = await chromium.launch();
     else {
       const sandbox = await ensureSandbox(key);
       await sandboxRequest(sandbox, "browser");
       browser = await chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
     }
   } catch (err) {
-    if (!key.startsWith("pm:")) throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
+    if (!key.startsWith("project-lead:")) throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
     throw new Error(
       "The agent's browser couldn't start. If it isn't installed, run `npx playwright install " +
         `chromium --only-shell\` in zini's backend folder (npm install does it). ${String(err)}`,

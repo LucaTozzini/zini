@@ -160,7 +160,7 @@ const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
           </List>
         )}
       </MyDialog>
-      {/* Shared by every chat: agents/pm.md in the backend's data folder. */}
+      {/* Shared by every chat: agents/project-lead.md in the backend's data folder. */}
       <MyDialog
         open={showModal === 3}
         title="Project notes"

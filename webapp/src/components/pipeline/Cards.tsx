@@ -38,7 +38,7 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
   return (
     <Stack component="form" spacing={1.5} onSubmit={handleSubmit}>
       <Typography variant="body2" color="text.secondary">
-        {workspace.data === null ? "Create a workspace for this issue before starting the coordinator." :
+        {workspace.data === null ? "Create a workspace for this issue before starting the forge." :
           "You’ll be asked to approve the plan and any commands that need permission."}
       </Typography>
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}

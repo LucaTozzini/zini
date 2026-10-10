@@ -15,7 +15,7 @@ import { useServerEvents } from "./api/events.ts";
 import { useSetup } from "./hooks/useSetup.ts";
 import SettingsPage from "./pages/SettingsPage.tsx";
 import EvalsPage from "./pages/EvalsPage.tsx";
-import ProductManagerPage from "./pages/ProductManagerPage.tsx";
+import ProjectLeadPage from "./pages/ProjectLeadPage.tsx";
 import IssuePage from "./pages/IssuePage.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import { useUserMe } from "./api/users.ts";
@@ -30,15 +30,15 @@ function SignedInApp() {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setNavOpen(false), [location.pathname]);
-  // The product manager only renders once its integrations are set up; until
+  // The project lead only renders once its integrations are set up; until
   // then its route shows the setup banner.
-  const productManager =
+  const projectLead =
     setup?.linear &&
     setup.modelProvider &&
     setup.github &&
     setup.repo &&
     setup.model ? (
-      <ProductManagerPage />
+      <ProjectLeadPage />
     ) : null;
 
   return (
@@ -84,12 +84,12 @@ function SignedInApp() {
           <Routes>
             <Route
               path="/"
-              element={<Navigate to="/product-manager" replace />}
+              element={<Navigate to="/project-lead" replace />}
             />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/evals" element={<EvalsPage />} />
-            <Route path="/product-manager" element={productManager} />
-            <Route path="/product-manager/:threadId" element={productManager} />
+            <Route path="/project-lead" element={projectLead} />
+            <Route path="/project-lead/:threadId" element={projectLead} />
             <Route path="/issues/:issueId" element={<IssuePage />} />
           </Routes>
         </Box>

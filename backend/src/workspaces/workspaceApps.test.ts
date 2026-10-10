@@ -55,7 +55,7 @@ test("nested launcher executes inside Docker without approval and recovers start
     }
   }
   class Pm extends BaseChatModel {
-    _llmType() { return "pm-test"; }
+    _llmType() { return "project-lead-test"; }
     bindTools() { return this; }
     async _generate(messages: BaseMessage[]) {
       const message = ToolMessage.isInstance(messages.at(-1)) ? new AIMessage("Done") : new AIMessage({ content: "", tool_calls: [{ id: "launch", name: "launch_workspace_app", args: { request: "Run the app." } }] });

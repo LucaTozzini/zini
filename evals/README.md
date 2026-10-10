@@ -1,18 +1,18 @@
 # Evals
 
-Runs the coordinator pipeline on repeatable test issues and records model/tool usage,
+Runs the Forge pipeline on repeatable test issues and records model/tool usage,
 validation evidence, elapsed time and hidden-check results.
 
 The trusted harness runs on the host in a separate process per run, with a temporary
 SQLite database and independent repository clone in a Linux Docker volume. Repository setup, checks, QA,
 preview servers and Chromium run inside that run's workspace Docker sandbox, using
-the same image, gateway, tools and cleanup as normal coordinators. Provider credentials
+the same image, gateway, tools and cleanup as normal forges. Provider credentials
 remain in the trusted harness; they are never mounted or passed to workspace commands.
 There is no Docker socket mount or Docker-in-Docker.
 
 ## Running
 
-Start Docker Desktop and connect the coordinator provider/model in Zini. From the
+Start Docker Desktop and connect the Forge provider/model in Zini. From the
 Evals page select a scenario and repeat count. The backend builds `sandbox/Dockerfile`
 and starts `evals/run.ts` on the host. It supplies the selected model and provider
 credentials only to the trusted runner. ChatGPT access tokens are refreshed by the
@@ -37,7 +37,7 @@ to a temporary system folder and perform the same sandbox cleanup.
 
 Results stay in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
 
-- `logs/`: live coordinator role logs
+- `logs/`: live Forge role logs
 - `diff.patch`: workspace changes before hidden checks
 - `metrics.json`: timing, tokens, tool calls, questions, plan approvals, QA verdict,
   hidden-check result, `codeVersion` and `rateLimited`
@@ -49,7 +49,7 @@ batch outcome. The Evals page keeps only the latest 500 lines in memory, restore
 latest saved output after a backend restart, and links to the full log for past batches.
 Restoring output does not resume an interrupted eval process.
 
-`codeVersion` includes coordinator sources and sandbox runtime/image files. The Evals
+`codeVersion` includes Forge sources and sandbox runtime/image files. The Evals
 page still compares batches and displays hidden checks and diffs. Model rate limits
 save the interrupted run and stop the remaining batch. Success requires a completed
 pipeline, passing QA and no failed hidden check.

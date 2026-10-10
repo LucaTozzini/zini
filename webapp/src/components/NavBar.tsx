@@ -25,7 +25,7 @@ import IssueItems from "./navbar/IssueItems.tsx";
 import NavigationGroup from "./navbar/NavigationGroup.tsx";
 import Profile from "./navbar/Profile.tsx";
 import NavBarItem from "./navbar/NavBarItem.tsx";
-import { useDeleteThread, useThreads } from "../api/productManager.ts";
+import { useDeleteThread, useThreads } from "../api/projectLead.ts";
 import SessionItem from "./navbar/SessionItem";
 import AddIcon from "@mui/icons-material/Add";
 import ZiniIcon from "./icons/ZiniIcon.tsx";
@@ -48,7 +48,7 @@ const NavBar = () => {
   const { data: linearIssuesUnstarted } = useLinearIssues(["unstarted"]);
   const { data: linearIssuesStarted } = useLinearIssues(["started"]);
   const { data: linearIssuesBacklog } = useLinearIssues(["backlog"]);
-  const { data: pmThreads, isPending: pmThreadsIsPending } = useThreads();
+  const { data: projectLeadThreads, isPending: projectLeadThreadsIsPending } = useThreads();
   const issueGroups = [
     {
       id: "unstarted",
@@ -81,9 +81,9 @@ const NavBar = () => {
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
   const menuThread =
-    pmThreads?.find((thread) => thread.id === menu?.thread.id) ?? menu?.thread;
+    projectLeadThreads?.find((thread) => thread.id === menu?.thread.id) ?? menu?.thread;
   const deletingRunningThread = Boolean(
-    pmThreads?.find((thread) => thread.id === threadToDelete?.id)?.running,
+    projectLeadThreads?.find((thread) => thread.id === threadToDelete?.id)?.running,
   );
 
   function closeDeleteDialog() {
@@ -98,8 +98,8 @@ const NavBar = () => {
     deleteThread.mutate(threadToDelete.id, {
       onSuccess: () => {
         setThreadToDelete(null);
-        if (location.pathname === "/product-manager/" + threadToDelete.id) {
-          navigate("/product-manager");
+        if (location.pathname === "/project-lead/" + threadToDelete.id) {
+          navigate("/project-lead");
         }
       },
     });
@@ -123,7 +123,7 @@ const NavBar = () => {
 
       <Box
         component="nav"
-        aria-label="Chats and coordinators"
+        aria-label="Chats and Forges"
         sx={{ minWidth: 0 }}
       >
         <List
@@ -138,11 +138,11 @@ const NavBar = () => {
                 justifyContent: "space-between",
               }}
             >
-              Product managers
+              Project Leads
               <Tooltip title="New thread">
                 <IconButton
                   component={Link}
-                  to="/product-manager"
+                  to="/project-lead"
                   size="small"
                   aria-label="New thread"
                   sx={{
@@ -156,23 +156,23 @@ const NavBar = () => {
             </ListSubheader>
           }
         >
-          {(pmThreadsIsPending || !pmThreads?.length) && (
+          {(projectLeadThreadsIsPending || !projectLeadThreads?.length) && (
             <ListItem sx={{ px: 1, py: 0.25 }}>
               <ListItemText
-                primary={pmThreadsIsPending ? "Loading..." : "No chats yet"}
+                primary={projectLeadThreadsIsPending ? "Loading..." : "No chats yet"}
                 slotProps={{
                   primary: { variant: "body2", color: "textSecondary" },
                 }}
               />
             </ListItem>
           )}
-          {pmThreads?.map((thread) => (
+          {projectLeadThreads?.map((thread) => (
             <SessionItem
               key={thread.id}
-              itemId={`/product-manager/${thread.id}`}
+              itemId={`/project-lead/${thread.id}`}
               title={thread.title}
               updatedAt={thread.createdAt}
-              selected={location.pathname === `/product-manager/${thread.id}`}
+              selected={location.pathname === `/project-lead/${thread.id}`}
               loading={thread.running}
               onMenu={(position) => setMenu({ position, thread })}
             />
@@ -182,7 +182,7 @@ const NavBar = () => {
           disablePadding
           subheader={
             <ListSubheader disableSticky sx={{ ...sectionHeaderSx, mt: 1.5 }}>
-              Coordinators
+              forge
             </ListSubheader>
           }
         >

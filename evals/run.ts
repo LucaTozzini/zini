@@ -103,7 +103,7 @@ for (const scenario of scenarios) {
   const saveResult = (ok: boolean, error: string | null) => {
     if (log) writeFileSync(join(batchDir, "console-result.json"), `${JSON.stringify({ ok, error })}\n`);
   };
-  print(`Coordinator source version: ${version}`);
+  print(`Forge source version: ${version}`);
   let batchFailed = false;
   for (let n = only ?? 1; n <= (only ?? repeat); n++) {
     if (canceled) break;

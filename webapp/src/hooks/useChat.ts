@@ -8,11 +8,11 @@ import {
   useSteerThread,
   useStopThread,
   useThread,
-} from "../api/productManager.ts";
+} from "../api/projectLead.ts";
 import type { ChatState } from "../components/Chat.tsx";
 
 // Navigation state when a new chat's first message creates it: the page keeps the
-// same chat view (see ProductManagerPage), so nothing on screen restarts.
+// same chat view (see ProjectLeadPage), so nothing on screen restarts.
 export type CreatedChatState = { chatKey: string };
 
 // Everything one chat needs: its messages, the draft, and sending or approving.

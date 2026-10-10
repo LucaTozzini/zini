@@ -9,7 +9,7 @@ import { storage } from "../db.js";
 import { isModelRateLimit } from "../providers/modelErrors.js";
 import { timestampedSerializer } from "./messageTimestamps.js";
 
-// What the agents (product manager, coordinator) share.
+// What the agents (project lead, forge) share.
 
 // Conversations live here, keyed by thread id, so a run can pause for approval and
 // resume later, even after a restart. Its own file next to the main database, since
@@ -67,7 +67,7 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
     if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
     if (message.type === "human") {
       const { source, issueId, eventId, eventType, content } = message.additional_kwargs;
-      if (source === "coordinator" && typeof issueId === "string" && typeof eventId === "string" &&
+      if (source === "forge" && typeof issueId === "string" && typeof eventId === "string" &&
         typeof eventType === "string" && typeof content === "string") {
         return [{ role: "activity", issueId, eventId, eventType, content }];
       }

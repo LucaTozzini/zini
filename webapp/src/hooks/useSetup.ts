@@ -12,13 +12,13 @@ export function useSetup() {
 
   if (!integrations.isSuccess || !settings.isSuccess || !chatGpt.isSuccess) return null;
 
-  // The product manager's model runs on its provider: OpenRouter, or the ChatGPT plan.
-  const onChatGpt = settings.data.productManagerProvider === "chatgpt";
+  // The project lead's model runs on its provider: OpenRouter, or the ChatGPT plan.
+  const onChatGpt = settings.data.projectLeadProvider === "chatgpt";
   const ready = {
     linear: integrations.data.linear.connected,
     modelProvider: onChatGpt ? chatGpt.data.connected : integrations.data.openrouter.connected,
     github: integrations.data.github.connected,
-    model: Boolean(settings.data.productManagerModel),
+    model: Boolean(settings.data.projectLeadModel),
     repo: Boolean(settings.data.githubRepo),
   };
   const missing = [];

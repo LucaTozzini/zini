@@ -6,7 +6,7 @@ import {
 } from "sequelize";
 import { sequelize } from "../db.js";
 
-// App settings as key/value rows, e.g. productManagerModel.
+// App settings as key/value rows, e.g. projectLeadModel.
 export class Setting extends Model<InferAttributes<Setting>, InferCreationAttributes<Setting>> {
   declare key: string;
   declare value: string;
