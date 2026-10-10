@@ -69,13 +69,15 @@ function CoordinatorContent({ issueId, pipeline }: { issueId: string; pipeline: 
         <Stack spacing={1} sx={{ alignItems: "center" }}>
           {messagesBelow !== null && <Button variant="contained" size="small" startIcon={<KeyboardArrowDownIcon />}
             onClick={scrollToBottom} sx={{ pointerEvents: "auto" }}>Latest activity</Button>}
-          {hasControl && <Button variant="outlined" loading={control.isPending || pipeline.pausing}
-            disabled={start.isPending || resume.isPending || redirect.isPending || pipeline.pausing || pipeline.redirecting}
-            onClick={() => control.mutate(pipeline.running ? "pause" : "continue")}
-            sx={{ pointerEvents: "auto", bgcolor: "background.default" }}>
-            {pipeline.pausing ? "Pausing…" : pipeline.running ? "Pause" : "Resume"}
-          </Button>}
-          {pipeline.started && <SteeringControls issueId={issueId} pipeline={pipeline} disabled={start.isPending || resume.isPending || redirect.isPending || control.isPending} />}
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            {hasControl && <Button variant="outlined" loading={control.isPending || pipeline.pausing}
+              disabled={start.isPending || resume.isPending || redirect.isPending || pipeline.pausing || pipeline.redirecting}
+              onClick={() => control.mutate(pipeline.running ? "pause" : "continue")}
+              sx={{ pointerEvents: "auto", bgcolor: "background.default" }}>
+              {pipeline.pausing ? "Pausing…" : pipeline.running ? "Pause" : "Resume"}
+            </Button>}
+            {pipeline.started && <SteeringControls issueId={issueId} pipeline={pipeline} disabled={start.isPending || resume.isPending || redirect.isPending || control.isPending} />}
+          </Stack>
         </Stack>
       </Box>}
       <Dialog open={selected !== null} onClose={() => setSelected(null)} fullWidth

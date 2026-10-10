@@ -6,8 +6,8 @@ import {
   workspaceChanges,
   workspaceDiff,
 } from "../workspaces/workspaceFiles.js";
-import { git, workspacePath } from "../repositories/git.js";
-import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
+import { repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
+import { containerFilesystem } from "../workspaces/containerFilesystem.js";
 
 // The subagents' tools, each working in the issue's workspace.
 
@@ -15,9 +15,7 @@ import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesyste
 const MAX_DIFF_FOR_MODEL = 60_000;
 
 export function workspaceFilesystem(issueId: string, writable = false, notify?: () => void) {
-  const root = workspacePath(issueId);
-  return repositoryFilesystem(new RepositoryFilesystemBackend(root,
-    (args, exit1Ok = false) => git(["-C", root, ...args], undefined, { exit1Ok }), writable, notify), writable);
+  return repositoryFilesystem(containerFilesystem(issueId, writable, notify), writable);
 }
 
 // The files whose diffs start in a diff ("diff --git a/<path> b/<path>" lines).
@@ -94,7 +92,7 @@ export function writeTools(issueId: string, notify: () => void) {
   return [
     tool(
       changing(async ({ path }: { path: string }) =>
-        deleteWorkspaceFile(issueId, await checkedRepositoryPath(workspacePath(issueId), path))),
+        deleteWorkspaceFile(issueId, path)),
       {
         name: "delete_file",
         description: "Delete a file.",
@@ -103,8 +101,7 @@ export function writeTools(issueId: string, notify: () => void) {
     ),
     tool(
       changing(async ({ from, to }: { from: string; to: string }) =>
-        moveWorkspaceFile(issueId, await checkedRepositoryPath(workspacePath(issueId), from),
-          await checkedRepositoryPath(workspacePath(issueId), to))),
+        moveWorkspaceFile(issueId, from, to)),
       {
         name: "move_file",
         description:

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { evalStatus, listBatches, listScenarios, runDiff, startEval, stopEval } from "../evals/evals.js";
+import { batchLogFile, evalStatus, listBatches, listScenarios, runDiff, startEval, stopEval } from "../evals/evals.js";
 
 // zini's evals, at /api/evals (see evals.ts): the scenarios, the eval going on and its
 // output, starting and stopping one, and past results.
@@ -39,6 +39,13 @@ evals.post("/stop", (_req, res) => {
 
 evals.get("/batches", (_req, res) => {
   res.json(listBatches());
+});
+
+evals.get("/batches/:repo/:name/:batch/log", (req, res) => {
+  const { repo, name, batch } = req.params;
+  const file = batchLogFile(repo, name, batch);
+  if (!file) { res.status(404).json({ error: "No batch log" }); return; }
+  res.type("text/plain").sendFile(file);
 });
 
 // What one run changed in its repo, as a unified diff.

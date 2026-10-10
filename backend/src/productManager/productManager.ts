@@ -65,6 +65,8 @@ import { launchWorkspaceApp } from "../workspaces/workspaceApps.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import { browserTools } from "../browser/browserTools.js";
 import { closeBrowser } from "../browser/agentBrowser.js";
+import { syncWorkspace } from "../repositories/git.js";
+import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js";
 
 // {repo} is the githubRepo setting.
 const SYSTEM_PROMPT = `You are a product manager with access to the user's Linear workspace
@@ -118,7 +120,11 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   QA that runs the software to test the changes). Use coordinator_status to report its
   progress; never call start_coordinator just to check. Use git_diff to see the code
   changes in the issue's workspace. When the user asks you to commit them, use
-  commit_and_push, with a message you write from the diff (and the plan). Use
+  commit_and_push, with a message you write from the diff (and the plan). When asked to
+  open a PR, use open_pull_request with an accurate title and body from the diff and plan.
+  The user approves the call. If it reports uncommitted or unpushed changes, propose
+  commit_and_push first, then retry the PR after that approved call succeeds.
+  Never silently commit or push as part of opening a PR. Share the returned PR link. Use
   redirect_coordinator to interrupt work and rerun the current or an earlier stage with the user's feedback.
   Check coordinator_status steeringOptions first; redirects replace outstanding approvals and preserve edits. Use
   reply_to_pipeline to answer the pipeline's questions, approve its plan, approve or
@@ -128,7 +134,7 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   - approve_plan: approve: true to proceed.
   - approve_commands: decisions, one per command in order.
   Finished work has waiting: null and needs no reply. "Looks good", "thanks", or
-  acceptance requires no coordinator action. Acknowledge it; commit/push only when asked.
+  acceptance requires no coordinator action. Acknowledge it; commit/push or open PRs only when asked.
   ALL requested revisions use redirect_coordinator, whether running, paused, awaiting
   approval, or finished. Use target planner to revise a plan (it will need approval
   again), or coder to change an approved implementation and rerun setup, checks,
@@ -157,12 +163,13 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   not evidence of failure. Correct earlier conclusions when new content appears.
 - When the user wants to use an existing workspace's web app, use workspace_app_status
   first. If no app is running, delegate once to launch_workspace_app with the requested
-  app and any user answers. The launcher inspects, proposes the complete setup/start
-  plan for user approval inside its workflow, executes it, diagnoses failures and
-  retries with fresh approval. Do not construct or relay launch plans yourself.
+  app and any user answers. The launcher inspects and executes its setup/start plan
+  inside the Docker workspace, diagnoses failures and retries there automatically.
+  Do not construct or relay launch plans yourself.
   It returns ready with the preview URL, not_webapp, needs_input with questions, or
   failed with diagnostics. Ask the user its questions and pass their answers in a new
-  launch request. Never invent credentials or approve commands yourself.
+  launch request. Never invent credentials. Workspace commands require no approval;
+  plan approvals, issue mutations and explicit commit/push remain separate actions.
   The servers stay up after this chat turn; use stop_workspace_app on request.
   Acceptance such as "Looks good" does not request stopping the preview server.
   Share previewUrl only when status is ready: it is a relative link served by Zini,
@@ -244,13 +251,17 @@ const ISSUE_ID = z.string().describe("Linear issue id or identifier, e.g. ENG-12
 
 function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
   return [
+    tool(async ({ issueId, merge }) => JSON.stringify(await syncWorkspace(await toIssueId(linear, issueId), merge)), {
+      name: "sync_workspace", description: "Fetch the configured GitHub repository into an idle workspace. With merge=true, merge the current default branch while preserving history; refuses unfinished edits and surfaces conflicts. Pause the coordinator first. Use merge only when the user requests integrating upstream changes.",
+      schema: z.object({ issueId: ISSUE_ID, merge: z.boolean().default(false) }),
+    }),
     tool(async ({ issueId, request }, config) => JSON.stringify(await launchWorkspaceApp(model,
       await toIssueId(linear, issueId), request, config.signal)), {
       name: "launch_workspace_app",
-      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, pauses for user approval of exact setup/server commands, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (relative to Zini), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle coordinator. Servers stay running until stopped.",
-      schema: z.object({ issueId: ISSUE_ID, request: z.string().min(1).describe("Which app to run and any user answers or constraints. The launcher handles command discovery, approval and startup; do not supply a guessed launch plan.") }),
+      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, runs setup/server commands inside Docker, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (relative to Zini), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle coordinator. Servers stay running until stopped.",
+      schema: z.object({ issueId: ISSUE_ID, request: z.string().min(1).describe("Which app to run and any user answers or constraints. The launcher handles command discovery and sandbox startup; do not supply a guessed launch plan.") }),
     }),
-    tool(async ({ issueId }) => JSON.stringify(workspaceApps.status(await toIssueId(linear, issueId))), {
+    tool(async ({ issueId }) => JSON.stringify(await workspaceApps.refresh(await toIssueId(linear, issueId))), {
       name: "workspace_app_status", description: "Read the user app session's status, previewUrl (relative to Zini), diagnostic local URL, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
@@ -440,6 +451,21 @@ function coordinatorTools(linear: LinearClient) {
         }),
       },
     ),
+    tool(async ({ issueId, title, body }) => {
+      const result = await openWorkspacePullRequest(await toIssueId(linear, issueId), title, body);
+      if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
+      return JSON.stringify({ status: "opened", pullRequest: result.pullRequest });
+    }, {
+      name: "open_pull_request",
+      description: "Open a pull request for an issue's workspace into the configured default branch. " +
+        "All changes must be committed and pushed first; errors tell you to use commit_and_push before retrying. " +
+        "The user approves this call. Returns the PR number, URL and state. The Linear identifier is added to the title automatically.",
+      schema: z.object({
+        issueId: ISSUE_ID,
+        title: z.string().trim().min(1).describe("A short, accurate pull request title"),
+        body: z.string().optional().describe("Markdown description covering the change and relevant validation"),
+      }),
+    }),
     tool(
       async ({ issueId, ...input }) => {
         // Exactly one, so nothing the user approved on the card is left out.
@@ -600,6 +626,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           update_issue: { allowedDecisions: ["approve", "reject"] },
           reply_to_pipeline: { allowedDecisions: ["approve", "reject"] },
           commit_and_push: { allowedDecisions: ["approve", "reject"] },
+          open_pull_request: { allowedDecisions: ["approve", "reject"] },
           stop_workspace_app: { allowedDecisions: ["approve", "reject"] },
         },
       }),

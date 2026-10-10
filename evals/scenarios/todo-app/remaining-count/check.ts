@@ -1,13 +1,12 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright";
 import type { Check } from "../../../harness/types.js";
 
 // With three to-dos, one done, the app says "2 to-dos left", whichever filter is
 // selected; with one left, "1 to-do left"; with every one done, "0 to-dos left" (the
 // issue hides it only when there are no to-dos at all, and then it's gone).
-const check: Check = async ({ startApp }) => {
+const check: Check = async ({ startApp, launchBrowser }) => {
   const dataFile = join(mkdtempSync(join(tmpdir(), "eval-data-")), "todos.json");
   const todo = (title: string, done: boolean) => ({
     id: title,
@@ -18,11 +17,11 @@ const check: Check = async ({ startApp }) => {
   writeFileSync(dataFile, JSON.stringify([todo("a", false), todo("b", false), todo("c", true)]));
 
   const app = await startApp({ dataFile });
-  const browser = await chromium.launch();
+  const browser = await launchBrowser();
   const failures: string[] = [];
   try {
     const page = await browser.newPage();
-    await page.goto(app.url);
+    await page.goto(app.browserUrl);
     const shows = async (text: string, when: string) => {
       const found = await page
         .getByText(text)

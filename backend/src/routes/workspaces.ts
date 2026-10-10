@@ -1,14 +1,13 @@
 import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
 import type { PullRequestStatus } from "shared";
-import { withIdentifier } from "../coordinator/writers.js";
-import { defaultBranch } from "../repositories/git.js";
-import { createPullRequest, findPullRequest } from "../integrations/github.js";
+import { findPullRequest } from "../integrations/github.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { syncWorkspace } from "../repositories/git.js";
 import {
   commitAndPush,
   createWorkspace,
@@ -18,7 +17,16 @@ import {
   isIssueId,
 } from "../workspaces/workspaces.js";
 
+import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js";
+
 export const workspaces = Router();
+workspaces.post("/:issueId/sync", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  if (req.body?.merge !== undefined && typeof req.body.merge !== "boolean") { res.status(400).json({ error: "merge must be boolean" }); return; }
+  if (!await getWorkspace(issueId)) { res.status(404).json({ error: "Workspace not found" }); return; }
+  try { res.json(await syncWorkspace(issueId, req.body?.merge === true)); }
+  catch (error) { res.status(409).json({ error: lastLine(error) }); }
+});
 
 // The issue id from the URL or body, or null after sending a 400.
 function readIssueId(value: unknown, res: Response) {
@@ -107,56 +115,14 @@ workspaces.get("/:issueId/pull-request", async (req, res) => {
   }
 });
 
-// Opens a pull request from the branch into the default branch, with { title, body },
-// and answers with it. The title always starts with the issue's identifier (see
-// withIdentifier). Only once everything is committed and pushed, so it has all the
-// changes.
+// Opens a pull request only after all workspace changes are committed and pushed.
 workspaces.post("/:issueId/pull-request", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (workspaceApps.starting(issueId)) {
-    res.status(409).json({ error: "The user app is still being prepared" });
-    return;
-  }
-  if (isCoordinatorRunning(issueId)) {
-    res.status(409).json({ error: "The coordinator is still working in this workspace" });
-    return;
-  }
-  const workspace = await getWorkspace(issueId);
-  if (!workspace) {
-    res.status(404).json({ error: "This issue has no workspace" });
-    return;
-  }
   const { title, body } = (req.body ?? {}) as { title?: unknown; body?: unknown };
-  const titleText = typeof title === "string" ? title.trim() : "";
-  if (!titleText) {
-    res.status(400).json({ error: "Expected a title" });
-    return;
-  }
-  if (workspace.uncommitted || workspace.unpushed || !(await isPushed(issueId))) {
-    res.status(409).json({ error: "Commit and push the changes first" });
-    return;
-  }
-  const github = await loadGitHub(res);
-  if (!github) return;
-  const linear = await getLinearClient();
-  if (!linear) {
-    res.status(409).json({ error: "Linear isn't connected" });
-    return;
-  }
-  try {
-    const issue = await fetchLinearIssue(linear, issueId);
-    const pullRequest = await createPullRequest(github.token, github.repo, {
-      title: withIdentifier(issue, titleText),
-      body: typeof body === "string" ? body.trim() : "",
-      branch: workspace.branch,
-      base: await defaultBranch(),
-    });
-    res.status(201).json(pullRequest);
-  } catch (err) {
-    console.error(`Opening the pull request for ${issueId} failed:`, err);
-    res.status(500).json({ error: message(err) });
-  }
+  const result = await openWorkspacePullRequest(issueId, typeof title === "string" ? title : "", typeof body === "string" ? body : "");
+  if ("error" in result) res.status(result.status).json({ error: result.error });
+  else res.status(201).json(result.pullRequest);
 });
 
 // Creates a workspace for { issueId }, or returns the one it already has.

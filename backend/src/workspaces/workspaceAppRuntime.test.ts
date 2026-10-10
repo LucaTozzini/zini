@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { availableAppPort, WorkspaceAppRuntime, type AppLaunchPlan } from "./workspaceAppRuntime.js";
+import { availableAppPort, WorkspaceAppRuntime, type AppLaunchPlan } from "./localAppRuntime.js";
 
 test("user sessions run setup before HTTP readiness, remain alive, and stop independently", async () => {
   const root = await mkdtemp(join(tmpdir(), "zini-launcher-"));

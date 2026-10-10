@@ -1,4 +1,4 @@
-const SHELL = process.platform === "win32" ? "Windows through cmd.exe" : `${process.platform} through sh`;
+const SHELL = "Linux through /bin/sh in the Docker workspace at /workspace (git, node, npm and Chromium available). Commands run automatically inside Docker; credentials remain on the host. Stop only processes you started. Unsupported runtimes require user input";
 
 const RULES = `The execution shell is ${SHELL}; commands must match it.
 Ask only when you truly can't decide: put each question in
@@ -216,8 +216,8 @@ Don't read or search libraries' code (node_modules or the like). Read workspace 
 only for a concrete missing setup/interface detail or to diagnose an observed failure,
 not to review the implementation before testing it.
 
-Commands run on the user's machine (${SHELL}), in the workspace folder, with CI=1 set.
-The user approves each one before it runs, so run only what testing needs (installing,
+Commands run inside ${SHELL}, in the workspace folder, with CI=1 set.
+Commands execute automatically inside Docker. Run only what testing needs (installing,
 building, checking, running the app), one at a time, and keep them to the workspace:
 never change system settings, install anything globally,
 push, deploy, or call services other than the ones you started. Never create, edit or
@@ -225,8 +225,7 @@ delete source files in the workspace either, not even scratch or test pages thro
 command: they'd end up in the changes. Use the product's own temporary/test data
 facilities; any new scratch data must be confined to a uniquely created temporary
 directory owned by this run. Test with what the software and your tools
-offer. If the user rejects a
-command, their message says why: adapt, or leave that check out. Everything you start
+offer. Everything you start
 is stopped when you're done.
 
 A problem with the environment rather than the changes (a missing .env or secret, a
@@ -247,7 +246,7 @@ Include dependency installation using the repo's package manager and lockfile,
 required local fixtures and readiness checks. Prefer idempotent readiness/setup
 commands that reuse an existing valid environment. Do not assume a prior install
 is still valid after manifests, lockfiles or prerequisites change.
-The coordinator executes these commands in order with user approval. You do not
+The coordinator executes these commands in order inside the Docker sandbox. You do not
 execute them yourself. No lint, test or build commands here; checks follows setup.
 Do not edit implementation, change declared dependencies, regenerate lockfiles or
 use global installs to conceal a missing repo prerequisite. Follow documented env
@@ -277,7 +276,7 @@ Include relevant tests, static checks and a build when the repo provides them; d
 invent missing tools or assume every repo supplies all categories. Avoid commands
 that repeat checks already included in another selected command. Don't run the product
 interactively or alter source. The coordinator runs selected commands in order with
-approval, records actual exit codes/output and ensures process cleanup.
+sandbox execution, records actual exit codes/output and ensures process cleanup.
 Environment setup already prepared dependencies and prerequisites; select only check
 commands here. Select every relevant configured check, even if a prerequisite
 looks missing: its real execution result records what's missing. Never invent

@@ -1,55 +1,27 @@
-import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { killTree } from "../../backend/src/core/processes.js";
+import { createServer, request } from "node:http";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { workspaceApps } from "../../backend/src/workspaces/workspaceAppSessions.js";
+import { availableAppPort, previewBase } from "../../backend/src/workspaces/workspaceAppRuntime.js";
+import { ensureSandbox, workspaceRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
 import type { RunningApp } from "./types.js";
 
-// Starts a test repo's app with npm run dev, PORT and DATA_FILE (for the repos that keep
-// data), for a hidden check, and waits until it answers.
-let nextPort = 4700;
-
-export async function startApp(workspace: string, { dataFile }: { dataFile?: string } = {}): Promise<RunningApp> {
-  const port = nextPort++;
-  const url = `http://localhost:${port}`;
-  const child = spawn("npm run dev", {
-    cwd: workspace,
-    shell: true,
-    windowsHide: true,
-    detached: process.platform !== "win32",
-    env: {
-      ...process.env,
-      PORT: String(port),
-      DATA_FILE: dataFile ?? join(mkdtempSync(join(tmpdir(), "eval-data-")), "todos.json"),
-    },
+// Hidden check code stays trusted on the host. Only the repository app executes
+// inside Docker; a temporary loopback proxy makes it reachable by the check.
+export async function startApp(issueId: string, { dataFile }: { dataFile?: string } = {}): Promise<RunningApp> {
+  const port = await availableAppPort(issueId);
+  const file = `${createHash("sha256").update(dataFile ?? String(Date.now())).digest("hex")}.json`;
+  const dataPath = await workspaceRequest<string>(issueId, "checkData", { file, content: dataFile && existsSync(dataFile) ? await readFile(dataFile, "utf8") : undefined });
+  const state = await workspaceApps.launch(issueId, { setup: [], services: [{ id: "web", cwd: ".", command: `PORT=${port} DATA_FILE=${dataPath} npm run dev`, port, readiness: "http", path: "/" }], app: { serviceId: "web", path: "/" } });
+  if (state.status !== "ready") throw new Error(`Hidden check app failed: ${state.error}\n${state.output}`);
+  const sandbox = await ensureSandbox(issueId);
+  const server = createServer((req, res) => {
+    const upstream = request({ hostname: "127.0.0.1", port: sandbox.port, path: `${previewBase(issueId)}${req.url}`, method: req.method,
+      headers: { ...req.headers, "x-workspace-token": sandbox.token } }, response => { res.writeHead(response.statusCode ?? 502, response.headers); response.pipe(res); });
+    upstream.on("error", () => res.destroy()); req.pipe(upstream);
   });
-  let output = "";
-  child.stdout?.on("data", (chunk) => (output += chunk));
-  child.stderr?.on("data", (chunk) => (output += chunk));
-  let exited = false;
-  child.on("close", () => (exited = true));
-  // It couldn't start (e.g. no such folder): reported below, rather than crashing the run.
-  child.on("error", (err) => {
-    output += `\n${err.message}`;
-    exited = true;
-  });
-
-  const stop = async () => {
-    if (exited) return;
-    killTree(child);
-    await new Promise((resolve) => child.on("close", resolve));
-  };
-
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (exited) throw new Error(`The app exited before it answered:\n${output.slice(-2000)}`);
-    // Either loopback address: some dev servers (e.g. Vite) only listen on localhost's
-    // IPv6 one, and Node's fetch only tries IPv4 for localhost.
-    const answers = (base: string) => fetch(base).then((res) => res.ok, () => false);
-    const ok = (await answers(`http://127.0.0.1:${port}`)) || (await answers(`http://[::1]:${port}`));
-    if (ok) return { url, stop };
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  await stop();
-  throw new Error(`The app didn't answer within 60s:\n${output.slice(-2000)}`);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, browserUrl: `http://127.0.0.1:${port}`,
+    stop: async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await workspaceApps.stop(issueId); } };
 }

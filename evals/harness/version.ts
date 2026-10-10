@@ -15,5 +15,6 @@ export function codeVersion(root = resolve(import.meta.dirname, "../..")) {
   for (const folder of ["backend/src", "shared/src", "evals/harness", "evals/scenarios"]) add(folder);
   hash.update(readFileSync(join(root, "evals/run.ts")));
   hash.update(readFileSync(join(root, "package-lock.json")));
+  for (const file of ["sandbox/Dockerfile", "sandbox/gateway.ts", "sandbox/entrypoint.sh", "sandbox/package-lock.json", "sandbox/workspaceFiles.ts", "sandbox/trustedGit.ts", "sandbox/gitPolicy.ts"]) hash.update(file).update(readFileSync(join(root, file)));
   return hash.digest("hex");
 }

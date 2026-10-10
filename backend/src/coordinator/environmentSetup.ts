@@ -1,4 +1,4 @@
-import type { Decision, EnvironmentSetupDocument, RepoCommand } from "shared";
+import type { EnvironmentSetupDocument, RepoCommand } from "shared";
 
 export type SetupSelection = { commands: RepoCommand[]; noSetupReason?: string; blockingQuestions: string[] };
 
@@ -9,10 +9,10 @@ export function validateEnvironmentSetup(selection: SetupSelection) {
     return "Give either setup commands or noSetupReason with repository evidence";
 }
 
-// A failure/rejected command stops preparation. Later checks must never run against
+// A failed command stops preparation. Later checks must never run against
 // an environment that was only partially prepared. Retrying requires a human answer
-// and a fresh selection/approval, rather than an automatic failing-command loop.
-export async function executeEnvironmentSetup(selection: SetupSelection, decisions: Decision[], revision: string,
+// and a fresh selection, rather than an automatic failing-command loop.
+export async function executeEnvironmentSetup(selection: SetupSelection, revision: string,
   execute: (entry: RepoCommand, index: number) => Promise<{ exitCode: number | null; timedOut?: boolean; status: string; output: string }>,
   signal?: AbortSignal): Promise<EnvironmentSetupDocument> {
   const invalid = validateEnvironmentSetup(selection);
@@ -20,18 +20,14 @@ export async function executeEnvironmentSetup(selection: SetupSelection, decisio
   const report: EnvironmentSetupDocument = { revision, complete: false, results: [], noSetupReason: selection.noSetupReason, blockingQuestions: [] };
   for (const [index, entry] of selection.commands.entries()) {
     signal?.throwIfAborted();
-    const decision = decisions[index];
     let result;
-    if (decision?.type !== "approve") result = { exitCode: null, status: "blocked", output: decision?.type === "reject" ? decision.message ?? "Setup command rejected" : "Setup command not approved" };
-    else {
-      try {
-        const actual = await execute(entry, index);
-        signal?.throwIfAborted();
-        result = { exitCode: actual.exitCode, status: actual.exitCode === 0 && !actual.timedOut ? "passed" : "blocked", output: `${actual.status}\n${actual.output}` };
-      } catch (error) {
-        signal?.throwIfAborted();
-        result = { exitCode: null, status: "blocked", output: String(error) };
-      }
+    try {
+      const actual = await execute(entry, index);
+      signal?.throwIfAborted();
+      result = { exitCode: actual.exitCode, status: actual.exitCode === 0 && !actual.timedOut ? "passed" : "blocked", output: `${actual.status}\n${actual.output}` };
+    } catch (error) {
+      signal?.throwIfAborted();
+      result = { exitCode: null, status: "blocked", output: String(error) };
     }
     report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose, ...result, status: result.status as "passed" | "blocked" });
     if (result.status !== "passed") {

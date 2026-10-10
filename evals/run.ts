@@ -1,24 +1,14 @@
-import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { summarizeRuns, type RunMetrics } from "shared";
 import { killTree } from "../backend/src/core/processes.js";
 import { codeVersion } from "./harness/version.js";
+import { BatchConsole, followConsole } from "../backend/src/evals/batchConsole.js";
 
-// Runs scenarios through the coordinator, each --repeat times, every run in its own
-// process with its own data folder (see harness/run-one.ts), then summarises each
-// scenario's batch. The eval container's entry point (see Dockerfile), started by zini's
-// backend from the webapp's Evals page (see backend/src/evals/evals.ts); the container is the
-// only place the QA's commands are approved.
-//   run.ts <repo/scenario ...|all> [--repeat N] [--run N]
-// --run N does only run N of the batch: zini's backend starts a container per run, each
-// with a current ChatGPT token file, and gives them the same batch with EVAL_BATCH.
-// Needs EVAL_MODEL, and OPENROUTER_API_KEY, or CHATGPT_TOKEN_FILE with
-// EVAL_PROVIDER=chatgpt. EVAL_RESULTS (default evals/results) is where results go,
-// EVAL_WORK (default the system's temp folder) where runs work, and EVAL_TIMEOUT_MINUTES
-// (default 60) how long a run may take.
-
+// Trusted host runner: each scenario gets a separate process, database, clone,
+// workspace container and runtime volume. See evals/README.md.
 const EVALS = import.meta.dirname;
 const SCENARIOS = join(EVALS, "scenarios");
 
@@ -35,10 +25,10 @@ const scenarios = args.includes("all")
     )
   : args;
 
-// The runs check this too (see harness/run-one.ts); here it stops before any start.
-if (!existsSync("/.dockerenv")) {
+// Keep model credentials outside repository execution containers.
+if (existsSync("/.dockerenv")) {
   console.error(
-    "Evals only run in the eval container, where the QA's commands can't reach this machine. See evals/README.md.",
+    "Run the trusted eval harness on the host. Repository commands run in separate workspace sandboxes.",
   );
   process.exit(1);
 }
@@ -65,12 +55,20 @@ const results = resolve(process.env.EVAL_RESULTS ?? join(EVALS, "results"));
 const work = resolve(process.env.EVAL_WORK ?? join(tmpdir(), "zini-evals"));
 const timeoutMinutes = Number(process.env.EVAL_TIMEOUT_MINUTES) || 60;
 const batch = process.env.EVAL_BATCH ?? new Date().toISOString().replace(/[:.]/g, "-");
-console.log(`Coordinator source version: ${codeVersion()}`);
+const version = codeVersion();
+let canceled = false;
+let active: ChildProcess | null = null;
+for (const event of ["SIGINT", "SIGTERM"] as const) process.once(event, () => { canceled = true; if (active) killTree(active); });
+async function cleanupRun(dataDir: string, print: (line: string) => void) {
+  const folder = join(dataDir, "workspaces"); if (!existsSync(folder)) return;
+  const { removeSandbox } = await import("../backend/src/workspaces/workspaceSandbox.js");
+  for (const id of readdirSync(folder).filter(id => /^[0-9a-f-]{36}$/.test(id))) await removeSandbox(id, join(dataDir, "zini.sqlite")).catch(error => print(`Sandbox cleanup failed: ${error}`));
+}
 
-function runOne(scenario: string, runDir: string, dataDir: string) {
+function runOne(scenario: string, runDir: string, dataDir: string, print: (line: string) => void) {
   return new Promise<number>((done) => {
     const child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "harness", "run-one.ts")], {
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
       env: {
         ...process.env,
         DB_PATH: join(dataDir, "zini.sqlite"),
@@ -78,33 +76,50 @@ function runOne(scenario: string, runDir: string, dataDir: string) {
         EVAL_RUN_DIR: runDir,
       },
     });
+    if (child.stdout) followConsole(child.stdout, print);
+    if (child.stderr) followConsole(child.stderr, print);
+    active = child;
     const timer = setTimeout(() => {
-      console.log(`✗ Stopped after ${timeoutMinutes} minutes`);
+      print(`✗ Stopped after ${timeoutMinutes} minutes`);
       killTree(child);
     }, timeoutMinutes * 60_000);
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       clearTimeout(timer);
+      active = null;
+      await cleanupRun(dataDir, print);
       done(code ?? 1);
     });
-    child.on("error", (error) => { clearTimeout(timer); console.error(error.message); done(1); });
+    child.on("error", (error) => { clearTimeout(timer); print(error.message); done(1); });
   });
 }
 
 let failed = false;
 for (const scenario of scenarios) {
+  if (canceled) break;
   const batchDir = join(results, scenario, batch);
+  // The backend captures its own build/cleanup output too. CLI batches capture here.
+  const log = process.env.EVAL_CONSOLE_CAPTURED === "1" ? null : new BatchConsole(join(batchDir, "console.log"));
+  const print = (line: string) => { log?.append(line); console.log(line); };
+  const saveResult = (ok: boolean, error: string | null) => {
+    if (log) writeFileSync(join(batchDir, "console-result.json"), `${JSON.stringify({ ok, error })}\n`);
+  };
+  print(`Coordinator source version: ${version}`);
+  let batchFailed = false;
   for (let n = only ?? 1; n <= (only ?? repeat); n++) {
-    console.log(`\n=== ${scenario}, run ${n} of ${repeat} ===`);
-    const code = await runOne(scenario, join(batchDir, `run-${n}`), join(work, batch, scenario, `run-${n}`));
+    if (canceled) break;
+    print(`\n=== ${scenario}, run ${n} of ${repeat} ===`);
+    const code = await runOne(scenario, join(batchDir, `run-${n}`), join(work, batch, scenario, `run-${n}`), print);
     if (code === 2) {
-      console.log(`MODEL_RATE_LIMIT: stopping the batch before further runs.\n${summarize(batchDir)}`);
+      print(`MODEL_RATE_LIMIT: stopping the batch before further runs.\n${summarize(batchDir)}`);
+      saveResult(false, "Model rate limit reached; remaining runs were not started");
       process.exit(2);
     }
-    if (code !== 0) failed = true;
+    if (code !== 0) failed = batchFailed = true;
   }
-  console.log(`\n${summarize(batchDir)}`);
+  print(`\n${summarize(batchDir)}`);
+  saveResult(!batchFailed && !canceled, canceled ? "Stopped" : batchFailed ? "Some eval runs failed; inspect the run metrics" : null);
 }
-process.exitCode = failed ? 1 : 0;
+process.exitCode = canceled ? 130 : failed ? 1 : 0;
 
 // The batch's summary, as the webapp's Results show it (see shared's summarizeRuns).
 function summarize(batchDir: string) {

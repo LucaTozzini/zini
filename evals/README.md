@@ -1,65 +1,70 @@
 # Evals
 
-Runs the coordinator's pipeline (planner, coder, environment setup, deterministic checks, reviewer, product QA) on test issues, the same
-way each time, so you can measure how it behaves and compare a change against a baseline.
+Runs the coordinator pipeline on repeatable test issues and records model/tool usage,
+validation evidence, elapsed time and hidden-check results.
 
-Each run takes a scenario's issue, works on a fresh copy of a test repo, answers every
-pause by itself (questions with the scenario's answers, then "You decide."; it approves
-the plan and every check/product QA command), and stops when the pipeline finishes. Because
-every command is approved, runs only happen in a Docker container, where they can't
-reach your machine.
+The trusted harness runs on the host in a separate process per run, with a temporary
+SQLite database and independent repository clone in a Linux Docker volume. Repository setup, checks, QA,
+preview servers and Chromium run inside that run's workspace Docker sandbox, using
+the same image, gateway, tools and cleanup as normal coordinators. Provider credentials
+remain in the trusted harness; they are never mounted or passed to workspace commands.
+There is no Docker socket mount or Docker-in-Docker.
 
 ## Running
 
-Needs Docker Desktop running, the coordinator's provider connected in zini (OpenRouter,
-or a ChatGPT sign-in), and the coordinator's model set (or `EVAL_MODEL`).
+Start Docker Desktop and connect the coordinator provider/model in Zini. From the
+Evals page select a scenario and repeat count. The backend builds `sandbox/Dockerfile`
+and starts `evals/run.ts` on the host. It supplies the selected model and provider
+credentials only to the trusted runner. ChatGPT access tokens are refreshed by the
+backend in a temporary host file; refresh tokens remain with the backend.
 
-Evals are started from the webapp's **Evals** page: pick a repo, a scenario and how many
-runs, and start. One eval runs at a time. zini's backend builds the image
-(`evals/Dockerfile`), then runs each run in its own container (`evals/run.ts --run N`),
-with the OpenRouter key in its environment, or a read-only mount containing a ChatGPT
-access token. The backend refreshes that token during the run, and each model request
-rereads it; refresh tokens stay on the host. Its output
-shows on the page as it goes: each subagent, its tool calls and what the harness
-answers, then a summary of the batch.
+You can also run the trusted harness with `node --import tsx evals/run.ts all --repeat 1`
+from the repository root after `npm run sandbox:build`. Set `EVAL_MODEL` and either
+`OPENROUTER_API_KEY`, or `EVAL_PROVIDER=chatgpt` and `CHATGPT_TOKEN_FILE`.
+
+Scenario answers and plan approvals remain scripted. Sandbox commands no longer
+produce approval pauses, so the existing `commandsApproved` metric is normally zero;
+legacy paused checkpoints remain compatible. Unsupported runtimes or configuration
+failures still surface as blocked validation or questions.
+
+Each run has its own container, network, files volume, runtime volume and database.
+Containers and both volumes are removed on completion, timeout or cancellation; the backend also performs
+batch cleanup if a harness process is interrupted. Temporary run folders are kept
+under `evals/.work/` for diagnosis and may be removed after runs stop. CLI runs default
+to a temporary system folder and perform the same sandbox cleanup.
 
 ## Results
 
-The page lists past batches with their summary, each run's hidden check and what it
-changed; select two batches to compare them (e.g. against a baseline from before a
-change). They're kept in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
+Results stay in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
 
-- `logs/`: the subagents' run logs, as zini writes them, written live
-- `diff.patch`: what the run changed in the repo
-- `metrics.json`: time, model and tool calls, tokens, per subagent and in total, the
-  pauses answered, the QA's verdict, and the hidden check's result. New runs include
-  `codeVersion`, a SHA-256 hash of the sources actually copied into the container
-  (including uncommitted changes), and `rateLimited`.
+- `logs/`: live coordinator role logs
+- `diff.patch`: workspace changes before hidden checks
+- `metrics.json`: timing, tokens, tool calls, questions, plan approvals, QA verdict,
+  hidden-check result, `codeVersion` and `rateLimited`
 
-The pipeline prepares repository prerequisites with approved finite setup commands
-before selecting deterministic checks. Failed setup pauses the pipeline before checks.
-The pipeline runs selected deterministic checks between setup and review, then
-product QA checks acceptance criteria. Check results are recorded directly by the
-executor and tied to the workspace content version. The repo supplies commands and
-working directories; the coordinator does not assume a language or package manager.
+Each batch also saves `console.log` in its batch directory, containing the complete
+console output across runs, including errors and hidden checks. Webapp batches also
+include image-build progress and cleanup errors. `console-result.json` records the
+batch outcome. The Evals page keeps only the latest 500 lines in memory, restores the
+latest saved output after a backend restart, and links to the full log for past batches.
+Restoring output does not resume an interrupted eval process.
 
-A model rate limit saves the interrupted run and stops the batch before subsequent
-runs start. Batch failures and rate limits produce nonzero exits and a failed status
-in the webapp. A hidden check passing is not enough for a successful run: the pipeline
-must complete and return a passing QA report. Partial validation is reported separately.
+`codeVersion` includes coordinator sources and sandbox runtime/image files. The Evals
+page still compares batches and displays hidden checks and diffs. Model rate limits
+save the interrupted run and stop the remaining batch. Success requires a completed
+pipeline, passing QA and no failed hidden check.
 
-## Test repos and scenarios
+## Scenarios
 
-- `repos/<repo>/`: a small project, copied fresh into each run as a git repo with one
-  commit. Its dependencies are installed when the image is built. A scenario can set
-  `preinstalledDependencies: false` to start its workspace without that install and
-  exercise pipeline preparation; the personal-website copy-email scenario does this.
-- `scenarios/<repo>/<name>/`: a scenario for that repo.
-  - `scenario.json`: the issue's `title` and `description`. Optionally a `patch` in the
-    folder, applied before the first commit (e.g. a planted bug), and `answers` to the
-    subagents' questions.
-  - `check.ts`: optional, a hidden check the subagents never see, run on the result (see
-    `harness/types.ts`).
+`repos/<repo>/` contains each fixture project. Every run creates a fresh Git repository,
+then applies the optional scenario patch. Dependencies are installed inside its sandbox
+before execution unless `preinstalledDependencies: false` exercises pipeline setup.
 
-The pipeline gets the scenario's issue from a stand-in for Linear, and nothing in a run
-uses GitHub.
+`scenarios/<repo>/<name>/scenario.json` supplies the issue title, description, optional
+patch and scripted answers. An optional `check.ts` receives container-backed `readFile`
+and `runCommand` helpers, `startApp` and `launchBrowser`. Hidden-check code remains trusted on the host; its app
+and browser execute inside the sandbox. HTTP checks use a temporary authenticated
+loopback proxy (`app.url`); browser checks use the container-local `app.browserUrl`.
+Fixture data lives in the persistent runtime volume, outside tracked source.
+
+Linear is stubbed with the scenario issue. Runs do not use GitHub.

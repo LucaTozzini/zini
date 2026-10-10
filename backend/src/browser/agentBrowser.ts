@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { ensureSandbox, sandboxRequest } from "../workspaces/workspaceSandbox.js";
 
 // The agent's browser: one headless Chromium page per session key (Playwright's own build,
 // installed with the backend), opened on its first browser tool. QA closes it at the end
@@ -34,8 +35,14 @@ const sessionIds = new Map<string, string>();
 async function launch(key: string): Promise<Session> {
   let browser: Browser;
   try {
-    browser = await chromium.launch();
+    if (key.startsWith("pm:")) browser = await chromium.launch();
+    else {
+      const sandbox = await ensureSandbox(key);
+      await sandboxRequest(sandbox, "browser");
+      browser = await chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
+    }
   } catch (err) {
+    if (!key.startsWith("pm:")) throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
     throw new Error(
       "The agent's browser couldn't start. If it isn't installed, run `npx playwright install " +
         `chromium --only-shell\` in zini's backend folder (npm install does it). ${String(err)}`,

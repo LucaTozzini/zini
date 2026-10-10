@@ -21,9 +21,12 @@ import {
   stopQa,
 } from "../../backend/src/coordinator/coordinator.js";
 import { initDb, storage } from "../../backend/src/db.js";
-import { addWorktree, workspacePath } from "../../backend/src/repositories/git.js";
+import { cloneWorkspace } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
 import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
+import { ensureSandbox, removeSandbox, sandboxRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
+import { chromium } from "playwright";
+import { runCommandResult } from "../../backend/src/coordinator/qaProcesses.js";
 import { startApp } from "./app.js";
 import type { RunMetrics } from "shared";
 import { roleMetrics, totals } from "./metrics.js";
@@ -47,11 +50,10 @@ const connection: ModelConnection = process.env.EVAL_PROVIDER === "chatgpt"
   : { provider: "openrouter", key: required("OPENROUTER_API_KEY") };
 const dataDir = dirname(resolve(storage));
 
-// Every command the QA runs is approved, so runs only happen in the eval container,
-// where they can't reach this machine.
-if (!existsSync("/.dockerenv")) {
+// The trusted harness stays outside the repository sandbox.
+if (existsSync("/.dockerenv")) {
   console.error(
-    "Evals only run in the eval container, where the QA's commands can't reach this machine. See evals/README.md.",
+    "Run the trusted harness on the host; repository commands run in the workspace sandbox.",
   );
   process.exit(1);
 }
@@ -100,13 +102,14 @@ function cloneLikeZini(source: string) {
   git(["-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 }
 
-// A workspace like createWorkspace makes, without Linear: its worktree and row.
+// A workspace like createWorkspace makes, without Linear: its independent clone and row.
 // Scenarios can omit the image's dependency install to exercise preparation.
 async function makeWorkspace(issueId: string) {
-  await addWorktree(issueId, `eval/${scenarioName.replace("/", "-")}`);
-  const modules = join(repoDir, "node_modules");
-  if (scenario.preinstalledDependencies !== false && existsSync(modules)) {
-    cpSync(modules, join(workspacePath(issueId), "node_modules"), { recursive: true, verbatimSymlinks: true });
+  await cloneWorkspace(issueId, `eval/${scenarioName.replace("/", "-")}`);
+  await ensureSandbox(issueId);
+  if (scenario.preinstalledDependencies !== false) {
+    const install = await runCommandResult(issueId, "npm ci");
+    if (install.exitCode !== 0) throw new Error(`Fixture dependencies failed: ${install.output}`);
   }
   await Workspace.create({ issueId });
 }
@@ -242,8 +245,10 @@ async function main() {
   if (existsSync(checkFile) && !isModelRateLimit(error)) {
     console.log("Running the hidden check…");
     const { default: runCheck } = (await import(pathToFileURL(checkFile).href)) as { default: Check };
-    const workspace = workspacePath(issueId);
-    check = await runCheck({ workspace, startApp: (options) => startApp(workspace, options) }).catch(
+    check = await runCheck({ readFile: async path => sandboxRequest(await ensureSandbox(issueId), "file", { operation: "readText", path }), runCommand: command => runCommandResult(issueId, command), startApp: (options) => startApp(issueId, options), launchBrowser: async () => {
+      const sandbox = await ensureSandbox(issueId); await sandboxRequest(sandbox, "browser");
+      return chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
+    } }).catch(
       (err: unknown) => ({ passed: false, details: `The check failed to run: ${String(err)}` }),
     );
     console.log(`${check.passed ? "✓" : "✗"} check: ${check.details}`);
@@ -268,6 +273,7 @@ async function main() {
   };
   writeFileSync(join(runDir, "metrics.json"), `${JSON.stringify(metrics, null, 2)}\n`);
   console.log(`Done in ${Math.round(metrics.seconds)}s: ${runDir}`);
+  await removeSandbox(issueId);
   // The pipeline's checkpointer and LangChain keep handles open.
   process.exit(metrics.rateLimited ? 2 : metrics.finished && metrics.qaVerdict === "pass" && check?.passed !== false ? 0 : 1);
 }

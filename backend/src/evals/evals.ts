@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { EvalBatch, EvalScenario, EvalStatus, RunMetrics } from "shared";
@@ -7,16 +7,16 @@ import { sendEvent } from "../core/events.js";
 import { loadConnection, type ModelConnection } from "../providers/modelProvider.js";
 import { getSetting } from "../core/settings.js";
 import { createEvalCredentials } from "./evalCredentials.js";
+import { killTree } from "../core/processes.js";
+import { BatchConsole, followConsole, readConsoleTail } from "./batchConsole.js";
 
 // zini's evals (see evals/README.md, at the repo's root): runs of the coordinator on test
-// issues in a Docker container, started from the webapp's Evals page. This lists the
-// scenarios and their results, and runs them in Docker.
+// issues with a trusted host harness and an isolated workspace container per run.
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..");
 const EVALS = join(ROOT, "evals");
 const SCENARIOS = join(EVALS, "scenarios");
 const RESULTS = join(EVALS, "results");
-const IMAGE = "zini-evals";
 
 // A folder name from a URL, before it's used in a path: no "..", no separators.
 const NAME = /^[\w.-]+$/;
@@ -51,6 +51,7 @@ export function listBatches(): EvalBatch[] {
       subfolders(join(RESULTS, scenario)).map((batch) => ({
         scenario,
         id: batch,
+        hasLog: existsSync(join(RESULTS, scenario, batch, "console.log")),
         runs: subfolders(join(RESULTS, scenario, batch)).map((run) => {
           const file = join(RESULTS, scenario, batch, run, "metrics.json");
           return { id: run, metrics: existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RunMetrics) : null };
@@ -65,6 +66,12 @@ export function runDiff(repo: string, name: string, batch: string, run: string) 
   if (![repo, name, batch, run].every(isName)) return null;
   const file = join(RESULTS, repo, name, batch, run, "diff.patch");
   return existsSync(file) ? readFileSync(file, "utf8") : null;
+}
+
+export function batchLogFile(repo: string, name: string, batch: string) {
+  if (![repo, name, batch].every(isName)) return null;
+  const file = join(RESULTS, repo, name, batch, "console.log");
+  return existsSync(file) ? file : null;
 }
 
 // ---- Running ----------------------------------------------------------------------
@@ -86,93 +93,56 @@ export async function dockerRunning() {
   );
 }
 
-// Builds the eval image, then runs each of a scenario's repeat runs in its own container
-// (evals/run.ts --run N), all in one batch, its results going to evals/results. Each line
-// of output goes to onLine. ChatGPT tokens stay current in a temporary read-only mount;
-// only this server refreshes them. OpenRouter keys go in the container's environment.
+// Builds the common workspace image, then runs a trusted host harness. Credentials
+// go only to that harness; sandbox commands receive their own minimal environment.
 export function runInDocker(scenario: string, repeat: number, { connection, model }: { connection: ModelConnection; model: string },
-  onLine: (line: string) => void) {
-  const container = `zini-eval-${Date.now()}`;
+  onLine: (line: string) => void, batch = new Date().toISOString().replace(/[:.]/g, "-")) {
   let child: ChildProcess | null = null;
   let stopped = false;
   let credentials: Awaited<ReturnType<typeof createEvalCredentials>> | null = null;
-  let credentialError: string | null = null;
-
-  const run = (command: string[], env: NodeJS.ProcessEnv = process.env) =>
-    new Promise<number | null>((done) => {
-      child = spawn("docker", command, { cwd: ROOT, env, windowsHide: true });
-      let partial = "";
-      const read = (chunk: Buffer) => {
-        const lines = (partial + chunk.toString()).split(/\r?\n/);
-        partial = lines.pop() ?? "";
-        lines.forEach(onLine);
-      };
-      child.stdout?.on("data", read);
-      child.stderr?.on("data", read);
-      child.on("error", (err) => {
-        onLine(`Couldn't run docker: ${err.message}`);
-        done(null);
-      });
-      child.on("close", (code) => {
-        if (partial) onLine(partial);
-        done(code);
-      });
-    });
-
+  const work = join(EVALS, ".work", batch);
   const execute = async () => {
-    onLine("Building the eval image…");
-    if ((await run(["build", "--quiet", "-f", "evals/Dockerfile", "-t", IMAGE, "."])) !== 0) {
-      return { ok: false, error: stopped ? "Stopped" : "Building the eval image failed" };
-    }
+    const { buildSandboxImage } = await import("../workspaces/workspaceSandbox.js");
+    onLine("Building the workspace sandbox image…");
+    await buildSandboxImage();
     if (stopped) return { ok: false, error: "Stopped" };
-    if (connection.provider === "chatgpt") {
-      credentials = await createEvalCredentials(connection.token, (error) => {
-        credentialError = error instanceof Error ? error.message : String(error);
-        stop();
-      });
-    }
+    if (connection.provider === "chatgpt") credentials = await createEvalCredentials(connection.token, () => stop());
     mkdirSync(RESULTS, { recursive: true });
-    const batch = new Date().toISOString().replace(/[:.]/g, "-");
-    let failed = false;
-    for (let n = 1; n <= repeat; n++) {
-      if (stopped) return { ok: false, error: credentialError ?? "Stopped" };
-      const credential: Record<string, string> = connection.provider === "chatgpt"
-        ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: "/run/zini-auth/access-token" }
-        : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
-      const code = await run(
-        ["run", "--rm", "--name", `${container}-${n}`, ...Object.keys(credential).flatMap((name) => ["-e", name]),
-          "-e", "EVAL_MODEL", "-e", "EVAL_BATCH", "-e", "EVAL_TIMEOUT_MINUTES",
-          ...(credentials ? ["-v", `${credentials.directory}:/run/zini-auth:ro`] : []),
-          "-v", `${RESULTS}:/results`, IMAGE, scenario, "--repeat", String(repeat), "--run", String(n)],
-        { ...process.env, ...credential, EVAL_MODEL: model, EVAL_BATCH: batch },
-      );
-      if (stopped) return { ok: false, error: credentialError ?? "Stopped" };
-      if (code === 2) return { ok: false, error: "Model rate limit reached; remaining eval runs were not started" };
-      if (code !== 0) failed = true;
+    const credential: Record<string, string> = connection.provider === "chatgpt"
+      ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: join(credentials!.directory, "access-token") }
+      : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
+    const code = await new Promise<number | null>(done => {
+      child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "run.ts"), scenario, "--repeat", String(repeat)], {
+        cwd: ROOT, windowsHide: true, detached: process.platform !== "win32",
+        env: { ...process.env, ...credential, EVAL_MODEL: model, EVAL_BATCH: batch, EVAL_WORK: work, EVAL_RESULTS: RESULTS, EVAL_CONSOLE_CAPTURED: "1" },
+      });
+      if (child.stdout) followConsole(child.stdout, onLine);
+      if (child.stderr) followConsole(child.stderr, onLine);
+      child.on("error", error => { onLine(String(error)); done(null); });
+      child.on("close", done);
+    });
+    return { ok: code === 0 && !stopped, error: stopped ? "Stopped" : code === 2 ? "Model rate limit reached; remaining runs were not started" : code === 0 ? null : "Some eval runs failed; inspect the run metrics" };
+  };
+  const stop = () => { stopped = true; if (child) killTree(child); };
+  const done = execute().catch(error => ({ ok: false, error: String(error) })).finally(async () => {
+    await credentials?.close();
+    // Also clean containers after timeout or interruption of the trusted harness.
+    const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
+    function ids(folder: string): { id: string; storage: string }[] {
+      if (!existsSync(folder)) return [];
+      return readdirSync(folder, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
+        ? entry.name === "workspaces" ? readdirSync(join(folder, entry.name)).filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => ({ id, storage: join(folder, "zini.sqlite") })) : ids(join(folder, entry.name)) : []);
     }
-    return failed ? { ok: false, error: "Some eval runs failed; inspect the run metrics" } : { ok: true, error: null };
-  };
-
-  const stop = () => {
-    stopped = true;
-    // Stopping the container ends its run; a build still going is killed.
-    for (let n = 1; n <= repeat; n++) spawn("docker", ["stop", `${container}-${n}`], { windowsHide: true }).on("error", () => {});
-    (child as ChildProcess | null)?.kill();
-  };
-  const done = execute()
-    .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
-    .finally(async () => { await credentials?.close(); });
+    for (const { id, storage } of ids(work)) await removeSandbox(id, storage).catch(error => onLine(`Eval sandbox cleanup failed: ${error}`));
+  });
   return { done, stop };
 }
-
 // ---- The webapp's eval: one at a time ------------------------------------------------
-
-// The most output kept: its end.
-const MAX_OUTPUT_LINES = 5_000;
 
 let running: (EvalStatus["running"] & { stop: () => void }) | null = null;
 let output: string[] = [];
 let ended: EvalStatus["ended"] = null;
+let restoredOutput = false;
 
 // One event per half second at most, while output pours in.
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,6 +154,16 @@ function notify() {
 }
 
 export function evalStatus(): EvalStatus {
+  if (!restoredOutput) {
+    restoredOutput = true;
+    const latest = listBatches().find(batch => existsSync(join(RESULTS, batch.scenario, batch.id, "console.log")));
+    if (latest) {
+      const folder = join(RESULTS, latest.scenario, latest.id);
+      output = readConsoleTail(join(folder, "console.log"));
+      const result = join(folder, "console-result.json");
+      if (existsSync(result)) ended = JSON.parse(readFileSync(result, "utf8")) as EvalStatus["ended"];
+    }
+  }
   return { running: running && { scenario: running.scenario, repeat: running.repeat, startedAt: running.startedAt }, output, ended };
 }
 
@@ -197,16 +177,21 @@ export async function startEval(scenario: string, repeat: number): Promise<strin
   if (!(await dockerRunning())) return "Docker isn't running";
   if (running) return "An eval is already running";
 
-  output = [];
+  const batch = new Date().toISOString().replace(/[:.]/g, "-");
+  const folder = join(RESULTS, scenario, batch);
+  const log = new BatchConsole(join(folder, "console.log"));
+  restoredOutput = true;
+  output = log.tail;
   ended = null;
   const { done, stop } = runInDocker(scenario, repeat, settings, (line) => {
-    output.push(line);
-    if (output.length > MAX_OUTPUT_LINES) output = output.slice(-MAX_OUTPUT_LINES);
+    log.append(line);
     notify();
-  });
+  }, batch);
   running = { scenario, repeat, startedAt: new Date().toISOString(), stop };
   notify();
   void done.then((result) => {
+    if (result.error) log.append(result.error);
+    writeFileSync(join(folder, "console-result.json"), `${JSON.stringify(result)}\n`);
     ended = result;
     running = null;
     notify();

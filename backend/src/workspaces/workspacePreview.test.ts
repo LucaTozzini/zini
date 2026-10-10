@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import express from "express";
 import { chromium } from "playwright";
-import { WorkspaceAppRuntime, availableAppPort, validateAppLaunchPlan, type AppLaunchPlan } from "./workspaceAppRuntime.js";
+import { WorkspaceAppRuntime, availableAppPort, validateAppLaunchPlan, type AppLaunchPlan } from "./localAppRuntime.js";
 import { workspacePreview, workspacePreviewUpgrades } from "./workspacePreview.js";
 
 const fixture = `

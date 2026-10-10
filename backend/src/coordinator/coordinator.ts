@@ -2,7 +2,7 @@ import type { LinearClient } from "@linear/sdk";
 import { Command, END, START, StateGraph, interrupt, isGraphInterrupt } from "@langchain/langgraph";
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { createAgent, humanInTheLoopMiddleware, toolStrategy, type HITLRequest } from "langchain";
+import { createAgent, toolStrategy, type HITLRequest } from "langchain";
 import type {
   AgentRole,
   Decision,
@@ -53,7 +53,7 @@ import {
 } from "./systemPrompts.js";
 import { browserUrl, closeBrowser } from "../browser/agentBrowser.js";
 import { drainProcesses, runCommandResult, stopAllProcesses } from "./qaProcesses.js";
-import { browserTools, COMMAND_TOOLS, commandTools } from "./qaTools.js";
+import { browserTools, commandTools } from "./qaTools.js";
 import { diffTool, workspaceFilesystem, writeTools } from "./tools.js";
 import { sendEvent } from "../core/events.js";
 import { npmTools } from "../agents/npmTools.js";
@@ -106,9 +106,8 @@ const pausedLogs = new Map<string, RunLog>();
 // Runs a subagent to completion and returns its document, which the pipeline's state
 // keeps. With remember, the subagent remembers its earlier runs: each run adds input to
 // its messages, and long ones are compacted. Without, it starts fresh every time. Each
-// run is logged (see runLog.ts). Calls to the tools in approve pause the pipeline for
-// the user to approve or reject them; invocation memory carries on from the pause:
-// the node runs again once they answer, and the invocation's checkpoint resumes it.
+// run is logged (see runLog.ts). Repository commands execute in the Docker sandbox
+// without tool approvals. The pipeline owns plan approval and clarification pauses.
 async function runSubagent<S extends z.ZodObject>(
   { setup, issueId, notify, signal, execution }: Run,
   {
@@ -118,7 +117,6 @@ async function runSubagent<S extends z.ZodObject>(
     schema,
     input,
     remember = false,
-    approve = [],
     validate,
   }: {
     role: AgentRole;
@@ -127,7 +125,6 @@ async function runSubagent<S extends z.ZodObject>(
     schema: S;
     input: string;
     remember?: boolean;
-    approve?: readonly string[];
     // What's wrong with a submitted document, or nothing if it's valid.
     validate?: (document: z.infer<S>) => string | undefined;
   },
@@ -160,15 +157,6 @@ async function runSubagent<S extends z.ZodObject>(
       workspaceFilesystem(issueId, role === "coder", notify),
       requireSubmission(String(schema.meta()?.title), (attempt) => log.write({ event: "doc_recovery", attempt })),
       ...(remember ? [compactionMiddleware(model)] : []),
-      ...(approve.length > 0
-        ? [
-            humanInTheLoopMiddleware({
-              interruptOn: Object.fromEntries(
-                approve.map((name) => [name, { allowedDecisions: ["approve", "reject"] }]),
-              ),
-            }),
-          ]
-        : []),
     ],
     // Run inside a pipeline node, the agent saves with the pipeline's checkpointer, on
     // its thread, under a namespace of the node's name and task id. The task id is new
@@ -187,7 +175,6 @@ async function runSubagent<S extends z.ZodObject>(
         // A remembered planner/coder gets a NEW turn, even when the parent is
         // continuing after a pause/redirect. Otherwise the inherited resume flag
         // skips this input and resumes its already-completed child checkpoint.
-        // Invocation-scoped QA keeps inheritance to resume command approvals.
         ...(remember ? { configurable: { __pregel_resuming: false } } : {}),
       },
     );
@@ -355,15 +342,11 @@ function buildPipeline(run: Run | null) {
     const { issueId, setup } = need();
     const selection = state.environmentPlan;
     if (!selection) throw new Error("No environment setup selection exists");
-    const { decisions } = selection.commands.length ? interrupt<PipelineWaiting, { decisions: Decision[] }>({
-      kind: "approve_commands", from: "setup",
-      commands: selection.commands.map((entry) => ({ tool: "run_command", command: `[${entry.cwd}] ${entry.command}` })),
-    }) : { decisions: [] };
     const revision = await workspaceRevision(issueId);
     const log = await openRunLog(issueId, "setup");
     await log.write({ event: "start", role: "setup", model: setup.model, prompt: "Prepare environment before checks", input: revision });
     try {
-      const report = await executeEnvironmentSetup(selection, decisions, revision, async (entry, index) => {
+      const report = await executeEnvironmentSetup(selection, revision, async (entry, index) => {
         const id = `setup-${index}`;
         await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
         try {
@@ -377,7 +360,7 @@ function buildPipeline(run: Run | null) {
       }, need().signal);
       await log.write({ event: "end", outcome: "done", document: report });
       return { environmentReport: report };
-    } finally { stopAllProcesses(issueId); }
+    } finally { await stopAllProcesses(issueId); }
   }
 
   async function checks(state: State) {
@@ -419,10 +402,6 @@ function buildPipeline(run: Run | null) {
     const revision = await workspaceRevision(issueId);
     const selection = state.checksPlan;
     if (!selection) throw new Error("No check selection exists");
-    const { decisions } = selection.commands.length ? interrupt<PipelineWaiting, { decisions: Decision[] }>({
-      kind: "approve_commands", from: "checks",
-      commands: selection.commands.map((entry) => ({ tool: "run_command", command: `[${entry.cwd}] ${entry.command}` })),
-    }) : { decisions: [] };
     const log = await openRunLog(issueId, "checks");
     await log.write({ event: "start", role: "checks", model: setup.model, prompt: "Execute selected checks and record their actual results", input: revision });
     const report: NonNullable<State["checksReport"]> = {
@@ -431,12 +410,6 @@ function buildPipeline(run: Run | null) {
     try {
       for (const [index, entry] of selection.commands.entries()) {
         need().signal?.throwIfAborted();
-        const decision = decisions[index];
-        if (decision?.type !== "approve") {
-          report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose,
-            status: "blocked", exitCode: null, output: decision?.type === "reject" ? decision.message ?? "Command rejected" : "Command not approved" });
-          continue;
-        }
         const id = `check-${index}`;
         await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
         try {
@@ -455,7 +428,7 @@ function buildPipeline(run: Run | null) {
       if (await workspaceRevision(issueId) !== revision) report.complete = false;
       await log.write({ event: "end", outcome: "done", document: report });
       return { checksReport: report };
-    } finally { stopAllProcesses(issueId); }
+    } finally { await stopAllProcesses(issueId); }
   }
 
   async function reviewer(state: State) {
@@ -501,9 +474,8 @@ function buildPipeline(run: Run | null) {
       codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
   }
 
-  // The QA runs the software to test the changes. Each command it runs waits for your
-  // approval (the pipeline pauses on them). What it started (processes, its browser) is
-  // stopped when it's done, but not while it waits on you.
+  // QA runs commands automatically in Docker. Its processes and browser are stopped
+  // when it finishes, and retained only while a checkpoint is interrupted.
   async function qa(state: State) {
     const { issueId, notify } = need();
     const { qaReport: previous } = state;
@@ -543,10 +515,8 @@ function buildPipeline(run: Run | null) {
           : hasQuestions(previous)
             ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
             : "The code has changed since your last report: test the changes again.",
-        // Invocation-scoped memory resumes approval pauses, but a new node task
-        // starts fresh after implementation changes. Setup/results live in state.
+        // Product QA starts fresh after implementation changes; setup/results live in state.
         remember: false,
-        approve: COMMAND_TOOLS,
       });
       return { qaReport: enforceCoverage(report, criteria, state.checksReport, await workspaceRevision(issueId)),
         runbook: await updateRunbook(book, runbookUpdates, fingerprint),
@@ -765,8 +735,8 @@ export async function getPipelineMessages(issueId: string) {
   return checkpointMessages(checkpoints, Boolean(pipeline.running || pipeline.waiting && !pipeline.finished));
 }
 
-// What the pipeline is paused on: one of its own pauses, or the QA's commands waiting
-// for approval (its humanInTheLoopMiddleware's request).
+// New runs pause for plan approval or questions. Keep recognizing tool approvals
+// from checkpoints saved before command execution moved into Docker.
 function toWaiting(value: unknown): PipelineWaiting | null {
   if (!value) return null;
   if (typeof value === "object" && "actionRequests" in value) {
@@ -783,7 +753,7 @@ function toWaiting(value: unknown): PipelineWaiting | null {
 
 // Stops what the QA started in the issue's workspace: its processes and its browser.
 export async function stopQa(issueId: string) {
-  stopAllProcesses(issueId);
+  await stopAllProcesses(issueId);
   await closeBrowser(issueId);
 }
 

@@ -399,6 +399,7 @@ export type RunMetrics = {
 export type EvalBatch = {
   scenario: string;
   id: string;
+  hasLog?: boolean;
   runs: { id: string; metrics: RunMetrics | null }[];
 };
 

@@ -1,18 +1,9 @@
 import { tool } from "langchain";
 import { z } from "zod";
 import { readOutput, runCommand, startProcess, stopProcess } from "./qaProcesses.js";
+import { workspaceRequest } from "../workspaces/workspaceSandbox.js";
 
-// The QA's tools for running the software in the issue's workspace: commands (each one
-// approved by the user first; see the QA's humanInTheLoopMiddleware), HTTP requests and
-// a browser, both only to this machine.
-
-// The tools that run something on this machine, so need the user's approval.
-export const COMMAND_TOOLS = ["run_command", "start_process"] as const;
-
-// What a model is given of a response or page, at most.
-const MAX_TEXT = 8_000;
-const cut = (text: string) =>
-  text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}\n[Cut off: ${text.length - MAX_TEXT} more characters]`;
+// Commands, HTTP requests and the browser use the isolated Docker workspace.
 
 // Only this machine: the QA tests the app it started, not services elsewhere.
 function localUrl(value: string) {
@@ -40,7 +31,7 @@ export function commandTools(issueId: string, { productOnly = false, completedCh
         (productOnly ? "Use only to exercise the delivered CLI/library interface or recover missing runtime prerequisites. Deterministic checks have already run. " : "") +
         "Run a shell command in the workspace folder and wait for it to finish: its exit " +
         "code and the end of its output. For installs, builds, linters and tests; start " +
-        "servers with start_process instead. The user approves each command first.",
+        "servers with start_process instead. Commands execute inside the Docker workspace.",
       schema: z.object({
         command: z.string().min(1),
         timeoutSeconds: z
@@ -49,15 +40,14 @@ export function commandTools(issueId: string, { productOnly = false, completedCh
           .min(1)
           .max(1800)
           .optional()
-          .describe("Stop it after this long (default 300)"),
+          .describe("Optional time limit in seconds. Omit to run until completion or cancellation."),
       }),
     }),
-    tool(async ({ command }) => `Started ${startProcess(issueId, command)}: read its output with read_output.`, {
+    tool(async ({ command }) => `Started ${await startProcess(issueId, command)}: read its output with read_output.`, {
       name: "start_process",
       description:
         "Start a long-running shell command in the workspace folder (e.g. a dev server) " +
-        "and leave it running; returns its id. It's stopped when your run ends. The user " +
-        "approves each command first.",
+        "and leave it running inside Docker; returns its id. It's stopped when your run ends.",
       schema: z.object({ command: z.string().min(1) }),
     }),
     tool(async ({ id }) => readOutput(issueId, id), {
@@ -74,25 +64,7 @@ export function commandTools(issueId: string, { productOnly = false, completedCh
     }),
     tool(
       async ({ method, url, headers, body }) => {
-        const response = await fetch(localUrl(url), {
-          method,
-          headers,
-          body: body ?? undefined,
-          // A redirect elsewhere isn't followed.
-          redirect: "manual",
-          signal: AbortSignal.timeout(30_000),
-        });
-        const type = response.headers.get("content-type") ?? "unknown";
-        const location = response.headers.get("location");
-        return [
-          `${response.status} ${response.statusText}`,
-          `Content-Type: ${type}`,
-          location ? `Location: ${location}` : "",
-          "",
-          cut(await response.text()) || "(empty body)",
-        ]
-          .filter((line, i) => line || i === 3)
-          .join("\n");
+        return workspaceRequest<string>(issueId, "http", { method, url: localUrl(url).href, headers, body });
       },
       {
         name: "http_request",

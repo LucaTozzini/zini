@@ -7,18 +7,16 @@ import { environmentSetupNext, executeEnvironmentSetup } from "./environmentSetu
 const install: RepoCommand = { id: "install", kind: "setup", command: "npm ci", cwd: "web", purpose: "Install locked dependencies", sources: ["web/package-lock.json"] };
 const fixtures: RepoCommand = { ...install, id: "fixtures", command: "npm run fixtures", purpose: "Prepare test data" };
 const selection = { commands: [install, fixtures], blockingQuestions: [] };
-const approve = { type: "approve" as const };
 const passed = { exitCode: 0, status: "exited with code 0", output: "ready" };
 
-test("setup follows dependency order and checks stay paused until recovery is approved", async () => {
+test("setup runs without command approval and checks wait for failure recovery", async () => {
   let prepared = false;
   const calls: string[] = [];
   let checks = 0;
   const state = Annotation.Root({ report: Annotation<EnvironmentSetupDocument | null>({ default: () => null, reducer: (_old, next) => next }) });
   const graph = new StateGraph(state)
     .addNode("execute_setup", async () => {
-      const decisions = interrupt({ kind: "approve_commands", from: "setup" });
-      return { report: await executeEnvironmentSetup(selection, decisions, "source", async (entry) => {
+      return { report: await executeEnvironmentSetup(selection, "source", async (entry) => {
         calls.push(entry.command);
         return prepared ? passed : { exitCode: 1, status: "exited with code 1", output: "Registry unavailable" };
       }) };
@@ -31,28 +29,33 @@ test("setup follows dependency order and checks stay paused until recovery is ap
     .compile({ checkpointer: new MemorySaver() });
   const config = { configurable: { thread_id: "environment" } };
   await graph.invoke({}, config);
-  assert.deepEqual(calls, []);
-  await graph.invoke(new Command({ resume: [approve, approve] }), config);
   assert.deepEqual(calls, ["npm ci"]);
   assert.equal(checks, 0);
   assert.deepEqual((await graph.getState(config)).next, ["ask_setup_failure"]);
   prepared = true;
   await graph.invoke(new Command({ resume: { answers: ["Registry restored; retry"] } }), config);
-  assert.equal(checks, 0);
-  assert.deepEqual(calls, ["npm ci"]);
-  await graph.invoke(new Command({ resume: [approve, approve] }), config);
   assert.deepEqual(calls, ["npm ci", "npm ci", "npm run fixtures"]);
   assert.equal(checks, 1);
   assert.equal((await graph.getState(config)).values.report.complete, true);
 });
 
-test("rejected or unapproved setup never runs subsequent commands", async () => {
-  for (const decisions of [[{ type: "reject" as const, message: "Need an offline install" }], []]) {
-    let calls = 0;
-    const report = await executeEnvironmentSetup(selection, decisions, "rev", async () => { calls++; return passed; });
-    assert.equal(calls, 0);
+test("setup failures and timeouts block subsequent commands", async () => {
+  for (const result of [{ exitCode: 1, status: "failed", output: "Install failed" }, { exitCode: 0, timedOut: true, status: "timed out", output: "Install timed out" }]) {
+    const calls: string[] = [];
+    const report = await executeEnvironmentSetup(selection, "rev", async entry => { calls.push(entry.command); return result; });
+    assert.deepEqual(calls, ["npm ci"]);
     assert.equal(report.complete, false);
     assert.equal(report.results[0]?.status, "blocked");
     assert.equal(environmentSetupNext(report), "ask_setup_failure");
   }
+});
+
+test("setup refuses unanswered questions and stops immediately on cancellation", async () => {
+  let calls = 0;
+  const execute = async () => { calls++; return passed; };
+  await assert.rejects(executeEnvironmentSetup({ ...selection, blockingQuestions: ["Which registry?"] }, "rev", execute), /unanswered questions/);
+  const controller = new AbortController();
+  controller.abort(new Error("Canceled"));
+  await assert.rejects(executeEnvironmentSetup(selection, "rev", execute, controller.signal), /Canceled/);
+  assert.equal(calls, 0);
 });

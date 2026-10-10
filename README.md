@@ -25,18 +25,18 @@ Turn Linear tickets into merged PRs: a PM chat front-end with an agent pipeline 
 3. **Build** — a coordinator spins up an isolated workspace per ticket and runs the agent pipeline: plan → code → environment setup → checks → review → QA.
 
    Environment setup selects repository-defined dependency installation, fixtures and
-   readiness commands before each check round. You approve its commands. If setup
+   readiness commands before each check round. Commands run automatically inside the workspace Docker sandbox. If setup
    fails or needs configuration, the pipeline pauses there for your answer; checks
    and review wait until preparation succeeds. Reusable setup instructions live in
    the source-validated runbook.
 
-   All four stages work. The QA works out how to run the software from the repo itself (its CI config, scripts and README), then tests the changes: it runs the project's checks, starts the app, calls its APIs and uses its UI in a headless browser you can watch live. You approve every command it runs. What it finds broken goes back to the coder.
+   All four stages work. The QA works out how to run the software from the repo itself (its CI config, scripts and README), then tests the changes: it runs the project's checks, starts the app, calls its APIs and uses its UI in a headless browser you can watch live. Commands run inside Docker without per-command approval; plan approval and explicit commit/push remain. What it finds broken goes back to the coder.
 
-   The QA's browser is Playwright's headless Chromium, downloaded (about 115 MB) by the backend's `npm install`. If that step was skipped, run `npx playwright install chromium --only-shell` in `backend/`.
+   The QA browser runs inside the workspace container. PM chats keep their browser on the host.
 
 4. **Ship** — a PR is created; the workspace is torn down after merge.
 
-   This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and you then commit and push the branch yourself from the pipeline panel, where a committer agent writes the commit message for you to edit before you press Commit & push. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the worktree, the setup log, the pipeline conversation and the run logs.
+   This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and you then commit and push the branch yourself from the pipeline panel, where a committer agent writes the commit message for you to edit before you press Commit & push. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the container, Linux workspace and runtime volumes, the host marker folder, the setup log, the pipeline conversation and the run logs.
 
 ## Backend source layout
 
@@ -63,7 +63,11 @@ Tests live beside the modules they cover as `*.test.ts` files.
 
 ## Status
 
-What works today: the PM chat; a git worktree per issue; the plan → code → environment setup → checks → review → QA pipeline with its questions, plan approval and command approvals; the diff view, the per-run logs and the QA's live browser; and committing and pushing the branch.
+What works today: the PM chat; an independent Git clone and Docker sandbox per issue;
+the plan → code → environment setup → checks → review → QA pipeline with questions and
+plan approval; the diff view, logs, live QA browser, persistent previews, and explicit
+commit/push. Setup, check and QA commands run automatically inside Docker. See
+[sandbox setup and lifecycle](sandbox/README.md).
 
 The PM automatically follows coordinators it starts. Its
 `coordinator_subscription` tool can subscribe to other issues or unsubscribe.
@@ -82,13 +86,10 @@ for this MVP and reset on backend restart; delivered messages remain in chat his
 The PM can launch an existing workspace's web app for manual use. A read-only launcher
 subagent (`launch_workspace_app`, taking `issueId` and `request`) discovers whether the workspace contains a web app,
 its prerequisites, startup commands, ports and readiness endpoints, or asks about
-missing configuration. Inside the subagent, `start_app_services` presents the entire plan for approval,
-then runs setup and starts the services in dependency order. The checkpointed launcher
-resumes after approval, diagnoses failed launches and proposes revised plans for fresh
-approval, returning the preview URL to the PM when ready. Changed workspace files
+missing configuration. The launcher executes its setup and server plan inside the workspace sandbox, diagnoses startup failures and returns the preview URL to the PM when ready. Changed workspace files
 invalidate a plan before execution. `workspace_app_status` reports readiness, errors
 and recent output; `stop_workspace_app` stops the session. Servers survive the PM turn
-and are owned separately from QA. Sessions are in memory for this MVP. The returned
+and are owned separately from QA. The gateway owns sessions and keeps the launch plan in a persistent volume. Backend restarts reconnect to existing processes; container restarts recover the plan. The returned
 `previewUrl` is a relative `/preview/<issueId>/...` link through Zini, usable from any
 device that can reach Zini. The local `url` is retained for diagnostics. The proxy
 streams HTTP bodies and WebSockets, including HMR, to declared loopback services.
@@ -113,7 +114,7 @@ Coordinator steering is available through **Redirect…** on the issue page and 
 coder, reviewer, or QA. It pauses and drains the current run, replaces pending work
 or approvals, records feedback, clears downstream results, and reruns the normal
 pipeline. Existing workspace edits and history remain. Forward jumps and missing
-prerequisites are rejected; new plans and commands still require approval.
+prerequisites are rejected; new plans still require approval.
 
 All revisions use `/api/coordinator/:issueId/redirect` / `redirect_coordinator`.
 The plan revision and completed-work "Send to coder" cards are shortcuts to that

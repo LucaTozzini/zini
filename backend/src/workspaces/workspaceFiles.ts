@@ -1,26 +1,19 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiff } from "shared";
-import { cleanPath, git, workspacePath } from "../repositories/git.js";
+import { git, workspacePath } from "../repositories/git.js";
+import { workspaceRequest } from "./workspaceSandbox.js";
+import { repositoryPath } from "../repositories/repositoryFilesystem.js";
 
 // The files of an issue's workspace, as the pipeline's subagents see and change them:
-// the checkout on disk, uncommitted edits included. Paths are relative to the
-// workspace and can't leave it or touch its .git.
+// the checkout in a Linux Docker volume, uncommitted edits included. Content I/O goes
+// through the gateway; trusted Git uses a temporary container on the same volume.
 
 // The largest diff sent to the webapp; beyond it, it's cut off and marked truncated.
 const MAX_DIFF_CHARS = 2 * 1024 * 1024;
 
-// A path inside the workspace: the full path, and the path relative to the workspace
-// with forward slashes. Throws for one outside it, or in its .git.
+// Validate a virtual repository path before using it as a Git pathspec.
 function resolveIn(issueId: string, path: string) {
-  const root = workspacePath(issueId);
-  const full = resolve(root, cleanPath(path));
-  const rel = relative(root, full);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${path} is outside the workspace`);
-  if (rel.split(sep)[0] === ".git") throw new Error("The .git folder can't be read or changed");
-  return { full, rel: rel.split(sep).join("/") };
+  return { rel: repositoryPath(path) };
 }
 
 const inWorkspace = (issueId: string, args: string[], exit1Ok = false) =>
@@ -29,18 +22,11 @@ const inWorkspace = (issueId: string, args: string[], exit1Ok = false) =>
 // A source-backed coordinator fact is usable only while the file it describes is
 // unchanged. Paths go through the same workspace boundary checks as read_file.
 export async function fingerprintWorkspaceFile(issueId: string, path: string) {
-  const { full } = resolveIn(issueId, path);
-  if (!existsSync(full) || !(await stat(full)).isFile()) return null;
-  return createHash("sha256").update(await readFile(full)).digest("hex");
+  return workspaceRequest<string | null>(issueId, "file", { operation: "fingerprint", path });
 }
 
 export async function workspaceWorkingDirectory(issueId: string, path = ".") {
-  const { full } = resolveIn(issueId, path);
-  const [root, target] = await Promise.all([realpath(workspacePath(issueId)), realpath(full)]);
-  const rel = relative(root, target);
-  if (rel.startsWith("..") || isAbsolute(rel) || rel.split(sep)[0] === ".git") throw new Error("Working directory is outside the workspace");
-  if (!(await stat(target)).isDirectory()) throw new Error(`${path} is not a directory`);
-  return target;
+  return workspaceRequest<string>(issueId, "file", { operation: "cwd", path });
 }
 
 // Includes tracked edits, deletions, binary changes, and non-ignored new files.
@@ -58,23 +44,12 @@ export async function workspaceRevision(issueId: string) {
 }
 
 export async function deleteWorkspaceFile(issueId: string, path: string) {
-  const { full, rel } = resolveIn(issueId, path);
-  if (!existsSync(full)) throw new Error(`No file at ${rel}`);
-  if ((await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
-  await rm(full);
-  return `Deleted ${rel}`;
+  return workspaceRequest<string>(issueId, "file", { operation: "delete", path });
 }
 
 // Moves or renames a file, creating the folders it goes in. Never replaces a file.
 export async function moveWorkspaceFile(issueId: string, from: string, to: string) {
-  const source = resolveIn(issueId, from);
-  const target = resolveIn(issueId, to);
-  if (!existsSync(source.full)) throw new Error(`No file at ${source.rel}`);
-  if ((await stat(source.full)).isDirectory()) throw new Error(`${source.rel} is a folder`);
-  if (existsSync(target.full)) throw new Error(`${target.rel} already exists`);
-  await mkdir(dirname(target.full), { recursive: true });
-  await rename(source.full, target.full);
-  return `Moved ${source.rel} to ${target.rel}`;
+  return workspaceRequest<string>(issueId, "file", { operation: "move", path: from, to });
 }
 
 // The commit the workspace branched from on the default branch.
@@ -133,7 +108,7 @@ export async function workspaceChanges(issueId: string, uncommitted = false) {
       return { path: rest.join("\t"), added, removed, isNew: false };
     });
   for (const file of await untrackedFiles(issueId)) {
-    const content = await readFile(resolve(workspacePath(issueId), file), "utf8").catch(() => "");
+    const content = await workspaceRequest<string>(issueId, "file", { operation: "readText", path: file }).catch(() => "");
     const binary = content.slice(0, 8000).includes("\0");
     const lines = content.split("\n").length - (content === "" || content.endsWith("\n") ? 1 : 0);
     changes.push({ path: file, added: binary ? "-" : String(lines), removed: binary ? "-" : "0", isNew: true });
@@ -185,8 +160,7 @@ export async function hasUnpushed(issueId: string) {
   return Number(await inWorkspace(issueId, ["rev-list", "--count", `${from}..HEAD`])) > 0;
 }
 
-// Commits everything not committed yet (new files included, ignored ones not), as the
-// machine's git user.
+// Commits everything not committed yet (new files included, ignored ones not) as Zini.
 export async function commitAll(issueId: string, message: string) {
   await inWorkspace(issueId, ["add", "-A"]);
   await inWorkspace(issueId, ["commit", "--quiet", "-m", message]);

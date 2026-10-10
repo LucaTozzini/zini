@@ -1,18 +1,17 @@
-import { chromium } from "playwright";
 import type { Check } from "../../../harness/types.js";
 
 // Clicking the Email card copies me@lucatozzini.com, shows that it was copied, and opens
 // nothing (no mailto: tab); the other cards still link out.
-const check: Check = async ({ startApp }) => {
+const check: Check = async ({ startApp, launchBrowser }) => {
   const app = await startApp();
-  const browser = await chromium.launch();
+  const browser = await launchBrowser();
   const failures: string[] = [];
   try {
     const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
     const page = await context.newPage();
     let opened = false;
     context.on("page", () => (opened = true));
-    await page.goto(app.url);
+    await page.goto(app.browserUrl);
     const socials = page.locator("#socials");
     await socials.getByText("Email", { exact: true }).click();
 

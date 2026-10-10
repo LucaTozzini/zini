@@ -20,6 +20,7 @@ import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
 import { startPmCoordinatorUpdates } from "./productManager/pmCoordinatorUpdates.js";
 import { requireApiUser } from "./auth/session.js";
+import { Workspace } from "./models/Workspace.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -60,6 +61,18 @@ if (existsSync(webapp)) {
 }
 
 await initDb();
+let recovering: Promise<void> | null = null;
+function recoverPreviews() {
+  recovering ??= refreshPreviews().finally(() => { recovering = null; });
+  return recovering;
+}
+async function refreshPreviews() {
+  for (const workspace of await Workspace.findAll()) {
+    await workspaceApps.refresh(workspace.issueId).catch(error => console.error("Workspace preview recovery:", String(error)));
+  }
+}
+await recoverPreviews();
+setInterval(() => { void recoverPreviews(); }, 5000).unref();
 startPmCoordinatorUpdates();
 
 const server = createServer(app);

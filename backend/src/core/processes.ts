@@ -22,8 +22,9 @@ export function spawnShell(command: string, cwd: string, extraEnv: Record<string
 
 // Stops the shell and everything it started (e.g. npm and its children).
 export function killTree(child: ChildProcess) {
-  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child.pid) return;
   if (process.platform === "win32") {
+    if (child.exitCode !== null || child.signalCode !== null) return;
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
   } else {
     try {

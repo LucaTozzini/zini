@@ -18,13 +18,17 @@ export type Scenario = {
 // What a hidden check is given: the workspace after the run, and a way to run the app in
 // it.
 export type CheckContext = {
-  workspace: string;
+  // Repository files and commands live in the Linux workspace volume.
+  readFile: (path: string) => Promise<string>;
+  runCommand: (command: string) => Promise<{ exitCode: number | null; output: string }>;
   startApp: (options?: { dataFile?: string }) => Promise<RunningApp>;
+  launchBrowser: () => Promise<import("playwright").Browser>;
 };
 
 export type RunningApp = {
   // e.g. http://localhost:4710
   url: string;
+  browserUrl: string;
   stop: () => Promise<void>;
 };
 

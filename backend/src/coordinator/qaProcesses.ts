@@ -1,181 +1,24 @@
-import type { ChildProcess } from "node:child_process";
-import { workspacePath } from "../repositories/git.js";
-import { killTree, spawnShell } from "../core/processes.js";
-import { workspaceWorkingDirectory } from "../workspaces/workspaceFiles.js";
-
-// The QA's commands, run in the issue's workspace: ones it waits for (run_command), and
-// long-running ones it starts and checks on (start_process, e.g. a dev server). Every
-// one is stopped when the QA's run ends (stopAllProcesses), but not while it's paused
-// for approval: a dev server it started is still up when it carries on.
-
-// What a model is given of a command's output, at most: its end, where errors show.
-const MAX_OUTPUT_FOR_MODEL = 8_000;
-// What's kept of a long-running process's output, at most.
-const MAX_BUFFER = 200_000;
-const DEFAULT_TIMEOUT_SECONDS = 300;
-const MAX_TIMEOUT_SECONDS = 1_800;
-
-// For the QA's commands only: CI makes tools run once rather than watch (e.g. test
-// runners), and plain output reads better than color codes.
-const QA_ENV = { CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" };
-
-// Color and cursor codes some tools print anyway.
-const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
-
-// The end of text, with a note when its start is left out.
-function tail(text: string) {
-  if (text.length <= MAX_OUTPUT_FOR_MODEL) return text;
-  const left = text.length - MAX_OUTPUT_FOR_MODEL;
-  return `[${left} earlier characters left out]\n${text.slice(-MAX_OUTPUT_FOR_MODEL)}`;
-}
-
-function exitText(code: number | null, signal: NodeJS.Signals | null) {
-  return code === null ? `stopped (${signal ?? "killed"})` : `exited with code ${code}`;
-}
-
-type Process = {
-  command: string;
-  child: ChildProcess;
-  // The output kept, which starts at offset `start` of everything it printed; `read`
-  // is how far read_output has given it.
-  output: string;
-  start: number;
-  read: number;
-  status: string | null;
-};
-
-// Each issue's processes, by id ("p1", "p2", ...), and the commands running now.
-const processes = new Map<string, Map<string, Process>>();
-const commands = new Map<string, Set<ChildProcess>>();
-let nextId = 1;
-// Keep children until close, even after ordinary cleanup removes their UI records.
-const liveChildren = new Map<string, Set<ChildProcess>>();
-function trackChild(issueId: string, child: ChildProcess) {
-  const children = liveChildren.get(issueId) ?? new Set<ChildProcess>();
-  liveChildren.set(issueId, children);
-  children.add(child);
-  child.once("close", () => { children.delete(child); if (!children.size) liveChildren.delete(issueId); });
-  return child;
-}
-
-export async function drainProcesses(issueId: string) {
-  const children = [...(liveChildren.get(issueId) ?? [])];
-  await Promise.all(children.map((child) => new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { child.removeListener("close", closed); reject(new Error("Coordinator processes have not stopped yet")); }, 10_000);
-    const closed = () => { clearTimeout(timer); resolve(); };
-    child.once("close", closed);
-    killTree(child);
-  })));
-}
-
-
-const spawnInWorkspace = (issueId: string, command: string) =>
-  trackChild(issueId, spawnShell(command, workspacePath(issueId), QA_ENV));
-
-// Runs command to completion (or until it times out), and gives its exit code and the
-// end of its output.
-export function runCommand(issueId: string, command: string, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, signal?: AbortSignal) {
-  return runCommandResult(issueId, command, ".", timeoutSeconds, signal).then(({ status, output }) => `${status}\n\n${output}`);
-}
-
-// Capture execution evidence directly rather than asking a model to report it.
-export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, signal?: AbortSignal) {
+import { existingSandbox, ensureSandbox, sandboxRequest, workspaceRequest } from "../workspaces/workspaceSandbox.js";
+export async function runCommandResult(issueId: string, command: string, cwd = ".", timeoutSeconds?: number, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const seconds = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_SECONDS);
-  const child = trackChild(issueId, spawnShell(command, await workspaceWorkingDirectory(issueId, cwd), QA_ENV));
-  const abort = () => killTree(child);
-  signal?.addEventListener("abort", abort, { once: true });
-  if (signal?.aborted) abort();
-  const running = commands.get(issueId) ?? new Set();
-  commands.set(issueId, running.add(child));
-
-  let output = "";
-  const append = (chunk: Buffer) => {
-    // Kept a little past what's shown, so the note says how much was left out.
-    output = (output + stripAnsi(chunk.toString())).slice(-MAX_BUFFER);
-  };
-  child.stdout?.on("data", append);
-  child.stderr?.on("data", append);
-
-  return new Promise<{ exitCode: number | null; timedOut: boolean; status: string; output: string }>((resolve) => {
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree(child);
-    }, seconds * 1000);
-    // "error" (it couldn't start) and "close" can both fire; only the first counts.
-    let done = false;
-    const finish = (status: string, exitCode: number | null = null) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      running.delete(child);
-      resolve({ exitCode, timedOut, status, output: tail(output.trim()) || "(no output)" });
-    };
-    child.on("error", (err) => finish(`Couldn't run it: ${err.message}`));
-    child.on("close", (code, signal) =>
-      finish(timedOut ? `Timed out after ${seconds}s, and was stopped` : exitText(code, signal), code),
-    );
-  });
-}
-
-// Starts command and leaves it running; its output is read with readOutput.
-export function startProcess(issueId: string, command: string) {
-  const id = `p${nextId++}`;
-  const child = spawnInWorkspace(issueId, command);
-  const proc: Process = { command, child, output: "", start: 0, read: 0, status: null };
-  const append = (chunk: Buffer) => {
-    proc.output += stripAnsi(chunk.toString());
-    if (proc.output.length > MAX_BUFFER) {
-      proc.start += proc.output.length - MAX_BUFFER;
-      proc.output = proc.output.slice(-MAX_BUFFER);
+  const sandbox = await ensureSandbox(issueId);
+  const id = await sandboxRequest<string>(sandbox, "start", { command, cwd, timeout: timeoutSeconds });
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const result = await sandboxRequest<{ exitCode: number | null; timedOut: boolean; status: string; output: string }>(sandbox, "result", { id }, signal);
+      if (result.status !== "running") return result;
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
-  };
-  child.stdout?.on("data", append);
-  child.stderr?.on("data", append);
-  child.on("error", (err) => (proc.status ??= `couldn't start: ${err.message}`));
-  child.on("close", (code, signal) => (proc.status ??= exitText(code, signal)));
-
-  const issueProcesses = processes.get(issueId) ?? new Map();
-  processes.set(issueId, issueProcesses.set(id, proc));
-  return id;
+  } finally { await sandboxRequest(sandbox, "stop", { id }); }
 }
-
-function getProcess(issueId: string, id: string) {
-  const proc = processes.get(issueId)?.get(id);
-  if (!proc) throw new Error(`No process ${id}. Start one with start_process.`);
-  return proc;
+export async function runCommand(issueId: string, command: string, timeoutSeconds?: number, signal?: AbortSignal) {
+  const result = await runCommandResult(issueId, command, ".", timeoutSeconds, signal); return `${result.status}\n\n${result.output}`;
 }
-
-// What the process printed since the last read, and whether it's still running.
-export function readOutput(issueId: string, id: string) {
-  const proc = getProcess(issueId, id);
-  const end = proc.start + proc.output.length;
-  const from = Math.max(proc.read, proc.start);
-  const skipped = from - proc.read;
-  proc.read = end;
-  const text = proc.output.slice(from - proc.start);
-  return [
-    `${id} (${proc.command}): ${proc.status ?? "running"}`,
-    skipped > 0 ? `[${skipped} characters weren't kept]` : "",
-    tail(text.trim()) || "(no new output)",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+export const startProcess = (issueId: string, command: string) => workspaceRequest<string>(issueId, "start", { command });
+export const readOutput = (issueId: string, id: string) => workspaceRequest<string>(issueId, "read", { id });
+export const stopProcess = (issueId: string, id: string) => workspaceRequest<string>(issueId, "stop", { id });
+export async function stopAllProcesses(issueId: string) {
+  const sandbox = await existingSandbox(issueId); if (sandbox) await sandboxRequest(sandbox, "drain");
 }
-
-export function stopProcess(issueId: string, id: string) {
-  const proc = getProcess(issueId, id);
-  killTree(proc.child);
-  processes.get(issueId)?.delete(id);
-  return `Stopped ${id} (${proc.command})`;
-}
-
-// Stops everything the QA started in the issue's workspace.
-export function stopAllProcesses(issueId: string) {
-  for (const proc of processes.get(issueId)?.values() ?? []) killTree(proc.child);
-  for (const child of commands.get(issueId) ?? []) killTree(child);
-  processes.delete(issueId);
-  commands.delete(issueId);
-}
+export const drainProcesses = stopAllProcesses;

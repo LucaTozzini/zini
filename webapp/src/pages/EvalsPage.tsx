@@ -348,6 +348,11 @@ function Results() {
             {other && `, compared with the baseline from ${batchTime(other.id)}`}
           </Typography>
           <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
+          {main.hasLog && (
+            <Button component="a" href={`/api/evals/batches/${main.scenario}/${main.id}/log`} target="_blank" rel="noopener" sx={{ alignSelf: "flex-start" }}>
+              Open full batch log
+            </Button>
+          )}
           {main.runs.map((run) => (
             <RunDetails key={run.id} batch={main} run={run} />
           ))}

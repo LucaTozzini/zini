@@ -94,11 +94,23 @@ export async function startRun(
   notify: () => void,
   reservation?: symbol,
 ) {
-  if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
   const status: RunStatus = { ...NOT_RUNNING, running: true };
   const control = new AbortController();
-  runs.set(runId, status);
-  controls.set(runId, control);
+  const claim = async () => {
+    if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
+    runs.set(runId, status); controls.set(runId, control); return true;
+  };
+  if (runId.startsWith("coordinator:")) {
+    const { withWorkspaceLock } = await import("../workspaces/workspaceLocks.js");
+    const { ensureWorkspaceVolume } = await import("../workspaces/workspaceVolumes.js");
+    const issueId = runId.slice("coordinator:".length);
+    if (!await withWorkspaceLock(issueId, async () => {
+      if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
+      // Verify storage before claiming the run.
+      await ensureWorkspaceVolume(issueId);
+      return claim();
+    })) return false;
+  } else if (!await claim()) return false;
 
   let chunks: AsyncIterator<unknown>;
   try {

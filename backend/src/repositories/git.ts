@@ -1,11 +1,14 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { rename, rm } from "node:fs/promises";
+import { rename, rm, rmdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { storage } from "../db.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
+import { withWorkspaceLock } from "../workspaces/workspaceLocks.js";
+import { trustedGit } from "../workspaces/trustedGit.js";
+import { cloneWorkspaceVolume, ensureWorkspaceVolume, workspaceGit } from "../workspaces/workspaceVolumes.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,8 +18,7 @@ const execFileAsync = promisify(execFile);
 const REPO_DIR = resolve(dirname(storage), "repo.git");
 const REF = "origin/HEAD";
 
-// Workspaces are git worktrees of the clone: real folders, each with its own branch
-// checked out, sharing repo.git's history. Named by Linear issue id, which never changes.
+// Each workspace is an independent clone with its own history and metadata.
 const WORKSPACES_DIR = resolve(dirname(storage), "workspaces");
 
 // Caps so a big file or a common search term doesn't flood the model's context.
@@ -30,7 +32,11 @@ const MAX_LINE_CHARS = 300;
 // failure (git grep with no matches, git diff --no-index with differences).
 export async function git(args: string[], token?: string, { exit1Ok = false } = {}) {
   try {
-    return await runGit(args, token);
+    const directory = args[0] === "-C" ? args[1] : undefined;
+    const prefix = `${WORKSPACES_DIR}${process.platform === "win32" ? "\\" : "/"}`;
+    const id = directory?.startsWith(prefix) ? directory.slice(prefix.length) : "";
+    if (/^[a-zA-Z0-9_-]+$/.test(id)) return await workspaceGit(id, args.slice(2), token);
+    return await executeGit(args, token);
   } catch (err) {
     const { code, stdout } = err as { code?: number; stdout?: string };
     if (exit1Ok && code === 1) return stdout ?? "";
@@ -38,7 +44,7 @@ export async function git(args: string[], token?: string, { exit1Ok = false } = 
   }
 }
 
-async function runGit(args: string[], token?: string) {
+async function executeGit(args: string[], token?: string) {
   const auth = token
     ? {
         GIT_CONFIG_COUNT: "2",
@@ -48,10 +54,13 @@ async function runGit(args: string[], token?: string) {
         GIT_CONFIG_VALUE_1: `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
       }
     : {};
-  const { stdout } = await execFileAsync("git", args, {
+  const safe = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.pager=cat", "-c", "credential.helper=", "-c", "core.sshCommand=false", "-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=never", "-c", "user.name=Zini", "-c", "user.email=zini@localhost"];
+  const { stdout } = await execFileAsync("git", [...safe, ...args], {
     env: {
       ...process.env,
       GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
       // git never looks for a repo above the workspaces folder: a workspace that has
       // lost its .git link then fails, rather than git finding whatever repo contains
       // zini's data folder (e.g. zini's own checkout) and acting on that.
@@ -75,7 +84,10 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-const repoUrl = (repo: string) => `https://github.com/${repo}.git`;
+const repoUrl = (repo: string) => {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("Invalid GitHub repository");
+  return `https://github.com/${repo}.git`;
+};
 
 async function requireToken() {
   const token = await getKey("github");
@@ -133,29 +145,28 @@ async function updateRepo() {
   await exclusive(() => git(["-C", REPO_DIR, "fetch", "--quiet", "--prune", "origin"], token));
 }
 
-export const workspacePath = (issueId: string) => join(WORKSPACES_DIR, issueId);
+export const workspacePath = (issueId: string) => {
+  if (!/^[a-zA-Z0-9_-]+$/.test(issueId)) throw new Error("Invalid workspace ID");
+  return join(WORKSPACES_DIR, issueId);
+};
 
-// Checks out branch in a new worktree for the issue. Continues origin/<branch> if
-// someone already pushed it, otherwise starts it from the default branch. Fetch
-// first, so both are current. -B, not -b: the bare clone copied every branch that
-// existed when it was made, so a stale local copy may already exist to be reset.
-export function addWorktree(issueId: string, branch: string) {
+// Create an independent clone from the trusted bare cache; continue a pushed
+// branch when present.
+export function cloneWorkspace(issueId: string, branch: string) {
   return exclusive(async () => {
     const remote = `refs/remotes/origin/${branch}`;
     const onRemote = await git(["-C", REPO_DIR, "rev-parse", "--verify", "--quiet", remote])
       .then(() => true)
       .catch(() => false);
-    await git([
-      "-C", REPO_DIR, "worktree", "add", "--quiet",
-      "-B", branch, workspacePath(issueId), onRemote ? remote : REF,
-    ]);
+    await cloneWorkspaceVolume(issueId, branch, onRemote ? remote : REF,
+      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(), `refs/remotes/origin/${await defaultBranch()}`);
   });
 }
 
-// The branch checked out in the issue's worktree.
-export async function worktreeBranch(issueId: string) {
+// The branch checked out in the issue's Docker workspace.
+export async function workspaceBranch(issueId: string) {
   const path = workspacePath(issueId);
-  if (!existsSync(path)) throw new Error("The workspace folder is missing");
+  await ensureWorkspaceVolume(issueId);
   return (await git(["-C", path, "branch", "--show-current"])).trim();
 }
 
@@ -165,33 +176,41 @@ export async function defaultBranch() {
   return ref.replace(/^origin\//, "");
 }
 
-// Pushes the worktree's branch to GitHub, under the same name.
+// Push the independent clone's branch to the configured GitHub repository.
 export async function pushBranch(issueId: string) {
-  const branch = await worktreeBranch(issueId);
+  const branch = await workspaceBranch(issueId);
   const token = await requireToken();
   // Updates origin/<branch> too, which the clone's fetch shares, so one at a time.
-  await exclusive(() =>
-    git(["-C", workspacePath(issueId), "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`], token),
-  );
+  await exclusive(async () => {
+    await git(["-C", workspacePath(issueId), "push", "--quiet", repoUrl(String(await getSetting("githubRepo"))), `HEAD:refs/heads/${branch}`], token);
+    await git(["-C", workspacePath(issueId), "update-ref", `refs/remotes/origin/${branch}`, "HEAD"]);
+  });
 }
 
-// Deletes the issue's worktree, including uncommitted changes, and its local branch.
-// The branch on GitHub is left alone. Works on a folder that's already half-deleted
-// or gone too.
-export async function removeWorktree(issueId: string) {
+// Authenticated Git runs in a temporary trusted container, using the configured URL
+// rather than sandbox-controlled remotes. Merge preserves history and refuses dirty edits.
+export async function syncWorkspace(issueId: string, merge = false) {
+  await ensureWorkspaceVolume(issueId);
+  return withWorkspaceLock(issueId, () => trustedGit(workspacePath(issueId), async () => {
+    const { isRunning } = await import("../agents/runs.js");
+    if (isRunning(`coordinator:${issueId}`)) throw new Error("Pause the coordinator before syncing its workspace");
+    const path = workspacePath(issueId);
+    const token = await requireToken();
+    await git(["-C", path, "fetch", "--quiet", "--prune", repoUrl(String(await getSetting("githubRepo"))), "+refs/heads/*:refs/remotes/origin/*"], token);
+    if (merge) {
+      if ((await git(["-C", path, "status", "--porcelain"])).trim()) throw new Error("Workspace has unfinished edits. Fetch completed; commit or resolve them before merging.");
+      const branch = await defaultBranch();
+      await git(["-C", path, "merge", "--no-edit", `refs/remotes/origin/${branch}`]);
+    }
+    return { fetched: true, merged: merge };
+  }));
+}
+
+// Remove the host's volume-reference marker; repository files live in Docker.
+export async function removeWorkspaceMarker(issueId: string) {
   const path = workspacePath(issueId);
-  // Read first; "" if the folder is gone or no longer a worktree.
-  const branch = await worktreeBranch(issueId).catch(() => "");
-  await exclusive(async () => {
-    // Deleted here rather than by `git worktree remove`, which on Windows fails on the
-    // junctions npm workspaces put in node_modules, leaving the folder half-deleted.
-    // fs.rm removes a junction itself without following it, and retries on files
-    // Windows briefly holds locked.
-    await rm(path, { recursive: true, force: true, maxRetries: 5 });
-    // Then git forgets the worktree, whose folder is gone.
-    await git(["-C", REPO_DIR, "worktree", "prune"]);
-    if (branch) await git(["-C", REPO_DIR, "branch", "-D", branch]);
-  });
+  await rm(join(path, ".docker-volume"), { force: true });
+  await rmdir(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
 }
 
 // "src/App.tsx", "./src/App.tsx" and "/src/App.tsx" all mean the same file; "" is the root.
