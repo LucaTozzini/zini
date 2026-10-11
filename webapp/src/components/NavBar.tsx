@@ -32,6 +32,7 @@ import ZiniIcon from "./icons/ZiniIcon.tsx";
 import { useId, useState } from "react";
 import type { ThreadSummary } from "shared";
 import { errorMessage } from "../api/client.ts";
+import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 
 const NavBar = () => {
   const sectionHeaderSx = {
@@ -48,7 +49,8 @@ const NavBar = () => {
   const { data: linearIssuesUnstarted } = useLinearIssues(["unstarted"]);
   const { data: linearIssuesStarted } = useLinearIssues(["started"]);
   const { data: linearIssuesBacklog } = useLinearIssues(["backlog"]);
-  const { data: projectLeadThreads, isPending: projectLeadThreadsIsPending } = useThreads();
+  const { data: projectLeadThreads, isPending: projectLeadThreadsIsPending } =
+    useThreads();
   const issueGroups = [
     {
       id: "unstarted",
@@ -81,9 +83,11 @@ const NavBar = () => {
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
   const menuThread =
-    projectLeadThreads?.find((thread) => thread.id === menu?.thread.id) ?? menu?.thread;
+    projectLeadThreads?.find((thread) => thread.id === menu?.thread.id) ??
+    menu?.thread;
   const deletingRunningThread = Boolean(
-    projectLeadThreads?.find((thread) => thread.id === threadToDelete?.id)?.running,
+    projectLeadThreads?.find((thread) => thread.id === threadToDelete?.id)
+      ?.running,
   );
 
   function closeDeleteDialog() {
@@ -121,11 +125,18 @@ const NavBar = () => {
     >
       <ZiniIcon sx={{ fontSize: 35 }} />
 
-      <Box
-        component="nav"
-        aria-label="Chats and Forges"
-        sx={{ minWidth: 0 }}
+      <Button
+        component={Link}
+        to="/mission-control"
+        variant="contained"
+        startIcon={<MonitorHeartIcon />}
+        size="small"
+        color="inherit"
       >
+        Mission Control
+      </Button>
+
+      <Box component="nav" aria-label="Chats and Forges" sx={{ minWidth: 0 }}>
         <List
           disablePadding
           subheader={
@@ -159,7 +170,9 @@ const NavBar = () => {
           {(projectLeadThreadsIsPending || !projectLeadThreads?.length) && (
             <ListItem sx={{ px: 1, py: 0.25 }}>
               <ListItemText
-                primary={projectLeadThreadsIsPending ? "Loading..." : "No chats yet"}
+                primary={
+                  projectLeadThreadsIsPending ? "Loading..." : "No chats yet"
+                }
                 slotProps={{
                   primary: { variant: "body2", color: "textSecondary" },
                 }}

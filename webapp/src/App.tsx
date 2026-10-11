@@ -19,6 +19,7 @@ import ProjectLeadPage from "./pages/ProjectLeadPage.tsx";
 import IssuePage from "./pages/IssuePage.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import { useUserMe } from "./api/users.ts";
+import MissionControlPage from "./pages/MissionControlPage.tsx";
 
 function SignedInApp() {
   const setup = useSetup();
@@ -82,15 +83,13 @@ function SignedInApp() {
         <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto" }}>
           <SetupBanner missing={setup?.missing} />
           <Routes>
-            <Route
-              path="/"
-              element={<Navigate to="/project-lead" replace />}
-            />
+            <Route path="/" element={<Navigate to="/project-lead" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/evals" element={<EvalsPage />} />
             <Route path="/project-lead" element={projectLead} />
             <Route path="/project-lead/:threadId" element={projectLead} />
             <Route path="/issues/:issueId" element={<IssuePage />} />
+            <Route path="/mission-control" element={<MissionControlPage />} />
           </Routes>
         </Box>
       </Box>
