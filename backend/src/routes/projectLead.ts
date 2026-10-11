@@ -69,6 +69,11 @@ projectLead.get("/threads", async (_req, res) => {
   );
 });
 
+// All chats following at least one Forge.
+projectLead.get("/subscriptions", async (_req, res) => {
+  res.json(await forgeSubscriptions.listAll());
+});
+
 // Starts a chat with its first message, which also becomes its title, answering once
 // the message is saved. The reply comes later: the run goes on in the background.
 projectLead.post("/threads", async (req, res) => {
@@ -131,7 +136,6 @@ projectLead.post("/threads/:id/messages", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  forgeSubscriptions.resume(id);
   if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
 });
 
@@ -141,7 +145,6 @@ projectLead.post("/threads/:id/stop", async (req, res) => {
   if (!(await findThread(req.params.id, res))) return;
 
   const id = req.params.id;
-  forgeSubscriptions.pause(id);
   if (!stopRun(id)) {
     res.status(409).json({ error: "The agent isn't working on this conversation" });
     return;
@@ -168,7 +171,6 @@ projectLead.post("/threads/:id/steer", async (req, res) => {
   // is still unwinding. Unlike /messages, which answers 409 while the agent works (which
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
-  forgeSubscriptions.resume(id);
   if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
 });
 
@@ -186,7 +188,6 @@ projectLead.post("/threads/:id/resume", async (req, res) => {
   if (!setup) return;
   const id = req.params.id;
   const start = (signal: AbortSignal) => resume(setup, id, decisions, signal);
-  forgeSubscriptions.resume(id);
   if (await begin(res, id, start)) res.status(202).end();
 });
 
@@ -201,7 +202,6 @@ projectLead.delete("/threads/:id", async (req, res) => {
   }
 
   await deleteThreadHistory(thread.id);
-  forgeSubscriptions.forget(thread.id);
   await thread.destroy();
   forgetRun(thread.id);
   broadcast(thread.id);

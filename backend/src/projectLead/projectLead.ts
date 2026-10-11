@@ -56,7 +56,9 @@ import { chatModel as connectModel, type ModelConnection } from "../providers/mo
 import { pauseRun, startRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
 import { commitAndPush, createWorkspace, isIssueId } from "../workspaces/workspaces.js";
-import { forgeSubscriptions, type ForgeUpdate } from "../forge/forgeSubscriptions.js";
+import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
+import type { QueuedMessage } from "../models/ProjectLeadQueueMessage.js";
+import { freshQueuedMessages } from "./queuedMessages.js";
 import { getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
@@ -110,7 +112,7 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   Use list_forges to discover workspaces and Forges,
   their current status, and which this chat follows; subscribedOnly lists only followed
   issues. Use forge_subscription to follow or stop following an issue.
-  Subscriptions reset on restart.
+  Subscriptions persist across backend restarts.
   When the user asks to pause work, use pause_forge. It returns while cancellation
   drains; wait until forge_status says canResume before continuing. When the user
   asks to resume paused or interrupted work, use continue_forge. It continues saved
@@ -286,8 +288,8 @@ function forgeTools(linear: LinearClient) {
       const id = await toIssueId(linear, issueId);
       const setup = await loadPipelineSetup();
       if (typeof setup === "string") throw new Error(setup);
+      await forgeSubscriptions.subscribe(caller(config), id);
       await outsideAgentRun(() => redirectPipeline(pipelineRun(setup, id, "Project Lead"), { target, feedback: feedback.trim() }));
-      forgeSubscriptions.subscribe(caller(config), id);
       return JSON.stringify({ status: "redirected", target });
     }, {
       name: "redirect_forge",
@@ -324,7 +326,7 @@ function forgeTools(linear: LinearClient) {
       }
       const setup = await loadPipelineSetup();
       if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
-      forgeSubscriptions.subscribe(caller(config), id);
+      await forgeSubscriptions.subscribe(caller(config), id);
       const run = pipelineRun(setup, id, "Project Lead");
       const started = await outsideAgentRun(() =>
         startRun(forgeThreadId(id), (signal) => continuePipeline(run, signal), run.notify));
@@ -339,7 +341,7 @@ function forgeTools(linear: LinearClient) {
     }),
     tool(async ({ subscribedOnly }, config) => {
       const workspaces = await Workspace.findAll({ order: [["createdAt", "DESC"]] });
-      return JSON.stringify(await listForges(workspaces, forgeSubscriptions.list(caller(config)),
+      return JSON.stringify(await listForges(workspaces, await forgeSubscriptions.list(caller(config)),
         getPipeline, subscribedOnly));
     }, {
       name: "list_forges",
@@ -353,24 +355,24 @@ function forgeTools(linear: LinearClient) {
       const threadId = caller(config);
       const id = await toIssueId(linear, issueId);
       if (action === "subscribe") {
-        forgeSubscriptions.subscribe(threadId, id);
+        await forgeSubscriptions.subscribe(threadId, id);
         const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getPipeline(id)]);
-        return JSON.stringify({ issueIds: forgeSubscriptions.list(threadId),
+        return JSON.stringify({ issueIds: await forgeSubscriptions.list(threadId),
           hasWorkspace: Boolean(workspace), pipeline });
       }
-      forgeSubscriptions.unsubscribe(threadId, id);
-      return JSON.stringify({ issueIds: forgeSubscriptions.list(threadId) });
+      await forgeSubscriptions.unsubscribe(threadId, id);
+      return JSON.stringify({ issueIds: await forgeSubscriptions.list(threadId) });
     }, {
       name: "forge_subscription",
       description: "Subscribe this Project Lead chat to automatic updates for an issue's workspace and Forge, " +
-        "or unsubscribe (also removes queued updates). These last until the backend restarts. " +
+        "or unsubscribe (also removes queued updates). Subscriptions persist across backend restarts. " +
         "Use list_forges to see subscriptions and discover existing workspaces/forges.",
       schema: z.object({ action: z.enum(["subscribe", "unsubscribe"]), issueId: ISSUE_ID }),
     }),
     tool(
       async ({ issueId }, config) => {
         const id = await toIssueId(linear, issueId);
-        forgeSubscriptions.subscribe(caller(config), id);
+        await forgeSubscriptions.subscribe(caller(config), id);
         const { workspace } = await createWorkspace(linear, id);
         if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
         const pipeline = await getPipeline(workspace.issueId);
@@ -644,18 +646,13 @@ export async function loadProjectLeadSetup(): Promise<Setup | string> {
   return { linear, connection, model, repo };
 }
 
-export async function receiveForgeUpdates(setup: Setup, threadId: string, events: ForgeUpdate[], signal: AbortSignal) {
+export async function receiveQueuedMessages(setup: Setup, threadId: string, events: QueuedMessage[], signal: AbortSignal) {
   const agent = buildAgent(setup, threadId);
   const state = await agent.graph.getState(threadConfig(threadId));
   const messages: BaseMessage[] = [...(state.values.compacted ?? []), ...(state.values.messages ?? [])];
-  const ids = new Set(messages.map((message) => message.id));
-  const fresh = events.filter((event) => !ids.has(event.eventId));
+  const fresh = freshQueuedMessages(messages, events);
   if (!fresh.length) return (async function* () {})();
-  return agent.stream({ messages: fresh.map((event) => new HumanMessage({
-    id: event.eventId,
-    content: `[Forge update: ${event.issueId}]\n${event.content}`,
-    additional_kwargs: { source: "forge", ...event },
-  })) }, streamConfig(threadId, RECURSION_LIMIT, signal));
+  return agent.stream({ messages: fresh }, streamConfig(threadId, RECURSION_LIMIT, signal));
 }
 
 export async function projectLeadAwaitingApproval(setup: Setup, threadId: string) {
@@ -710,7 +707,7 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
     pending,
     notes: readNotes(),
     todos: (state.values.todos ?? []) as Todo[],
-    subscriptions: forgeSubscriptions.list(threadId),
+    subscriptions: await forgeSubscriptions.list(threadId),
   };
 }
 

@@ -97,6 +97,9 @@ export type Decision = { type: "approve" } | { type: "reject"; message?: string 
 // running: the agent is working on it now.
 export type ThreadSummary = { id: string; title: string; createdAt: string; running: boolean };
 
+// A chat with Forge subscriptions, as returned by GET /api/project-lead/subscriptions.
+export type ProjectLeadSubscriptions = { threadId: string; forgeIds: string[] };
+
 // An item of the agent's to-do list, which it keeps for work with several steps.
 export type Todo = { content: string; status: "pending" | "in_progress" | "completed" };
 

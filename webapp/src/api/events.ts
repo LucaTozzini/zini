@@ -4,7 +4,7 @@ import type { ServerEvent } from 'shared'
 import { approvalsKey, forgeKey, forgeMessagesKey } from './forge.ts'
 import { chatGptKey } from './chatgpt.ts'
 import { evalsKey } from './evals.ts'
-import { threadKey, threadsKey } from './projectLead.ts'
+import { subscriptionsKey, threadKey, threadsKey } from './projectLead.ts'
 import { workspaceKey, workspacesKey } from './workspaces.ts'
 
 // Keeps the app up to date, from one connection to the server's events (mounted once,
@@ -18,6 +18,7 @@ export function useServerEvents() {
     const events = new EventSource('/api/events')
     events.onopen = () => {
       queryClient.invalidateQueries({ queryKey: threadsKey })
+      queryClient.invalidateQueries({ queryKey: subscriptionsKey })
       queryClient.invalidateQueries({ queryKey: workspacesKey })
       queryClient.invalidateQueries({ queryKey: ['forge'] })
     }
@@ -26,6 +27,7 @@ export function useServerEvents() {
       if (event.type === 'thread.updated') {
         queryClient.invalidateQueries({ queryKey: threadKey(event.threadId) })
         queryClient.invalidateQueries({ queryKey: threadsKey, exact: true })
+        queryClient.invalidateQueries({ queryKey: subscriptionsKey })
       } else if (event.type === 'workspace.updated') {
         queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId) })
       } else if (event.type === 'chatgpt.updated') {

@@ -27,6 +27,8 @@ import {
 } from "./documents.js";
 import { requireSubmission } from "./submission.js";
 import { PipelineExecution } from "./execution.js";
+import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
+import { pipelineEvents } from "./pipelineEvents.js";
 import { environmentSetupNext, executeEnvironmentSetup, validateEnvironmentSetup } from "./environmentSetup.js";
 import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
 import { loadForgeHistory } from "./history.js";
@@ -566,9 +568,10 @@ function buildPipeline(run: Run | null) {
   const hasQuestions = (doc: { blockingQuestions: string[] } | null) =>
     (doc?.blockingQuestions.length ?? 0) > 0;
 
-  const tracked = <T>(node: (state: State) => Promise<T>) => (state: State) =>
+  const tracked = <T>(node: (state: State) => Promise<T>, role?: AgentRole) => (state: State) =>
     need().execution.track(async () => {
       need().signal?.throwIfAborted();
+      if (role) await emitForgeEvent(need().issueId, { type: "stage_started", role });
       const result = await node(state);
       need().signal?.throwIfAborted();
       return result;
@@ -576,30 +579,30 @@ function buildPipeline(run: Run | null) {
 
   return new StateGraph(PipelineGraphState)
     .addNode("redirect", () => ({}))
-    .addNode("planner", tracked(planner))
+    .addNode("planner", tracked(planner, "planner"))
     .addNode(
       "ask_planner",
       ask("planner", (s) => s.plan),
     )
     .addNode("approve_plan", approvePlan)
-    .addNode("coder", tracked(coder))
-    .addNode("setup", tracked(environmentSetup))
+    .addNode("coder", tracked(coder, "coder"))
+    .addNode("setup", tracked(environmentSetup, "setup"))
     .addNode("execute_setup", tracked(executeSetup))
     .addNode("ask_setup", ask("setup", (s) => s.environmentPlan))
     .addNode("ask_setup_failure", ask("setup", (s) => s.environmentReport))
-    .addNode("checks", tracked(checks))
+    .addNode("checks", tracked(checks, "checks"))
     .addNode("execute_checks", tracked(executeChecks))
     .addNode("ask_checks", ask("checks", (s) => s.checksPlan))
     .addNode(
       "ask_coder",
       ask("coder", (s) => s.implementation),
     )
-    .addNode("reviewer", tracked(reviewer))
+    .addNode("reviewer", tracked(reviewer, "reviewer"))
     .addNode(
       "ask_reviewer",
       ask("reviewer", (s) => s.review),
     )
-    .addNode("qa", tracked(qa))
+    .addNode("qa", tracked(qa, "qa"))
     .addNode(
       "ask_qa",
       ask("qa", (s) => s.qaReport),
@@ -647,7 +650,7 @@ function buildPipeline(run: Run | null) {
 // stream is the run (see startRun).
 export function startPipeline(run: Run, note: string, signal?: AbortSignal) {
   run.signal = signal;
-  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(
+  return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(
     { note, humanMessages: [humanMessage(note || "Started work on this issue.", run.username)] },
     streamConfig(forgeThreadId(run.issueId), undefined, signal),
   )));
@@ -697,7 +700,7 @@ export async function resumePipeline(run: Run, reply: PipelineResume, signal?: A
   run.signal = signal;
   const snapshot = await buildPipeline(null).getState(threadConfig(forgeThreadId(run.issueId)));
   const request = toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
-  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(
+  return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(
     new Command({ resume: reply, update: { humanMessages: [replyMessage(reply, request, run.username)] } }),
     streamConfig(forgeThreadId(run.issueId), undefined, signal),
   )));
@@ -706,7 +709,17 @@ export async function resumePipeline(run: Run, reply: PipelineResume, signal?: A
 // Retry pending work without adding input or bypassing a human interrupt.
 export function continuePipeline(run: Run, signal?: AbortSignal) {
   run.signal = signal;
-  return Promise.resolve(run.execution.stream(buildPipeline(run).stream(null, streamConfig(forgeThreadId(run.issueId), undefined, signal))));
+  return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(null, streamConfig(forgeThreadId(run.issueId), undefined, signal))));
+}
+
+function withPipelineEvents<T>(run: Run, source: Promise<AsyncIterable<T>>) {
+  return pipelineEvents(Promise.resolve(run.execution.stream(source)), async (): Promise<ForgeLifecycleEvent | null> => {
+    const snapshot = await buildPipeline(null).getState(threadConfig(forgeThreadId(run.issueId)));
+    const values = snapshot.values as Partial<State>;
+    if (values.finished) return { type: "completed", qa: values.qaReport ?? null };
+    const waiting = toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
+    return waiting ? { type: "waiting", waiting } : null;
+  }, (event) => emitForgeEvent(run.issueId, event), run.signal, () => isRedirecting(forgeThreadId(run.issueId)));
 }
 
 const ROLE_NODES: Record<string, AgentRole> = {

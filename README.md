@@ -79,9 +79,15 @@ after cancellation drains and uses the saved checkpoint; questions and approvals
 go through `reply_to_pipeline`.
 Meaningful progress, questions, approvals, failures and
 completion appear as Forge activity messages and wake the Project Lead when the chat is
-idle. Updates queue while the Project Lead is busy or waiting for approval; Stop pauses automatic
-delivery until the next human turn. Subscriptions and undelivered updates are in memory
-for this MVP and reset on backend restart; delivered messages remain in chat history.
+idle. The pipeline emits lifecycle events directly; token and file updates only refresh
+the webapp. Subscriptions and a source-agnostic Project Lead message queue live in SQLite.
+Updates wait while the Project Lead is busy or awaiting approval. Stop cancels the current
+chat turn; future Forge events can wake it again.
+The queue claims messages per chat and marks them delivered once their input is saved
+in the conversation, retaining event IDs to prevent duplicate enqueueing. On restart,
+unfinished claims are retried; conversation message IDs prevent duplicate input if a
+crash occurred between saving and acknowledgement. Recovery assumes one backend process.
+`GET /api/project-lead/subscriptions` lists subscribed chats as `{ threadId, forgeIds }[]`.
 
 The Project Lead can launch an existing workspace's web app for manual use. A read-only launcher
 subagent (`launch_workspace_app`, taking `issueId` and `request`) discovers whether the workspace contains a web app,

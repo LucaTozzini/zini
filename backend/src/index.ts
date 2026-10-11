@@ -18,7 +18,8 @@ import { usersRouter } from "./routes/users.js";
 import { settings } from "./routes/settings.js";
 import { workspaces } from "./routes/workspaces.js";
 import cookieParser from "cookie-parser";
-import { startProjectLeadForgeUpdates } from "./projectLead/projectLeadForgeUpdates.js";
+import { startProjectLeadMessageWorker } from "./projectLead/messageWorker.js";
+import { recoverMessageQueue } from "./projectLead/messageQueue.js";
 import { requireApiUser } from "./auth/session.js";
 import { Workspace } from "./models/Workspace.js";
 
@@ -62,6 +63,7 @@ if (existsSync(webapp)) {
 }
 
 await initDb();
+await recoverMessageQueue();
 let recovering: Promise<void> | null = null;
 function recoverPreviews() {
   recovering ??= refreshPreviews().finally(() => { recovering = null; });
@@ -74,7 +76,7 @@ async function refreshPreviews() {
 }
 await recoverPreviews();
 setInterval(() => { void recoverPreviews(); }, 5000).unref();
-startProjectLeadForgeUpdates();
+startProjectLeadMessageWorker();
 
 const server = createServer(app);
 workspacePreviewUpgrades(server, workspaceApps);

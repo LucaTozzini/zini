@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import type { ChatMessage, ProjectLeadMessage, Decision, Thread, ThreadSummary, User } from 'shared'
+import type { ChatMessage, ProjectLeadMessage, ProjectLeadSubscriptions, Decision, Thread, ThreadSummary, User } from 'shared'
 import { api } from './client.ts'
 import { userKey } from './users.ts'
 
 export const threadsKey = ['project-lead', 'threads']
 export const threadKey = (id: string) => [...threadsKey, id]
+export const subscriptionsKey = ['project-lead', 'subscriptions']
+
+export function useProjectLeadSubscriptions() {
+  return useQuery({
+    queryKey: subscriptionsKey,
+    queryFn: () => api.get('project-lead/subscriptions').json<ProjectLeadSubscriptions[]>(),
+  })
+}
 
 export function useThreads() {
   return useQuery({
