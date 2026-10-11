@@ -15,7 +15,7 @@ import {
 import { useSaveSettings, useSettings } from "../api/settings.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
 import type { ModelProvider, Provider, Settings } from "shared";
-import { Container, MenuItem, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { Container, FormControlLabel, MenuItem, Switch, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
 
 type KeyCardProps = { provider: Provider; name: string; helperText: string };
@@ -332,6 +332,31 @@ function AppearanceCard() {
   );
 }
 
+function ConductorCard() {
+  const settings = useSettings();
+  const save = useSaveSettings();
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6">Conductor</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Automatically start Forges for unstarted Linear issues. Turning this off prevents new starts;
+            existing Forge runs continue.
+          </Typography>
+          <FormControlLabel label="Enable conductor" control={
+            <Switch checked={settings.data?.conductorEnabled !== "false"}
+              disabled={!settings.isSuccess || save.isPending}
+              onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })} />
+          } />
+          {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
+          {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsPage() {
   return (
     <Container maxWidth="md" sx={{ my: 5 }}>
@@ -380,6 +405,7 @@ function SettingsPage() {
           helperText="An OpenRouter model ID for the Forge, which guides implementing an issue in its workspace."
         />
         <AppearanceCard />
+        <ConductorCard />
       </Stack>
     </Container>
   );

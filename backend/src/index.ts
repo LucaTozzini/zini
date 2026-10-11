@@ -22,6 +22,8 @@ import { startProjectLeadMessageWorker } from "./projectLead/messageWorker.js";
 import { recoverMessageQueue } from "./projectLead/messageQueue.js";
 import { requireApiUser } from "./auth/session.js";
 import { Workspace } from "./models/Workspace.js";
+import { startConductor } from "./conductor/conductor.js";
+import conductorRouter from "./routes/conductor.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -49,6 +51,7 @@ app.use("/api/workspaces", workspaces);
 app.use("/api/evals", evals);
 app.use("/api/chatgpt", chatgpt);
 app.use("/api/users", usersRouter);
+app.use("/api/conductor", conductorRouter);
 
 // The built webapp (npm run build), so one server runs the whole app. Any other GET
 // gets its index.html, so the webapp's own routes work on reload. In development the
@@ -66,17 +69,29 @@ await initDb();
 await recoverMessageQueue();
 let recovering: Promise<void> | null = null;
 function recoverPreviews() {
-  recovering ??= refreshPreviews().finally(() => { recovering = null; });
+  recovering ??= refreshPreviews().finally(() => {
+    recovering = null;
+  });
   return recovering;
 }
 async function refreshPreviews() {
   for (const workspace of await Workspace.findAll()) {
-    await workspaceApps.refresh(workspace.issueId).catch(error => console.error(`Workspace preview recovery [${workspace.issueId}]:`, error));
+    await workspaceApps
+      .refresh(workspace.issueId)
+      .catch((error) =>
+        console.error(
+          `Workspace preview recovery [${workspace.issueId}]:`,
+          error,
+        ),
+      );
   }
 }
 await recoverPreviews();
-setInterval(() => { void recoverPreviews(); }, 5000).unref();
+setInterval(() => {
+  void recoverPreviews();
+}, 5000).unref();
 startProjectLeadMessageWorker();
+await startConductor();
 
 const server = createServer(app);
 workspacePreviewUpgrades(server, workspaceApps);

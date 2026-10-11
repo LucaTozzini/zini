@@ -54,6 +54,11 @@ settings.put("/", async (req, res) => {
     }
   }
 
+  if (changes.conductorEnabled !== undefined && !["true", "false"].includes(changes.conductorEnabled)) {
+    res.status(400).json({ error: 'conductorEnabled must be "true" or "false"' });
+    return;
+  }
+
   // The repo is only saved once it's cloned, which also checks the token can read it.
   if (changes.githubRepo) {
     const repo = changes.githubRepo;

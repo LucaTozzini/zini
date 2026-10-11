@@ -130,6 +130,8 @@ export type Settings = {
   forgeProvider: string | null;
   forgeModel: string | null;
   githubRepo: string | null;
+  // Stored as "true" or "false"; null preserves the default enabled behavior.
+  conductorEnabled: string | null;
 };
 
 // Settings that can be cleared, by saving an empty value.
@@ -472,3 +474,9 @@ export function summarizeRuns(runs: RunMetrics[], compare?: RunMetrics[]): Summa
 export type ProjectLeadMessage = { message: string; images?: string[] };
 export const MAX_CHAT_IMAGES = 4;
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// Current conductor activity, as returned by GET /api/conductor/status.
+export type ConductorStatus = {
+  lastRan: null | Date;
+  running: boolean;
+}

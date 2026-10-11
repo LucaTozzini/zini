@@ -2,6 +2,13 @@ import { OPTIONAL_SETTINGS, type Settings } from "shared";
 import { Setting } from "../models/Setting.js";
 
 export type SettingKey = keyof Settings;
+type SettingsChanges = Partial<Record<SettingKey, string>>;
+const settingsListeners = new Set<(changes: SettingsChanges) => void>();
+
+export function onSettingsSaved(listener: (changes: SettingsChanges) => void) {
+  settingsListeners.add(listener);
+  return () => { settingsListeners.delete(listener); };
+}
 
 // The settings that exist. Each is a row in the settings table once saved.
 export const SETTING_KEYS: SettingKey[] = [
@@ -10,6 +17,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "forgeProvider",
   "forgeModel",
   "githubRepo",
+  "conductorEnabled",
 ];
 
 export const isSettingKey = (key: string): key is SettingKey =>
@@ -21,6 +29,10 @@ export const isOptionalSetting = (key: SettingKey) =>
 export async function getSetting(key: SettingKey) {
   const row = await Setting.findByPk(key);
   return row?.value ?? null;
+}
+
+export async function isConductorEnabled() {
+  return (await getSetting("conductorEnabled")) !== "false";
 }
 
 export async function getSettings() {
@@ -37,4 +49,5 @@ export async function saveSettings(changes: Partial<Record<SettingKey, string>>)
       value ? Setting.upsert({ key, value }) : Setting.destroy({ where: { key } }),
     ),
   );
+  for (const listener of settingsListeners) listener(changes);
 }
