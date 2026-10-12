@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PullRequest, PullRequestStatus, Workspace, WorkspaceDiff } from 'shared'
+import type { PullRequest, PullRequestStatus, Workspace, WorkspaceDiff, WorkspaceSelection, WorkspaceGitStatus } from 'shared'
 import { api } from './client.ts'
 import { forgeKey } from './forge.ts'
 
@@ -11,6 +11,16 @@ export function useWorkspace(issueId: string) {
   return useQuery({
     queryKey: workspaceKey(issueId),
     queryFn: () => api.get(`workspaces/${issueId}`).json<Workspace | null>(),
+    retry: false,
+  })
+}
+
+// Only mounted by commit/push and PR controls, independent of workspace metadata.
+export function useWorkspaceGitStatus(issueId: string) {
+  return useQuery({
+    queryKey: [...workspaceKey(issueId), 'git-status'],
+    queryFn: () => api.get(`workspaces/${issueId}/git-status`, { timeout: 60000 }).json<WorkspaceGitStatus | null>(),
+    retry: false,
   })
 }
 
@@ -18,8 +28,8 @@ export function useWorkspace(issueId: string) {
 export function useCreateWorkspace() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (issueId: string) =>
-      api.post('workspaces', { json: { issueId }, timeout: false }).json<Workspace>(),
+    mutationFn: (input: string | ({ issueId: string } & WorkspaceSelection)) =>
+      api.post('workspaces', { json: typeof input === 'string' ? { issueId: input } : input, timeout: false }).json<Workspace>(),
     onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(workspace.issueId), workspace),
   })
 }
@@ -48,7 +58,10 @@ export function useCommitAndPush(issueId: string) {
   return useMutation({
     mutationFn: (message: string) =>
       api.post(`workspaces/${issueId}/commit`, { json: { message }, timeout: false }).json<Workspace>(),
-    onSuccess: (workspace) => queryClient.setQueryData(workspaceKey(issueId), workspace),
+    onSuccess: (workspace) => {
+      queryClient.setQueryData(workspaceKey(issueId), workspace)
+      queryClient.invalidateQueries({ queryKey: [...workspaceKey(issueId), 'git-status'] })
+    },
   })
 }
 

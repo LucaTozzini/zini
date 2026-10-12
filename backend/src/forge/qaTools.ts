@@ -28,9 +28,9 @@ export function commandTools(issueId: string, { productOnly = false, completedCh
     }, {
       name: "run_command",
       description:
-        (productOnly ? "Use only to exercise the delivered CLI/library interface or recover missing runtime prerequisites. Deterministic checks have already run. " : "") +
+        (productOnly ? "Use only to exercise the delivered CLI/library interface and diagnose runtime failures. Reviewer already ran deterministic checks. Report environment blockers to Reviewer using environmentFailures. " : "For installs, builds, linters and tests. ") +
         "Run a shell command in the workspace folder and wait for it to finish: its exit " +
-        "code and the end of its output. For installs, builds, linters and tests; start " +
+        "code and the end of its output. Start " +
         "servers with start_process instead. Commands execute inside the Docker workspace.",
       schema: z.object({
         command: z.string().min(1),

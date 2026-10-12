@@ -6,12 +6,13 @@ import {
   type InferCreationAttributes,
 } from "sequelize";
 import { sequelize } from "../db.js";
+import type { WorkspaceContext } from "shared";
 
-// A Linear issue that has a workspace. The worktree on disk is the record of its
-// folder and branch; this row marks that it exists and is where per-workspace data
-// will go.
+// Workspace identity and selected branch are stored here, so metadata reads do
+// not need Docker. Live Git status is queried separately when it is needed.
 export class Workspace extends Model<InferAttributes<Workspace>, InferCreationAttributes<Workspace>> {
   declare issueId: string;
+  declare context: CreationOptional<WorkspaceContext | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -19,6 +20,7 @@ export class Workspace extends Model<InferAttributes<Workspace>, InferCreationAt
 Workspace.init(
   {
     issueId: { type: DataTypes.STRING, primaryKey: true },
+    context: { type: DataTypes.JSON, allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

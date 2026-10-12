@@ -2,10 +2,9 @@ import type { LinearClient } from "@linear/sdk";
 import { Command, END, START, StateGraph, interrupt, isGraphInterrupt } from "@langchain/langgraph";
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { createAgent, toolStrategy, type HITLRequest } from "langchain";
+import { createAgent, toolStrategy } from "langchain";
 import type {
   AgentRole,
-  Decision,
   PendingApproval,
   PipelineResume,
   PipelineRedirect,
@@ -22,14 +21,15 @@ import {
   PLAN_SCHEMA,
   QA_SCHEMA,
   REVIEW_SCHEMA,
-  CHECKS_SCHEMA,
-  ENVIRONMENT_SETUP_SCHEMA,
 } from "./documents.js";
 import { requireSubmission } from "./submission.js";
 import { PipelineExecution } from "./execution.js";
 import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
 import { pipelineEvents } from "./pipelineEvents.js";
-import { environmentSetupNext, executeEnvironmentSetup, validateEnvironmentSetup } from "./environmentSetup.js";
+import { ReviewEvidence, reviewerTools } from "./reviewerTools.js";
+import { SetupEvidence, setupTools } from "./setupTools.js";
+import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
+import { workspaceServiceHealth } from "../workspaces/workspaceServices.js";
 import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
 import { loadForgeHistory } from "./history.js";
 import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./validation.js";
@@ -50,13 +50,12 @@ import {
   PLANNER_PROMPT,
   QA_PROMPT,
   REVIEWER_PROMPT,
-  CHECKS_PROMPT,
-  ENVIRONMENT_SETUP_PROMPT,
 } from "./systemPrompts.js";
 import { browserUrl, closeBrowser } from "../browser/agentBrowser.js";
-import { drainProcesses, runCommandResult, stopAllProcesses } from "./qaProcesses.js";
+import { drainProcesses, stopAllProcesses } from "./qaProcesses.js";
 import { browserTools, commandTools } from "./qaTools.js";
-import { diffTool, workspaceFilesystem, writeTools } from "./tools.js";
+import { conflictTools, diffTool, workspaceFilesystem, writeTools } from "./tools.js";
+import { prepareIntegration, commitCoderRound, workspaceContext, assertNoMerge } from "../workspaces/workspaceIntegration.js";
 import { sendEvent } from "../core/events.js";
 import { npmTools } from "../agents/npmTools.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
@@ -64,12 +63,12 @@ import { Workspace } from "../models/Workspace.js";
 import { chatModel, loadConnection, type ModelConnection } from "../providers/modelProvider.js";
 import { isRunning, isRedirecting, runStatus, startRun, withPausedRun } from "../agents/runs.js";
 import { getSetting } from "../core/settings.js";
-import { fingerprintWorkspaceFile, workspaceRevision } from "../workspaces/workspaceFiles.js";
+import { fingerprintWorkspaceFile, workspaceRevision, hasUncommitted } from "../workspaces/workspaceFiles.js";
 
 // The forge: a fixed pipeline per issue, run as a LangGraph graph in the issue's
 // workspace. The planner plans (it can ask you questions), you approve the plan (or
-// send feedback), then coder → environment setup → checks → reviewer → product QA. A
-// review or QA failure sends the coder back to work, with a bounded repair budget.
+// send feedback), then coder → reviewer (environment preparation, checks and code review) → product QA. A
+// review or QA failure sends the coder back to work within the graph step limit.
 // User feedback runs the same validation sequence again. Each subagent has its
 // own tools, and returns a document (see forge/documents.ts). It pauses
 // (interrupt) whenever it needs you.
@@ -98,7 +97,7 @@ export async function loadSetup(): Promise<Setup | string> {
 export const forgeThreadId = (issueId: string) =>
   `forge:${issueId}`;
 
-// The forge's model, on its provider: every subagent's, and the committer's.
+// The Forge model is shared by its subagents and PR writer.
 // Our middleware owns retries, and must stop immediately on model rate limits.
 export const forgeModel = (setup: Setup) => chatModel(setup.connection, setup.model, { maxRetries: 0 });
 
@@ -128,7 +127,7 @@ async function runSubagent<S extends z.ZodObject>(
     input: string;
     remember?: boolean;
     // What's wrong with a submitted document, or nothing if it's valid.
-    validate?: (document: z.infer<S>) => string | undefined;
+    validate?: (document: z.infer<S>) => string | undefined | Promise<string | undefined>;
   },
 ): Promise<z.infer<S>> {
   const logKey = `${issueId}:${role}`;
@@ -174,7 +173,7 @@ async function runSubagent<S extends z.ZodObject>(
       { messages },
       {
         recursionLimit: 300, signal, streamMode: "values", durability: "sync",
-        // A remembered planner/coder gets a NEW turn, even when the parent is
+        // A remembered agent gets a NEW turn, even when the parent is
         // continuing after a pause/redirect. Otherwise the inherited resume flag
         // skips this input and resumes its already-completed child checkpoint.
         ...(remember ? { configurable: { __pregel_resuming: false } } : {}),
@@ -193,7 +192,7 @@ async function runSubagent<S extends z.ZodObject>(
     let { messages, document } = await respond([{ role: "user", content: input }]);
     // A document that breaks a rule its schema can't express goes back to the agent
     // with the error, on top of its conversation (its memory only lasts one call).
-    for (let attempt = 1, error = validate?.(document); error; attempt++, error = validate?.(document)) {
+    for (let attempt = 1, error = await validate?.(document); error; attempt++, error = await validate?.(document)) {
       await log.write({ event: "doc_invalid", error });
       if (attempt > 2) throw new Error(`The ${role} submitted an invalid document three times: ${error}`);
       ({ messages, document } = await respond([...messages,
@@ -211,13 +210,14 @@ async function runSubagent<S extends z.ZodObject>(
 // ---- The graph -------------------------------------------------------------------
 
 // What running a node needs. Absent when the graph is only read (getPipeline).
-type Run = { setup: Setup; issueId: string; notify: () => void; signal?: AbortSignal; execution: PipelineExecution; username?: string };
+type Run = { setup: Setup; issueId: string; notify: () => void; signal?: AbortSignal; execution: PipelineExecution; username?: string; refreshUpstream?: () => Promise<void> };
 
 // A run of the issue's pipeline, which tells every connected webapp whenever it changes.
-export const pipelineRun = (setup: Setup, issueId: string, username?: string): Run => ({
+export const pipelineRun = (setup: Setup, issueId: string, username?: string, refreshUpstream?: () => Promise<void>): Run => ({
   setup,
   issueId,
   username,
+  refreshUpstream,
   execution: new PipelineExecution(),
   notify: () => sendEvent({ type: "forge.updated", issueId }),
 });
@@ -243,8 +243,11 @@ function buildPipeline(run: Run | null) {
     const { contextUpdates, runbookUpdates, ...plan } = await runSubagent(need(), {
       role: "planner",
       prompt: `${PLANNER_PROMPT}\n\n${inputText(await issue(), [
+        ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
+        ["Upstream integration", JSON.stringify(state.integration)],
         ["Note from the user", state.note],
         ["Your previous plan", previous && planText(previous)],
+        ["Coder request to revise the plan", state.implementation?.replanReason],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
@@ -254,19 +257,23 @@ function buildPipeline(run: Run | null) {
           state.planFeedback.length > 0 && listText(state.planFeedback),
         ],
       ])}`,
-      tools: [...npmTools],
+      tools: [diffTool(need().issueId), ...conflictTools(need().issueId), ...npmTools],
       schema: PLAN_SCHEMA,
       // Runs after its questions are answered, or after feedback on its plan.
       input: !previous
         ? "Write the plan."
         : hasQuestions(previous)
           ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
-          : `The user's feedback on your plan:\n\n${state.planFeedback.at(-1)}`,
+          : state.implementation?.replanReason
+            ? `Reassess the approved approach: ${state.implementation.replanReason}`
+            : state.integration?.status === "merged" || state.integration?.status === "conflicts"
+              ? "Reassess inherited implementation and upstream changes. Preserve full acceptance criteria and plan only remaining work and conflict resolution."
+              : `The user's feedback on your plan:\n\n${state.planFeedback.at(-1) ?? "Reassess the current implementation."}`,
       remember: true,
     });
     if (new Set(plan.acceptanceCriteria.map((entry) => entry.id)).size !== plan.acceptanceCriteria.length)
       throw new Error("Acceptance criterion ids must be unique");
-    return { plan, planApproved: false, checksPlan: null, checksReport: null,
+    return { plan, planApproved: false, checksReport: null,
       runbook: await updateRunbook(book, runbookUpdates, fingerprint),
       codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
   }
@@ -277,16 +284,18 @@ function buildPipeline(run: Run | null) {
     const changes = state.review?.requiredChanges ?? [];
     const context = await codebaseContext(state);
     const book = await runbook(state);
-    const attempts = (state.repairAttempts ?? 0) + 1;
-    if (attempts > 4) throw new Error("Stopped after three repair rounds; inspect the recorded failures before continuing");
     const { contextUpdates, runbookUpdates, ...implementation } = await runSubagent(need(), {
       role: "coder",
       prompt: `${CODER_PROMPT}\n\n${inputText(await issue(), [
+        ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
+        ["Upstream integration", JSON.stringify(state.integration)],
         ["The approved plan", state.plan && planText(state.plan)],
+        ["Current Reviewer requested changes", listText(changes) || "No Reviewer changes currently requested."],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
+        ["Recorded checks and diagnostics", checksText(state.checksReport)],
         [
           "The user's feedback on the changes (apply it)",
           state.implementationFeedback.length > 0 &&
@@ -296,184 +305,80 @@ function buildPipeline(run: Run | null) {
       tools: [
         ...writeTools(issueId, notify),
         diffTool(issueId),
+        ...conflictTools(issueId, true),
         ...npmTools,
       ],
       schema: IMPLEMENTATION_SCHEMA,
       // Runs after its questions are answered, after a review that requires changes,
       // or after feedback on the finished changes.
-      input: !previous
+      input: changes.length > 0
+        ? "Implement the current Reviewer requested changes in your system context."
+        : !previous
         ? "Implement the approved plan."
         : hasQuestions(previous)
           ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
-          : changes.length > 0
-            ? `The review asks for these changes:\n\n${listText(changes)}`
-            : state.qaReport?.verdict === "fail"
-              ? `The QA found these failures:\n\n${listText(state.qaReport.failures)}`
-              : `The user's feedback on your changes:\n\n${state.implementationFeedback.at(-1)}`,
+          : state.implementationFeedback.length
+                ? `The user's feedback on your changes:\n\n${state.implementationFeedback.at(-1)}`
+                : "Implement the current approved plan, including pending conflicts; preserve existing work.",
       remember: true,
     });
-    return { implementation, repairAttempts: hasQuestions(implementation) ? state.repairAttempts : attempts,
+    return { implementation,
       runbook: await updateRunbook(book, runbookUpdates, fingerprint),
       codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
-  }
-
-  async function environmentSetup(state: State) {
-    const { issueId } = need();
-    const book = await runbook(state);
-    const context = await codebaseContext(state);
-    const selection = await runSubagent(need(), {
-      role: "setup", tools: [], schema: ENVIRONMENT_SETUP_SCHEMA,
-      prompt: `${ENVIRONMENT_SETUP_PROMPT}\n\n${inputText(await issue(), [
-        ["The approved plan", state.plan && planText(state.plan)],
-        ["The user's answers", clarificationsText(state.clarifications)],
-        ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-        ["Repo runbook", runbookText(book)],
-        ["Shared codebase context", contextText(context)],
-        ["Previous environment setup", state.environmentReport && JSON.stringify(state.environmentReport)],
-      ])}`,
-      input: "Prepare the environment before checks.",
-      validate: validateEnvironmentSetup,
-    });
-    const commands = [...new Map(selection.commands.map((entry) => [`${entry.cwd}\0${entry.command}`, entry])).values()];
-    return { environmentPlan: { ...selection, commands }, environmentReport: null, checksReport: null,
-      codebaseContext: await updateContext(context, selection.contextUpdates, fingerprint),
-      runbook: await updateRunbook(book, [...selection.runbookUpdates, ...commands], fingerprint) };
-  }
-
-  async function executeSetup(state: State) {
-    const { issueId, setup } = need();
-    const selection = state.environmentPlan;
-    if (!selection) throw new Error("No environment setup selection exists");
-    const revision = await workspaceRevision(issueId);
-    const log = await openRunLog(issueId, "setup");
-    await log.write({ event: "start", role: "setup", model: setup.model, prompt: "Prepare environment before checks", input: revision });
-    try {
-      const report = await executeEnvironmentSetup(selection, revision, async (entry, index) => {
-        const id = `setup-${index}`;
-        await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
-        try {
-          const result = await runCommandResult(issueId, entry.command, entry.cwd, undefined, need().signal);
-          await log.write({ event: "tool_result", id, name: "run_command", result: `${result.status}\n${result.output}` });
-          return result;
-        } catch (error) {
-          await log.write({ event: "tool_result", id, name: "run_command", status: "error", result: String(error) });
-          throw error;
-        }
-      }, need().signal);
-      await log.write({ event: "end", outcome: "done", document: report });
-      return { environmentReport: report };
-    } finally { await stopAllProcesses(issueId); }
-  }
-
-  async function checks(state: State) {
-    const { issueId } = need();
-    const book = await runbook(state);
-    const context = await codebaseContext(state);
-    // Selects afresh after every coder round. It sees the previous results, so it can
-    // also correct a command that failed for the wrong reason.
-    let selection = await runSubagent(need(), {
-          role: "checks", tools: [diffTool(issueId)],
-          schema: CHECKS_SCHEMA,
-          prompt: `${CHECKS_PROMPT}\n\n${inputText(await issue(), [
-            ["The approved plan", state.plan && planText(state.plan)],
-            ["The user's answers", clarificationsText(state.clarifications)],
-        ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-            ["Repo runbook", runbookText(book, state.checksReport)],
-            ["Shared codebase context", contextText(context)],
-            ["Previous check results", checksText(state.checksReport)],
-            ["Completed environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
-          ])}`,
-          input: "Select the deterministic checks for the changes.",
-          // Exactly one of the two, unless it's asking the user first.
-          validate: ({ commands, noChecksReason, blockingQuestions }) => {
-            if (blockingQuestions.length) return;
-            const checks = commands.filter((entry) => entry.kind === "check").length;
-            if (checks && noChecksReason) return "it has both check commands and noChecksReason; give exactly one";
-            if (!checks && !noChecksReason) return "it has neither check commands nor noChecksReason; give exactly one";
-          },
-        });
-    const unique = new Map(selection.commands.filter((entry) => entry.kind === "check")
-      .map((entry) => [`${entry.cwd}\0${entry.command}`, entry]));
-    selection = { ...selection, commands: [...unique.values()] };
-    return { checksPlan: selection, checksReport: null, codebaseContext: await updateContext(context, selection.contextUpdates, fingerprint),
-      runbook: await updateRunbook(book, [...selection.runbookUpdates, ...selection.commands], fingerprint) };
-  }
-
-  async function executeChecks(state: State) {
-    const { issueId, setup } = need();
-    const revision = await workspaceRevision(issueId);
-    const selection = state.checksPlan;
-    if (!selection) throw new Error("No check selection exists");
-    const log = await openRunLog(issueId, "checks");
-    await log.write({ event: "start", role: "checks", model: setup.model, prompt: "Execute selected checks and record their actual results", input: revision });
-    const report: NonNullable<State["checksReport"]> = {
-      revision, complete: true, results: [], noChecksReason: selection.noChecksReason,
-    };
-    try {
-      for (const [index, entry] of selection.commands.entries()) {
-        need().signal?.throwIfAborted();
-        const id = `check-${index}`;
-        await log.write({ event: "tool_call", id, name: "run_command", args: { command: entry.command, cwd: entry.cwd } });
-        try {
-          const result = await runCommandResult(issueId, entry.command, entry.cwd, undefined, need().signal);
-          report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose,
-            status: result.exitCode === 0 ? "passed" : result.timedOut || result.exitCode === null ? "blocked" : "failed",
-            exitCode: result.exitCode, output: `${result.status}\n${result.output}` });
-          await log.write({ event: "tool_result", id, name: "run_command", result: `${result.status}\n${result.output}` });
-        } catch (error) {
-          need().signal?.throwIfAborted();
-          report.results.push({ command: entry.command, cwd: entry.cwd, purpose: entry.purpose, status: "blocked", exitCode: null, output: String(error) });
-          await log.write({ event: "tool_result", id, name: "run_command", status: "error", result: String(error) });
-        }
-      }
-      // A check changed the source, so its results don't validate this version.
-      if (await workspaceRevision(issueId) !== revision) report.complete = false;
-      await log.write({ event: "end", outcome: "done", document: report });
-      return { checksReport: report };
-    } finally { await stopAllProcesses(issueId); }
   }
 
   async function reviewer(state: State) {
     const { issueId } = need();
     const context = await codebaseContext(state);
     const book = await runbook(state);
-    const { contextUpdates, environmentFailures, ...review } = await runSubagent(need(), {
+    const revision = await workspaceRevision(issueId);
+    const evidence = new ReviewEvidence(state.checksReport, revision);
+    const preparation = new SetupEvidence(state.environmentReport, revision, () => { evidence.results = []; });
+    let document;
+    try {
+      document = await runSubagent(need(), {
       role: "reviewer",
-      tools: [diffTool(issueId), ...npmTools],
+      tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence)],
       schema: REVIEW_SCHEMA,
       prompt: `${REVIEWER_PROMPT}\n\n${inputText(await issue(), [
+        ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
+        ["Upstream integration", JSON.stringify(state.integration)],
         ["The approved plan", state.plan && planText(state.plan)],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
         ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         ["Recorded deterministic checks", checksText(state.checksReport)],
+        ["Previous environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
+        ["Configured development variable names (values are private)", await developmentEnvironmentContext()],
         [
           "The user's feedback on the changes (they must be applied too)",
           state.implementationFeedback.length > 0 &&
             listText(state.implementationFeedback),
         ],
         [
-          "What the QA found broken (the coder must fix it too)",
-          state.qaReport?.verdict === "fail" && listText(state.qaReport.failures),
+          "Previous QA report (historical findings to reassess against the current implementation)",
+          state.qaReport && JSON.stringify(state.qaReport),
         ],
       ])}`,
-      input: "Review the implementation and recorded checks.",
+      input: "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks.",
+      remember: true,
+      validate: async review => {
+        const invalid = evidence.validate(review);
+        if (invalid) return invalid;
+        if (!review.requiredChanges.length && !review.blockingQuestions.length) {
+          try { await workspaceServiceHealth(issueId); }
+          catch (error) { return `Required workspace service is not healthy: ${String(error)}. Repair it or submit blockingQuestions.`; }
+        }
+        if (await workspaceRevision(issueId) !== revision) return "Validation changed tracked source. Restore it; report necessary source changes to coder instead of editing implementation.";
+      },
     });
-    // The reviewer's call on failed checks: an environment failure stays a gap (blocked),
-    // any other failure goes back to the coder.
-    const checkReport = state.checksReport && { ...state.checksReport,
-      results: state.checksReport.results.map((entry) => {
-        const environment = environmentFailures.find((failure) => failure.command === entry.command);
-        return entry.status === "failed" && environment
-          ? { ...entry, status: "blocked" as const, output: `${entry.output}\nEnvironment evidence: ${environment.reason}` }
-          : entry;
-      }),
-    };
-    if (!review.requiredChanges.length && checkReport?.results.some((entry) => entry.status === "failed"))
-      review.requiredChanges.push("Resolve the failed deterministic checks recorded above; do not repeat unchanged repairs.");
-    return { review, checksReport: checkReport,
-      codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
+    } finally { await stopAllProcesses(issueId); }
+    const { contextUpdates, runbookUpdates, noChecksReason, ...review } = document;
+    return { review, checksReport: evidence.report(noChecksReason),
+      environmentReport: preparation.report(review),
+      codebaseContext: await updateContext(context, contextUpdates, fingerprint),
+      runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
   }
 
   // QA runs commands automatically in Docker. Its processes and browser are stopped
@@ -483,12 +388,15 @@ function buildPipeline(run: Run | null) {
     const { qaReport: previous } = state;
     const context = await codebaseContext(state);
     const book = await runbook(state);
-    const criteria = state.plan?.acceptanceCriteria ?? [{ id: "issue", requirement: (await issue()).description ?? (await issue()).title, source: "Original issue" }];
+    if (!state.plan) throw new Error("QA requires the approved plan");
+    const criteria = state.plan.acceptanceCriteria;
     let paused = false;
     try {
       const { contextUpdates, runbookUpdates, ...report } = await runSubagent(need(), {
         role: "qa",
         prompt: `${QA_PROMPT}\n\n${inputText(await issue(), [
+        ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
+        ["Upstream integration", JSON.stringify(state.integration)],
           ["The approved plan", state.plan && planText(state.plan)],
           ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
@@ -497,6 +405,7 @@ function buildPipeline(run: Run | null) {
           ["Recorded deterministic checks (do not repeat)", checksText(state.checksReport)],
           ["Completed environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
           ["Acceptance criteria", JSON.stringify(criteria)],
+          ["Previous QA report (historical evidence; retest exact failed or blocked examples first)", previous && JSON.stringify(previous)],
           [
             "The user's feedback on the changes",
             state.implementationFeedback.length > 0 &&
@@ -516,9 +425,8 @@ function buildPipeline(run: Run | null) {
           ? "Test the changes."
           : hasQuestions(previous)
             ? `The user answered your questions:\n\n${answersText(state.clarifications, previous)}`
-            : "The code has changed since your last report: test the changes again.",
-        // Product QA starts fresh after implementation changes; setup/results live in state.
-        remember: false,
+            : "Retest the previous report's exact failed or blocked examples first, then verify affected acceptance criteria with fresh evidence.",
+        remember: true,
       });
       return { qaReport: enforceCoverage(report, criteria, state.checksReport, await workspaceRevision(issueId)),
         runbook: await updateRunbook(book, runbookUpdates, fingerprint),
@@ -561,8 +469,35 @@ function buildPipeline(run: Run | null) {
     return { planApproved: true };
   }
 
-  function finish() {
+  async function finish() {
+    await assertNoMerge(need().issueId);
     return { finished: true };
+  }
+
+  // QA's previous report is historical context for repairs, not a current approval.
+  // Routing always runs Reviewer and QA again before final integration can finish.
+  const invalidated = { checksReport: null, review: null, finished: false };
+  async function prepare() {
+    const integration = await prepareIntegration(need().issueId, need().refreshUpstream);
+    return { integration, ...invalidated, qaReport: null };
+  }
+  async function commit(state: State) {
+    if (state.implementation?.replanReason) return { ...invalidated, planApproved: false };
+    await commitCoderRound(need().issueId, state.implementation?.commitMessage ?? "");
+    return { ...invalidated, integration: state.integration ? { ...state.integration, status: "current" as const, conflicts: [] } : null };
+  }
+  async function integrate(state: State) {
+    const integration = await prepareIntegration(need().issueId, need().refreshUpstream);
+    if (integration.status === "deferred") throw new Error("Workspace changed outside the completed coder round; redirect to coder before integrating");
+    // A merge may have completed before interruption saved the node result.
+    // Compare durable target/revision evidence as well as this attempt's status.
+    const changed = integration.status !== "current" ||
+      Boolean(state.integration && state.integration.targetCommit !== integration.targetCommit) ||
+      Boolean(state.checksReport && state.checksReport.revision !== await workspaceRevision(need().issueId));
+    const attempts = (state.integrationAttempts ?? 0) + (changed ? 1 : 0);
+    if (attempts > 3) throw new Error("Upstream advanced repeatedly; stopped after three integration rounds. Resume later to integrate and validate again.");
+    return { integration: changed && integration.status === "current" ? { ...integration, status: "merged" as const } : integration,
+      integrationAttempts: attempts, ...(changed ? { ...invalidated, planApproved: false } : {}) };
   }
 
   const hasQuestions = (doc: { blockingQuestions: string[] } | null) =>
@@ -579,6 +514,10 @@ function buildPipeline(run: Run | null) {
 
   return new StateGraph(PipelineGraphState)
     .addNode("redirect", () => ({}))
+    .addNode("prepare", tracked(prepare))
+    .addNode("commit", tracked(commit))
+    .addNode("integrate", tracked(integrate))
+    .addNode("final_integrate", tracked(integrate))
     .addNode("planner", tracked(planner, "planner"))
     .addNode(
       "ask_planner",
@@ -586,13 +525,6 @@ function buildPipeline(run: Run | null) {
     )
     .addNode("approve_plan", approvePlan)
     .addNode("coder", tracked(coder, "coder"))
-    .addNode("setup", tracked(environmentSetup, "setup"))
-    .addNode("execute_setup", tracked(executeSetup))
-    .addNode("ask_setup", ask("setup", (s) => s.environmentPlan))
-    .addNode("ask_setup_failure", ask("setup", (s) => s.environmentReport))
-    .addNode("checks", tracked(checks, "checks"))
-    .addNode("execute_checks", tracked(executeChecks))
-    .addNode("ask_checks", ask("checks", (s) => s.checksPlan))
     .addNode(
       "ask_coder",
       ask("coder", (s) => s.implementation),
@@ -609,32 +541,31 @@ function buildPipeline(run: Run | null) {
     )
     .addNode("finish", finish)
     .addConditionalEdges("redirect", (s) => s.redirectTarget, ["planner", "coder", "reviewer", "qa"])
-    .addEdge(START, "redirect")
+    .addEdge(START, "prepare")
+    .addEdge("prepare", "planner")
     .addConditionalEdges("planner", (s) =>
       hasQuestions(s.plan) ? "ask_planner" : "approve_plan",
     )
     .addEdge("ask_planner", "planner")
-    .addEdge("approve_plan", "coder")
+    .addConditionalEdges("approve_plan", async s => s.plan?.steps.length || s.integration?.status === "conflicts" ||
+      s.integration?.status === "deferred" || await hasUncommitted(need().issueId) ? "coder" : "reviewer")
     .addConditionalEdges("coder", (s) =>
-      hasQuestions(s.implementation) ? "ask_coder" : "setup",
+      hasQuestions(s.implementation) ? "ask_coder" : "commit",
     )
+    .addConditionalEdges("commit", s => s.implementation?.replanReason ? "planner" : "integrate")
+    .addConditionalEdges("integrate", s => s.integration?.status !== "current" ? "planner" : "reviewer")
     .addEdge("ask_coder", "coder")
-    .addConditionalEdges("setup", (s) => hasQuestions(s.environmentPlan) ? "ask_setup" : "execute_setup")
-    .addEdge("ask_setup", "setup")
-    .addConditionalEdges("execute_setup", (s) => environmentSetupNext(s.environmentReport))
-    .addEdge("ask_setup_failure", "setup")
-    .addConditionalEdges("checks", (s) => hasQuestions(s.checksPlan) ? "ask_checks" : "execute_checks")
-    .addEdge("ask_checks", "checks")
-    .addEdge("execute_checks", "reviewer")
     .addConditionalEdges("reviewer", (s) => {
       if (hasQuestions(s.review)) return "ask_reviewer";
-      return (s.review?.requiredChanges.length ?? 0) > 0 ? "coder" : "qa";
+      if ((s.review?.requiredChanges.length ?? 0) > 0) return "coder";
+      return "qa";
     })
     .addEdge("ask_reviewer", "reviewer")
     .addConditionalEdges("qa", (s) => {
       if (hasQuestions(s.qaReport)) return "ask_qa";
-      return s.qaReport?.verdict === "fail" ? "coder" : "finish";
+      return s.qaReport?.verdict !== "pass" ? "reviewer" : "final_integrate";
     })
+    .addConditionalEdges("final_integrate", s => s.integration?.status !== "current" ? "planner" : "finish")
     .addEdge("ask_qa", "qa")
     .addEdge("finish", END)
     .compile({ checkpointer });
@@ -642,9 +573,8 @@ function buildPipeline(run: Run | null) {
 
 // ---- Running and reading it -------------------------------------------------------
 
-// The pipeline's own graph keeps LangGraph's default step limit (25) on purpose: its
-// steps are whole nodes, so it never comes close, and a coder↔reviewer (or coder →
-// reviewer → QA) loop costs real money every time round, which 25 stops early.
+// Integration and repair loops have independent bounded budgets. Allow enough graph
+// steps for those loops and the approval/validation nodes.
 
 // Starts the issue's pipeline with an optional note for the planner; the returned
 // stream is the run (see startRun).
@@ -652,7 +582,7 @@ export function startPipeline(run: Run, note: string, signal?: AbortSignal) {
   run.signal = signal;
   return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(
     { note, humanMessages: [humanMessage(note || "Started work on this issue.", run.username)] },
-    streamConfig(forgeThreadId(run.issueId), undefined, signal),
+    streamConfig(forgeThreadId(run.issueId), 100, signal),
   )));
 }
 
@@ -671,27 +601,14 @@ export function readReply(body: unknown): PipelineResume | null {
     return { answers: b.answers as string[] };
   }
   if (b.approve === true) return { approve: true };
-  if (Array.isArray(b.decisions) && b.decisions.every(isDecision)) {
-    return { decisions: b.decisions as Decision[] };
-  }
   return null;
 }
-
-const isDecision = (d: unknown): d is Decision =>
-  typeof d === "object" &&
-  d !== null &&
-  ((d as Decision).type === "approve" ||
-    ((d as Decision).type === "reject" &&
-      ["string", "undefined"].includes(typeof (d as { message?: unknown }).message)));
 
 // Whether a reply answers what the pipeline is waiting on.
 export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume) {
   return (
     (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
-    (waiting?.kind === "approve_plan" && "approve" in reply) ||
-    (waiting?.kind === "approve_commands" &&
-      "decisions" in reply &&
-      reply.decisions.length === waiting.commands.length)
+    (waiting?.kind === "approve_plan" && "approve" in reply)
   );
 }
 
@@ -702,14 +619,14 @@ export async function resumePipeline(run: Run, reply: PipelineResume, signal?: A
   const request = toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
   return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(
     new Command({ resume: reply, update: { humanMessages: [replyMessage(reply, request, run.username)] } }),
-    streamConfig(forgeThreadId(run.issueId), undefined, signal),
+    streamConfig(forgeThreadId(run.issueId), 100, signal),
   )));
 }
 
 // Retry pending work without adding input or bypassing a human interrupt.
 export function continuePipeline(run: Run, signal?: AbortSignal) {
   run.signal = signal;
-  return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(null, streamConfig(forgeThreadId(run.issueId), undefined, signal))));
+  return Promise.resolve(withPipelineEvents(run, buildPipeline(run).stream(null, streamConfig(forgeThreadId(run.issueId), 100, signal))));
 }
 
 function withPipelineEvents<T>(run: Run, source: Promise<AsyncIterable<T>>) {
@@ -723,21 +640,18 @@ function withPipelineEvents<T>(run: Run, source: Promise<AsyncIterable<T>>) {
 }
 
 const ROLE_NODES: Record<string, AgentRole> = {
+  prepare: "planner",
+  commit: "coder",
+  integrate: "coder",
+  final_integrate: "qa",
   planner: "planner",
   ask_planner: "planner",
   approve_plan: "planner",
   coder: "coder",
   ask_coder: "coder",
-  ask_setup: "setup",
-  ask_setup_failure: "setup",
-  ask_checks: "checks",
   ask_reviewer: "reviewer",
   ask_qa: "qa",
   finish: "qa",
-  setup: "setup",
-  execute_setup: "setup",
-  checks: "checks",
-  execute_checks: "checks",
   reviewer: "reviewer",
   qa: "qa",
 };
@@ -748,19 +662,9 @@ export async function getPipelineMessages(issueId: string) {
   return checkpointMessages(checkpoints, Boolean(pipeline.running || pipeline.waiting && !pipeline.finished));
 }
 
-// New runs pause for plan approval or questions. Keep recognizing tool approvals
-// from checkpoints saved before command execution moved into Docker.
+// Runs pause only for plan approval or questions.
 function toWaiting(value: unknown): PipelineWaiting | null {
   if (!value) return null;
-  if (typeof value === "object" && "actionRequests" in value) {
-    return {
-      kind: "approve_commands",
-      commands: (value as HITLRequest).actionRequests.map(({ name, args }) => ({
-        tool: name,
-        command: String(args.command ?? ""),
-      })),
-    };
-  }
   return value as PipelineWaiting;
 }
 
@@ -771,7 +675,7 @@ export async function stopQa(issueId: string) {
 }
 
 // The workspace's setup, for the QA: the command, how it went, and the end of its log.
-// The issues whose pipeline is waiting for an approval (its plan, or the QA's commands),
+// The issues whose pipeline is waiting for plan approval,
 // for marking them in the webapp's issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
   const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
@@ -779,7 +683,7 @@ export async function pendingApprovals(): Promise<PendingApproval[]> {
     workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getPipeline(issueId)).waiting })),
   );
   return pipelines.flatMap(({ issueId, waiting }) =>
-    waiting?.kind === "approve_plan" || waiting?.kind === "approve_commands" ? [{ issueId, kind: waiting.kind }] : [],
+    waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : [],
   );
 }
 
@@ -790,7 +694,7 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   const values = snapshot.values as Partial<State>;
   const running = runStatus(threadId).running;
   // A running pipeline isn't waiting on you. Its saved state can still say it is: a
-  // node that carries on after you answer (the QA, after you approve its commands)
+  // node that carries on after you answer its questions
   // keeps the pause it resumed from until it finishes or pauses again.
   const waiting = running || values.finished
     ? null
@@ -809,6 +713,7 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
     plan: values.plan ?? null,
     planApproved: values.planApproved ?? false,
     implementation: values.implementation ?? null,
+    integration: values.integration ?? null,
     checks: values.checksReport ?? null,
     environmentSetup: values.environmentReport ?? null,
     review: values.review ?? null,
@@ -820,7 +725,7 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   };
 }
 
-// What the committer is told about the pipeline: the approved plan, and your answers
+// What the PR writer is told about the pipeline: the approved plan, and your answers
 // and feedback, which explain the changes.
 export async function commitContext(issueId: string) {
   const snapshot = await buildPipeline(null).getState(threadConfig(forgeThreadId(issueId)));
@@ -848,7 +753,7 @@ export async function redirectPipeline(run: Run, request: PipelineRedirect) {
     const pipeline = await getPipeline(run.issueId);
     const option = pipeline.steeringOptions?.find((entry) => entry.target === request.target);
     if (!option || option.reason) throw new Error(option?.reason ?? "Invalid redirect target");
-    if ((request.target === "reviewer" || request.target === "qa") &&
+    if (request.target === "qa" &&
       pipeline.checks?.revision !== await workspaceRevision(run.issueId))
       throw new Error("The workspace changed since checks. Redirect to coder to validate it again.");
   };
@@ -857,7 +762,7 @@ export async function redirectPipeline(run: Run, request: PipelineRedirect) {
     await validate();
     await stopQa(run.issueId);
     await drainProcesses(run.issueId);
-    for (const role of ["planner", "coder", "setup", "checks", "reviewer", "qa"]) pausedLogs.delete(`${run.issueId}:${role}`);
+    for (const role of ["planner", "coder", "reviewer", "qa"]) pausedLogs.delete(`${run.issueId}:${role}`);
     const graph = buildPipeline(run);
     // Simulate the routing node's completion: updateState replaces pending tasks,
     // rather than adding a goto alongside a saved approval or interrupted node.

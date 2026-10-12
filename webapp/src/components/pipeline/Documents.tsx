@@ -31,6 +31,8 @@ export function PlanView({ plan }: { plan: PlanDocument }) {
   return (
     <Stack spacing={1.5}>
       <Summary text={plan.summary} />
+      {plan.existingImplementation && <><Typography variant="overline" color="text.secondary">Existing implementation</Typography>
+        <Summary text={plan.existingImplementation} /></>}
       <Typography variant="overline" color="text.secondary">
         Steps
       </Typography>
@@ -43,20 +45,23 @@ export function PlanView({ plan }: { plan: PlanDocument }) {
   );
 }
 
-// An empty requiredChanges means the review passed.
+// Validation requests remain pending until their results have been reviewed.
 export function ReviewView({ review }: { review: ReviewDocument }) {
-  return review.requiredChanges.length > 0 ? (
+  return <Stack spacing={1.5}>
+    {review.requiredChanges.length > 0 && (
     <Alert severity="warning" variant="outlined">
       <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
         Required changes
       </Typography>
       <Items items={review.requiredChanges} />
     </Alert>
-  ) : (
+    )}
+    {!review.requiredChanges.length && !review.blockingQuestions.length && (
     <Alert severity="success" variant="outlined">
       No changes required.
     </Alert>
-  );
+    )}
+  </Stack>;
 }
 
 // The QA's report: the verdict with what's broken, then what it checked and what it

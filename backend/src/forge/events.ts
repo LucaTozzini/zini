@@ -17,8 +17,7 @@ export function forgeEventContent(event: ForgeLifecycleEvent): string {
     case "waiting": {
       const waiting = event.waiting;
       return waiting.kind === "questions" ? `${waiting.from} needs answers:\n${waiting.questions.join("\n")}`
-        : waiting.kind === "approve_plan" ? "The plan is ready for your approval."
-        : `Commands need your approval:\n${waiting.commands.map((command) => command.command).join("\n")}`;
+        : "The plan is ready for your approval.";
     }
     case "completed": return `Forge completed. QA verdict: ${event.qa?.verdict ?? "unavailable"}.`
       + (event.qa?.failures.length ? `\nFailures:\n${event.qa.failures.join("\n")}` : "")

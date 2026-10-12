@@ -34,12 +34,22 @@ test("preview forwards HTTP bodies, API routes, redirects and WebSockets and dis
   const plan: AppLaunchPlan = { setup: [], services: [webPort, apiPort].map((port, index) => ({
     id: index ? "api" : "web", command: `"${process.execPath}" server.cjs ${port}`, cwd: ".", port, readiness: "http", path: "/",
   })), app: { serviceId: "web", path: "/", preservePreviewPath: true }, routes: [{ prefix: "/api", serviceId: "api", stripPrefix: true }] };
-  const app = express(); app.use(workspacePreview(runtime)); app.use(express.json());
-  const server = createServer(app); workspacePreviewUpgrades(server, runtime);
+  const refreshed: string[] = [];
+  const previews = { refresh: async (id: string) => {
+    refreshed.push(id);
+    if (id === "unavailable") throw new Error("Gateway unavailable");
+  }, previewTarget: runtime.previewTarget.bind(runtime) };
+  const app = express(); app.use(workspacePreview(previews)); app.use(express.json());
+  const server = createServer(app); workspacePreviewUpgrades(server, previews);
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   let ws: WebSocket | undefined;
   try {
+    await fetch(`${origin}/unrelated`);
+    assert.deepEqual(refreshed, [], "Unrelated requests do not inspect workspaces");
+    assert.equal((await fetch(`${origin}/preview/unavailable/`)).status, 502);
+    assert.deepEqual(refreshed, ["unavailable"]);
+    refreshed.length = 0;
     await writeFile(join(root, "server.cjs"), fixture);
     assert.throws(() => validateAppLaunchPlan({ ...plan, routes: [{ prefix: "/api", serviceId: "missing", stripPrefix: true }] }), /declared HTTP/);
     const result = await runtime.launch("test", plan);
@@ -63,6 +73,7 @@ test("preview forwards HTTP bodies, API routes, redirects and WebSockets and dis
       ws!.onerror = () => { clearTimeout(timer); reject(new Error("WebSocket failed")); };
     });
     assert.equal(message, "/socket?q=1");
+    assert.ok(refreshed.length > 0 && refreshed.every(id => id === "test"), "Only the requested workspace is refreshed");
     await runtime.stop("test");
     assert.equal((await fetch(`${origin}/preview/test/`)).status, 404);
     assert.equal((await fetch(`${origin}/preview/unknown/`)).status, 404);
@@ -79,8 +90,8 @@ test("a real Vite app loads assets, calls its backend, and hot reloads through t
   const webPort = await availableAppPort(), apiPort = await availableAppPort();
   const base = "/preview/vite-test/";
   const main = (text: string) => `import './style.css'; fetch(import.meta.env.BASE_URL+'api/hello').then(r=>r.json()).then(data=>document.querySelector('#app').textContent='${text} '+data.url);`;
-  const app = express(); app.use(workspacePreview(runtime));
-  const server = createServer(app); workspacePreviewUpgrades(server, runtime);
+  const app = express(); app.use(workspacePreview({ refresh: async () => {}, previewTarget: runtime.previewTarget.bind(runtime) }));
+  const server = createServer(app); workspacePreviewUpgrades(server, { refresh: async () => {}, previewTarget: runtime.previewTarget.bind(runtime) });
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const browser = await chromium.launch();

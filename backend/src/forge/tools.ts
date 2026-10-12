@@ -8,6 +8,7 @@ import {
 } from "../workspaces/workspaceFiles.js";
 import { repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
 import { containerFilesystem } from "../workspaces/containerFilesystem.js";
+import { inspectConflicts, resolveConflict } from "../workspaces/workspaceIntegration.js";
 
 // The subagents' tools, each working in the issue's workspace.
 
@@ -26,7 +27,7 @@ const filesIn = (diff: string) =>
 // passes MAX_DIFF_FOR_MODEL, with a note naming the files left out, so they can be
 // asked for by path. With a path: just that file's (or folder's) diff. With
 // uncommitted: only the changes since the last commit. Without tools: for a model that
-// can't ask for the files left out (the committer, the PR writer), so the note only
+// can't ask for the files left out (the PR writer), so the note only
 // names them.
 export async function diffForModel(
   issueId: string,
@@ -79,6 +80,16 @@ export const diffTool = (issueId: string) =>
       "naming the rest; pass a path for one file's (or folder's) diff.",
     schema: z.object({ path: z.string().optional() }),
   });
+
+export function conflictTools(issueId: string, writable = false) {
+  return [tool(async ({ path }) => path ? inspectConflicts(issueId, path) : (await inspectConflicts(issueId)).map(file => file.path), {
+    name: "inspect_conflicts", description: "Inspect unresolved conflict paths and base/ours/theirs contents. Deleted and binary sides are explicit. Pass one path for full per-file context.",
+    schema: z.object({ path: z.string().optional() }),
+  }), ...(writable ? [tool(({ path }) => resolveConflict(issueId, path), {
+    name: "resolve_conflict", description: "After editing a conflicted file (or deleting it), record its resolution. All conflict markers must be removed. Infrastructure completes the merge after submission.",
+    schema: z.object({ path: z.string() }),
+  })] : [])];
+}
 
 // notify runs after each change, so the webapp's diff follows the coder's work.
 export function writeTools(issueId: string, notify: () => void) {

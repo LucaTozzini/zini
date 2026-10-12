@@ -1,10 +1,13 @@
-import { createServer, request } from "node:http";
+import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createServer as createTcpServer } from "node:net";
 import { realpath, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, relative, isAbsolute } from "node:path";
 import { chromium } from "playwright";
 import { WorkspaceAppRuntime, availableAppPort, type AppLaunchPlan } from "../backend/src/workspaces/localAppRuntime.js";
 import { killTree } from "../backend/src/core/processes.js";
+import { generateDevelopmentTls } from "../backend/src/workspaces/developmentTls.js";
+import { localRequest, localResponse } from "../backend/src/workspaces/localHttp.js";
 
 const token = process.env.WORKSPACE_TOKEN;
 if (!token) throw new Error("Missing workspace gateway token");
@@ -15,6 +18,14 @@ process.env.GIT_CONFIG_COUNT = "1";
 process.env.GIT_CONFIG_KEY_0 = "safe.directory";
 process.env.GIT_CONFIG_VALUE_0 = "/workspace";
 await mkdir("/state/home", { recursive: true });
+function validateEnvironment(values: Record<string, string>) {
+  for (const [key, value] of Object.entries(values)) {
+    if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(key) || /^(PATH|HOME|SHELL|BASH_ENV|ENV|LD_.*|NODE_OPTIONS|NODE_PATH|PLAYWRIGHT_.*|GIT_.*|WORKSPACE_.*)$/.test(key) || typeof value !== "string" || value.length > 4096 || value.includes("\0")) throw new Error("Invalid environment configuration");
+  }
+}
+let environment: Record<string, string> = {};
+try { const saved = JSON.parse(await readFile("/state/environment.json", "utf8")); validateEnvironment(saved); environment = saved; } catch {}
+Object.assign(process.env, environment);
 async function cwd(_issue: string, path = ".") {
   const root = await realpath("/workspace");
   const target = await realpath(resolve(root, path));
@@ -31,7 +42,7 @@ const processes = new Map<string, Proc>();
 let next = 1;
 async function start(command: string, path = ".", timeout?: number) {
   const child = spawn(command, { cwd: await cwd(issue, path), shell: "/bin/sh", detached: true,
-    env: { PATH: process.env.PATH, HOME: "/state/home", LANG: "C.UTF-8", CI: "1", NO_COLOR: "1", FORCE_COLOR: "0", PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "/workspace" } });
+    env: { PATH: process.env.PATH, HOME: "/state/home", LANG: "C.UTF-8", CI: "1", NO_COLOR: "1", FORCE_COLOR: "0", PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "/workspace", ...environment } });
   const id = `p${next++}`;
   const proc: Proc = { child, output: "", read: 0, exitCode: null, status: "running", timedOut: false, done: Promise.resolve() };
   const append = (chunk: Buffer) => { proc.output = (proc.output + chunk.toString().replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")).slice(-200000); };
@@ -51,8 +62,30 @@ async function stop(id: string) {
 let browser: Awaited<ReturnType<typeof chromium.launchServer>> | null = null;
 async function api(action: string, body: any) {
   switch (action) {
+    case "generateTls": {
+      const paths = await generateDevelopmentTls();
+      if (browser) { await browser.close(); browser = null; }
+      return paths;
+    }
     case "health": return { ok: true, issue };
+    case "environment": {
+      const values = body.values as Record<string, string>;
+      validateEnvironment(values);
+      for (const key of Object.keys(environment)) delete process.env[key];
+      environment = values; Object.assign(process.env, values);
+      await writeFile("/state/environment.json", JSON.stringify(environment), { mode: 0o600 });
+      return { configured: Object.keys(environment) };
+    }
     case "port": return availableAppPort();
+    case "portFree": {
+      const port = Number(body.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7777) throw new Error("Invalid app port");
+      await new Promise<void>((resolve, reject) => {
+        const listener = createTcpServer(); listener.once("error", reject);
+        listener.listen(port, "127.0.0.1", () => listener.close(error => error ? reject(error) : resolve()));
+      });
+      return { free: true };
+    }
     case "start": return start(body.command, body.cwd, body.timeout);
     case "filesystem": return filesystem(body);
     case "file": return workspaceFile(body);
@@ -64,11 +97,12 @@ async function api(action: string, body: any) {
     case "drain": await Promise.all([...processes.keys()].map(stop)); return { ok: true };
     case "http": { const url = new URL(body.url);
       if (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || Number(url.port) === 7777) throw new Error("Only workspace loopback app URLs are allowed");
-      const response = await fetch(url, { method: body.method, headers: body.headers, body: body.body, redirect: "manual", signal: AbortSignal.timeout(30000) });
+      const response = await localResponse(url, { method: body.method, headers: body.headers, signal: AbortSignal.timeout(30000) }, body.body);
       // Bound the response; an unbounded app stream must not fill gateway memory.
-      let text = ""; const reader = response.body?.getReader();
-      if (reader) { while (text.length < 8000) { const chunk = await reader.read(); if (chunk.done) break; text += new TextDecoder().decode(chunk.value); } await reader.cancel(); }
-      return `${response.status} ${response.statusText}\nContent-Type: ${response.headers.get("content-type")}\n${response.headers.get("location") ? `Location: ${response.headers.get("location")}\n` : ""}\n${text.slice(0,8000)}`; }
+      let text = "";
+      for await (const chunk of response) { text += chunk.toString(); if (text.length >= 8000) break; }
+      response.destroy();
+      return `${response.statusCode} ${response.statusMessage}\nContent-Type: ${response.headers["content-type"]}\n${response.headers.location ? `Location: ${response.headers.location}\n` : ""}\n${text.slice(0,8000)}`; }
     case "appStatus": return { ...apps.status(issue), plan };
     case "appLaunch": {
       if (launchTask) throw new Error("Preview launch is already in progress");
@@ -83,20 +117,22 @@ async function api(action: string, body: any) {
       if (body.content !== undefined) { try { await readFile(`/state/checks/${body.file}`); } catch { await writeFile(`/state/checks/${body.file}`, body.content); } }
       return `/state/checks/${body.file}`;
     }
-    case "browser": browser ??= await chromium.launchServer({ host: "127.0.0.1", args: ["--no-sandbox"] }); return { ready: true };
+    case "browser": {
+      browser ??= await chromium.launchServer({ host: "127.0.0.1", args: ["--no-sandbox"] }); return { ready: true };
+    }
     default: throw new Error("Unknown gateway operation");
   }
 }
-function proxy(req: any, client: any, head?: Buffer) {
+async function proxy(req: any, client: any, head?: Buffer) {
   const path = req.url.slice(`/preview/${encodeURIComponent(issue)}`.length) || "/";
   const target = apps.previewTarget(issue, path);
   let upstreamUrl: URL;
-  if (req.url === "/browser" && browser && head !== undefined) upstreamUrl = new URL(browser.wsEndpoint());
-  else if (target) upstreamUrl = new URL(`http://127.0.0.1:${target.port}${target.path}`);
+  if (req.url === "/browser" && browser && head !== undefined) { upstreamUrl = new URL(browser.wsEndpoint()); upstreamUrl.protocol = "http:"; }
+  else if (target) upstreamUrl = new URL(`${target.protocol}//127.0.0.1:${target.port}${target.path}`);
   else { client.end(head === undefined ? "Preview is not ready" : "HTTP/1.1 404 Not Found\r\n\r\n"); return; }
   const headers = { ...req.headers, host: upstreamUrl.host }; delete headers["x-workspace-token"];
-  if (headers.origin) headers.origin = `http://${upstreamUrl.host}`;
-  const upstream = request({ hostname: upstreamUrl.hostname, port: upstreamUrl.port, path: upstreamUrl.pathname + upstreamUrl.search, method: req.method, headers }, response => {
+  if (headers.origin) headers.origin = `${upstreamUrl.protocol}//${upstreamUrl.host}`;
+  const upstream = await localRequest(upstreamUrl, { method: req.method, headers }, response => {
     if (head !== undefined) { response.resume(); client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); }
     else { client.writeHead(response.statusCode, response.headers); response.pipe(client); }
   });
@@ -112,7 +148,7 @@ function proxy(req: any, client: any, head?: Buffer) {
 }
 const server = createServer(async (req, res) => {
   if (req.headers["x-workspace-token"] !== token) { res.writeHead(401).end(); return; }
-  if (req.url?.startsWith(`/preview/${encodeURIComponent(issue)}/`)) { proxy(req, res); return; }
+  if (req.url?.startsWith(`/preview/${encodeURIComponent(issue)}/`)) { void proxy(req, res).catch(() => res.destroy()); return; }
   try {
     if (req.method !== "POST") throw new Error("Use POST");
     let content = ""; for await (const chunk of req) { content += chunk; if (content.length > 1000000) throw new Error("Request too large"); }
@@ -122,7 +158,7 @@ const server = createServer(async (req, res) => {
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.headers["x-workspace-token"] !== token || !(req.url === "/browser" || req.url?.startsWith(`/preview/${encodeURIComponent(issue)}/`))) { socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n"); return; }
-  proxy(req, socket, head);
+  void proxy(req, socket, head).catch(() => socket.destroy());
 });
 server.listen(7777, "0.0.0.0");
 // Source/dependencies and the launch plan survive container recreation. Backend

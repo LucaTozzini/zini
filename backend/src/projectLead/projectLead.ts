@@ -66,6 +66,7 @@ import { loadConnection } from "../providers/modelProvider.js";
 import { listForges } from "../forge/listForges.js";
 import { launchWorkspaceApp } from "../workspaces/workspaceApps.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
 import { browserTools } from "../browser/browserTools.js";
 import { closeBrowser } from "../browser/agentBrowser.js";
 import { syncWorkspace } from "../repositories/git.js";
@@ -119,7 +120,7 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   work without answering questions or approving anything. Approval and question pauses
   still require reply_to_pipeline. Automatic updates are not requests to resume work.
 - When the user asks you to build an issue, use start_forge: it creates the
-  issue's workspace and starts the Forge pipeline (planner, coder, setup, checks, reviewer, then a
+  issue's workspace and starts the Forge pipeline (planner, coder, reviewer, then a
   QA that runs the software to test the changes). Use forge_status to report its
   progress; never call start_forge just to check. Use git_diff to see the code
   changes in the issue's workspace. When the user asks you to commit them, use
@@ -130,18 +131,17 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   Never silently commit or push as part of opening a PR. Share the returned PR link. Use
   redirect_forge to interrupt work and rerun the current or an earlier stage with the user's feedback.
   Check forge_status steeringOptions first; redirects replace outstanding approvals and preserve edits. Use
-  reply_to_pipeline to answer the pipeline's questions, approve its plan, approve or
-  reject setup/checks/QA commands, from this chat. Read current forge_status
+  reply_to_pipeline to answer the pipeline's questions or approve its plan,
+  from this chat. Read current forge_status
   before replying; the reply must match waiting.kind:
   - questions: answers, one per question in order.
   - approve_plan: approve: true to proceed.
-  - approve_commands: decisions, one per command in order.
   Finished work has waiting: null and needs no reply. "Looks good", "thanks", or
   acceptance requires no Forge action. Acknowledge it; commit/push or open PRs only when asked.
   ALL requested revisions use redirect_forge, whether running, paused, awaiting
   approval, or finished. Use target planner to revise a plan (it will need approval
-  again), or coder to change an approved implementation and rerun setup, checks,
-  reviewer, and QA. Reviewer and QA targets rerun those stages with feedback.
+  again), or coder to change an approved implementation and rerun reviewer
+  and QA. Reviewer and QA targets rerun those stages with feedback.
   Redirect replaces old pending work/approvals and clears downstream results, while
   preserving edits. Check steeringOptions for eligibility; never skip prerequisites.
   Send actionable requested changes and their context, never invent changes from praise.
@@ -370,10 +370,16 @@ function forgeTools(linear: LinearClient) {
       schema: z.object({ action: z.enum(["subscribe", "unsubscribe"]), issueId: ISSUE_ID }),
     }),
     tool(
-      async ({ issueId }, config) => {
+      async ({ issueId, pullRequest, fresh }, config) => {
         const id = await toIssueId(linear, issueId);
         await forgeSubscriptions.subscribe(caller(config), id);
-        const { workspace } = await createWorkspace(linear, id);
+        let result;
+        try { result = await createWorkspace(linear, id, { pullRequest, fresh }); }
+        catch (error) {
+          if (error instanceof WorkspaceChoiceRequired) return JSON.stringify({ status: "needs_choice", choices: error.choices, instruction: "Ask the user which PR to resume or whether to start fresh, then retry with pullRequest or fresh." });
+          throw error;
+        }
+        const { workspace } = result;
         if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
         const pipeline = await getPipeline(workspace.issueId);
         if (pipeline.finished) return JSON.stringify({ status: "finished", pipeline });
@@ -392,7 +398,7 @@ function forgeTools(linear: LinearClient) {
           "Build an issue: create its workspace if it has none, and start the Forge " +
           "pipeline. Environment preparation happens in the pipeline. Returns a status: started, already_running, " +
           "finished (request revisions with redirect_forge instead) or error.",
-        schema: z.object({ issueId: ISSUE_ID }),
+        schema: z.object({ issueId: ISSUE_ID, pullRequest: z.number().int().positive().optional(), fresh: z.boolean().optional() }),
       },
     ),
     tool(
@@ -475,7 +481,7 @@ function forgeTools(linear: LinearClient) {
         if (Object.values(input).filter((value) => value !== undefined).length !== 1) {
           return JSON.stringify({
             status: "error",
-            error: "Pass exactly one of answers, approve or decisions",
+            error: "Pass exactly one of answers or approve",
           });
         }
         const id = await toIssueId(linear, issueId);
@@ -506,23 +512,14 @@ function forgeTools(linear: LinearClient) {
         name: "reply_to_pipeline",
         description:
           "Reply to what an issue's Forge pipeline is waiting on, with exactly one of: " +
-          "answers (one per question, in order), approve: true (approve the plan), " +
-          "decisions (one per setup/checks/QA command, in order). This tool only answers questions " +
-          "and approves/rejects pending actions; ALL revisions use redirect_forge, including plan " +
+          "answers (one per question, in order) or approve: true (approve the plan). " +
+          "ALL revisions use redirect_forge, including plan " +
           "revisions and changes after completion. Finished work needs no reply. " +
           "The user approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
           answers: z.array(z.string()).optional().describe("User answers to waiting.kind=questions, one per question in order."),
           approve: z.boolean().optional().describe("Pass true only for user approval of a pending plan (waiting.kind=approve_plan). Not acceptance of finished work."),
-          decisions: z
-            .array(
-              z.object({
-                type: z.enum(["approve", "reject"]),
-                message: z.string().optional().describe("The user's reason for rejecting this setup/checks/QA command."),
-              }),
-            )
-            .optional().describe("User approval/rejection decisions for waiting.kind=approve_commands, one per command in order."),
         }),
       },
     ),
@@ -725,13 +722,12 @@ async function toPending(
   );
 }
 
-// The questions the issue's pipeline is waiting on, or the QA's commands, for showing a
-// reply's answers or decisions next to them. undefined if it isn't waiting on either, or
+// The questions the issue's pipeline is waiting on, for showing a
+// reply's answers next to them. undefined if it isn't waiting on questions, or
 // the issue can't be found: the reply is still shown, just without them.
 async function pipelineQuestions(linear: LinearClient, issueId: string) {
   try {
     const { waiting } = await getPipeline(await toIssueId(linear, issueId));
-    if (waiting?.kind === "approve_commands") return waiting.commands.map((c) => c.command);
     return waiting?.kind === "questions" ? waiting.questions : undefined;
   } catch (err) {
     console.error(`Reading the pipeline's questions for ${issueId} failed:`, err);

@@ -4,7 +4,7 @@ import type { RequestHandler } from "express";
 import { previewBase } from "./workspaceAppRuntime.js";
 
 type Target = { port: number; path: string; prefix: string; stripPrefix: boolean; token?: string; transportPath?: string; servicePort?: number };
-type Runtime = { previewTarget: (issueId: string, path: string) => Target | null };
+type Runtime = { refresh: (issueId: string) => Promise<unknown>; previewTarget: (issueId: string, path: string) => Target | null };
 const HOP_HEADERS = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"];
 
 function headersWithoutHop(headers: IncomingHttpHeaders) {
@@ -50,20 +50,23 @@ function responseHeaders(headers: IncomingHttpHeaders, issueId: string, target: 
   return result;
 }
 
-function destination(runtime: Runtime, rawUrl: string) {
+async function destination(runtime: Runtime, rawUrl: string) {
   const match = /^\/preview\/([^/?]+)(\/[^?]*)?(\?.*)?$/.exec(rawUrl);
   if (!match) return null;
   let issueId: string;
   try { issueId = decodeURIComponent(match[1]!); } catch { return null; }
+  await runtime.refresh(issueId);
   const target = runtime.previewTarget(issueId, `${match[2] || "/"}${match[3] || ""}`);
   return target ? { issueId, target, missingSlash: !match[2], query: match[3] ?? "" } : null;
 }
 
 // Mount before express.json: request bodies must reach the workspace unchanged.
 export function workspacePreview(runtime: Runtime): RequestHandler {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.url.startsWith("/preview/")) { next(); return; }
-    const resolved = destination(runtime, req.url);
+    let resolved;
+    try { resolved = await destination(runtime, req.url); }
+    catch { res.status(502).send("The workspace server is unavailable."); return; }
     if (!resolved) { res.status(404).send("This workspace preview is not running."); return; }
     const { issueId, target } = resolved;
     if (resolved.missingSlash) { res.redirect(308, `${previewBase(issueId)}/${resolved.query}`); return; }
@@ -85,8 +88,13 @@ export function workspacePreview(runtime: Runtime): RequestHandler {
 }
 
 export function workspacePreviewUpgrades(server: Server, runtime: Runtime) {
-  server.on("upgrade", (req, client: Duplex, head) => {
-    const resolved = destination(runtime, req.url ?? "");
+  server.on("upgrade", (req, client: Duplex, head) => { void upgrade(req, client, head).catch(() => client.destroy()); });
+  async function upgrade(req: IncomingMessage, client: Duplex, head: Buffer) {
+    client.on("error", () => {});
+    let resolved;
+    try { resolved = await destination(runtime, req.url ?? ""); }
+    catch { client.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"); return; }
+    if (client.destroyed) return;
     if (!resolved || resolved.missingSlash) { client.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"); return; }
     const { issueId, target } = resolved;
     const upstream = request({ hostname: "127.0.0.1", port: target.port, path: target.transportPath ?? target.path,
@@ -113,5 +121,5 @@ export function workspacePreviewUpgrades(server: Server, runtime: Runtime) {
     client.on("error", () => upstream.destroy());
     client.on("close", () => upstream.destroy());
     upstream.end();
-  });
+  }
 }

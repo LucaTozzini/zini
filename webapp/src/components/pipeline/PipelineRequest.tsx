@@ -1,6 +1,6 @@
 import { Alert, Stack } from "@mui/material";
 import type { PipelineRedirect, PipelineResume, PipelineState } from "shared";
-import { CommandsCard, FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
+import { FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
 import { PlanView } from "./Documents.tsx";
 
 // Only the current blocking request is inline. Historical documents live in the step dialogs.
@@ -17,11 +17,6 @@ export default function PipelineRequest({ issueId, pipeline, onStart, onReply, o
   if (waiting?.kind === "questions") return <QuestionsCard
     key={`${waiting.from}-${waiting.questions.join("\n")}`}
     questions={waiting.questions} onSubmit={(answers) => onReply({ answers })} loading={sending} />;
-  if (waiting?.kind === "approve_commands") return <CommandsCard
-    key={`${waiting.from}-${waiting.commands.map((command) => command.command).join("\n")}`}
-    commands={waiting.commands}
-    onDecide={(decision) => onReply({ decisions: waiting.commands.map(() => decision) })}
-    loading={sending} />;
   if (waiting?.kind === "approve_plan") return <Stack spacing={2}>
     {pipeline.plan ? <PlanView plan={pipeline.plan} /> : <Alert severity="warning">The plan document is unavailable.</Alert>}
     <FeedbackCard key={JSON.stringify(pipeline.plan)} title="Approve the plan?"

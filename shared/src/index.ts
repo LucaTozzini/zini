@@ -48,20 +48,35 @@ export type LinearComment = { body: string; createdAt: string; user: { name: str
 // A Linear issue's workspace: a git worktree of the repo with the issue's branch
 // checked out, as returned by /api/workspaces. branch is read from the worktree.
 export type Workspace = {
+  context?: WorkspaceContext | null;
   issueId: string;
   branch: string;
   path: string;
   createdAt: string;
   // The issue's forge is working; the workspace can't be deleted until it's done.
   forgeRunning: boolean;
-  // Changes not committed yet (new files included, ignored ones not).
-  uncommitted: boolean;
-  // Commits on the branch that aren't on GitHub yet.
-  unpushed: boolean;
 };
+
+// Live Git state, fetched only by commit/push and PR controls.
+export type WorkspaceGitStatus = { uncommitted: boolean; unpushed: boolean };
 
 // A pull request on GitHub from a workspace's branch.
 export type PullRequest = { number: number; url: string; state: "open" | "closed" | "merged" };
+
+export type WorkspaceContext = {
+  branch: string;
+  sourcePr: (PullRequest & { title: string; body: string }) | null;
+  initialHead: string;
+  targetBranch: string;
+};
+export type IntegrationState = {
+  targetBranch: string;
+  targetCommit: string;
+  status: "current" | "merged" | "conflicts" | "deferred";
+  conflicts: string[];
+};
+export type WorkspaceChoice = { pr: number; title: string; url: string; state: "open" | "closed" };
+export type WorkspaceSelection = { pullRequest?: number; fresh?: boolean };
 
 // As returned by GET /api/workspaces/:issueId/pull-request: whether the branch is on
 // GitHub, and its newest pull request (whatever its state), if it has one.
@@ -174,7 +189,7 @@ export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEv
 // work). Each subagent returns a document with only what it needs to say. Every one
 // has blockingQuestions: what it couldn't decide without you (empty if nothing), which
 // pauses the pipeline to ask you.
-export type AgentRole = "planner" | "coder" | "setup" | "checks" | "reviewer" | "qa";
+export type AgentRole = "planner" | "coder" | "reviewer" | "qa";
 
 // summary: the approach, in a few sentences. steps: plain instructions, each naming
 // the files it touches.
@@ -188,11 +203,11 @@ export type RepoCommand = {
   sources: string[];
 };
 export type PlanDocument = {
+  existingImplementation: string;
   summary: string;
   steps: string[];
   blockingQuestions: string[];
-  // Optional for pipelines saved before acceptance criteria were introduced.
-  acceptanceCriteria?: AcceptanceCriterion[];
+  acceptanceCriteria: AcceptanceCriterion[];
 };
 export type CheckResult = {
   command: string;
@@ -217,10 +232,11 @@ export type EnvironmentSetupDocument = ChecksDocument & {
 
 // The coder follows the approved plan, and its changes are the workspace's diff, so it
 // only reports what it needs you for (e.g. a step it can't follow as written).
-export type ImplementationDocument = { blockingQuestions: string[] };
+export type ImplementationDocument = { blockingQuestions: string[]; commitMessage: string; replanReason: string };
 
-// requiredChanges: what the coder must change, each naming the file and line; empty
-// means approved.
+// Reviewer approves only when requiredChanges and questions
+// are empty and its executed checks support approval.
+export type EnvironmentFailure = { command: string; reason: string };
 export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: string[] };
 
 // The QA's report. coverage: each acceptance criterion's result, with its evidence.
@@ -228,6 +244,7 @@ export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: str
 // forge adds verdict and couldNotTest (what wasn't verified, and why) from these
 // and the deterministic checks.
 export type QaDocument = {
+  environmentFailures: EnvironmentFailure[];
   verdict: "pass" | "fail" | "partial";
   failures: string[];
   couldNotTest: string[];
@@ -243,25 +260,18 @@ export type Clarification = { from: AgentRole; question: string; answer: string 
 // GET /api/workspaces/:issueId/diff: a unified diff, new files included.
 export type WorkspaceDiff = { diff: string; truncated: boolean };
 
-// A command the QA wants to run on this machine (run_command or start_process), which
-// you approve or reject first.
-export type PendingCommand = { tool: string; command: string };
-
 // What the pipeline is paused on, waiting for you: a subagent's questions, approving the
-// plan, or approving commands. Finished work has no pending request.
+// plan. Finished work has no pending request.
 export type PipelineWaiting =
   | { kind: "questions"; from: AgentRole; questions: string[] }
-  | { kind: "approve_plan" }
-  | { kind: "approve_commands"; commands: PendingCommand[]; from?: AgentRole };
+  | { kind: "approve_plan" };
 
 // Your reply to what the pipeline is waiting on, as POSTed to
 // /api/forge/:issueId/resume: answers to the questions (in order), approving the
-// plan, or a decision on each of
-// the QA's commands (in order; a reject's message goes to the QA).
+// plan.
 export type PipelineResume =
   | { answers: string[] }
-  | { approve: true }
-  | { decisions: Decision[] };
+  | { approve: true };
 
 export type ForgeHumanMessage = { id: string; t: string; content: string; username?: string };
 export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
@@ -273,7 +283,7 @@ export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & 
 
 // An issue whose pipeline is waiting for you to approve something (its plan, or the QA's
 // commands), as listed by GET /api/forge/approvals.
-export type PendingApproval = { issueId: string; kind: "approve_plan" | "approve_commands" };
+export type PendingApproval = { issueId: string; kind: "approve_plan" };
 
 // An issue's pipeline, as returned by GET /api/forge/:issueId. One per issue.
 export type SteeringTarget = "planner" | "coder" | "reviewer" | "qa";
@@ -281,6 +291,7 @@ export type PipelineRedirect = { target: SteeringTarget; feedback: string };
 export type SteeringOption = { target: SteeringTarget; reason: string | null };
 
 export type PipelineState = {
+  integration?: IntegrationState | null;
   redirecting?: boolean;
   steeringOptions?: SteeringOption[];
   started: boolean;
@@ -318,9 +329,7 @@ export type Provider = (typeof PROVIDERS)[number];
 type IntegrationStatus = { connected: boolean; keyHint?: string };
 export type Integrations = Record<Provider, IntegrationStatus>;
 
-// Whose run a log is: a pipeline subagent's, or, outside the pipeline, the committer's
-// (it writes a commit message) or the PR writer's (a pull request's title and body).
-export type LogRole = AgentRole | "committer" | "pr_writer";
+export type LogRole = AgentRole | "pr_writer";
 
 // A subagent run's log, for debugging: one entry per line of its log file, written as
 // the run goes. A model call or tool call logs when it starts and when it ends, so
@@ -394,7 +403,6 @@ export type RunMetrics = {
   // The pauses the harness answered.
   questionsAnswered: number;
   plansApproved: number;
-  commandsApproved: number;
   roles: Record<string, RoleMetrics>;
   totals: Omit<RoleMetrics, "runs" | "toolCallsByName">;
 };
@@ -423,7 +431,7 @@ export type SummaryRow = { label: string; value: string; was: string | null; cha
 
 type SummaryMetric = [label: string, value: (run: RunMetrics) => number | null, kind?: "rate"];
 
-const SUMMARY_ROLES = ["planner", "coder", "checks", "reviewer", "qa"];
+const SUMMARY_ROLES = ["planner", "coder", "reviewer", "qa"];
 
 const SUMMARY_METRICS: SummaryMetric[] = [
   ["finished", (r) => (r.finished ? 1 : 0), "rate"],
@@ -435,7 +443,6 @@ const SUMMARY_METRICS: SummaryMetric[] = [
   ["tool calls", (r) => r.totals.toolCalls],
   ["input tokens (k)", (r) => r.totals.inputTokens / 1000],
   ["output tokens (k)", (r) => r.totals.outputTokens / 1000],
-  ["commands approved", (r) => r.commandsApproved],
   ["questions answered", (r) => r.questionsAnswered],
   ...SUMMARY_ROLES.flatMap((role): SummaryMetric[] => [
     [`${role}: runs`, (r) => r.roles[role]?.runs ?? 0],

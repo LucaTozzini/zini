@@ -1,3 +1,4 @@
+import { WorkspaceChoices } from "./WorkspaceChoices.tsx";
 import { useState, type ReactNode } from "react";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AddIcon from "@mui/icons-material/Add";
@@ -244,7 +245,7 @@ function WorkspaceSection({
 
       {workspace.isPending && <Skeleton height={32} />}
       {workspace.isError && (
-        <Alert severity="error" sx={{ mt: 1 }}>
+        <Alert severity="error" sx={{ mt: 1 }} action={<Button onClick={() => workspace.refetch()}>Retry</Button>}>
           {errorMessage(workspace.error)}
         </Alert>
       )}
@@ -266,11 +267,15 @@ function WorkspaceSection({
           {create.isError && (
             <Alert severity="error">{errorMessage(create.error)}</Alert>
           )}
+          <WorkspaceChoices error={create.error} busy={create.isPending} choose={selection => create.mutate({ issueId, ...selection })} />
         </Stack>
       )}
 
       {workspace.data && (
         <Stack sx={{ mt: 0.5 }}>
+          {workspace.data.context?.sourcePr && <Typography variant="body2">
+            Continuing PR <a href={workspace.data.context.sourcePr.url}>#{workspace.data.context.sourcePr.number}</a>
+          </Typography>}
           <FolderRow path={workspace.data.path} />
           {/* Linear's suggested branch can change (e.g. the issue is renamed) while the
               workspace keeps the branch it was created on. */}

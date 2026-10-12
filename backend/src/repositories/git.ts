@@ -97,7 +97,7 @@ async function requireToken() {
 
 // Clones repo ("owner/name") in place of any existing clone. Does nothing if it's
 // already cloned. Throws if the clone fails, leaving the existing clone as it was.
-export function cloneRepo(repo: string) {
+export function cloneRepo(repo: string, beforeReplace?: () => Promise<void>) {
   return exclusive(async () => {
     const url = repoUrl(repo);
     if (existsSync(REPO_DIR)) {
@@ -116,6 +116,8 @@ export function cloneRepo(repo: string) {
       await git(["-C", tmp, "fetch", "--quiet", "origin"], token);
       const branch = (await git(["-C", tmp, "symbolic-ref", "--short", "HEAD"])).trim();
       await git(["-C", tmp, "symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${branch}`]);
+      // Validate the new clone before destructive cleanup of existing workspaces.
+      await beforeReplace?.();
     } catch (err) {
       await rm(tmp, { recursive: true, force: true });
       throw err;
@@ -152,14 +154,20 @@ export const workspacePath = (issueId: string) => {
 
 // Create an independent clone from the trusted bare cache; continue a pushed
 // branch when present.
-export function cloneWorkspace(issueId: string, branch: string) {
+export async function remoteBranches() {
+  const out = await git(["-C", REPO_DIR, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/"]);
+  return out.trim().split("\n").filter(name => name && name !== "HEAD");
+}
+
+export function cloneWorkspace(issueId: string, branch: string, target?: string, requireRemote = false) {
   return exclusive(async () => {
     const remote = `refs/remotes/origin/${branch}`;
     const onRemote = await git(["-C", REPO_DIR, "rev-parse", "--verify", "--quiet", remote])
       .then(() => true)
       .catch(() => false);
+    if (requireRemote && !onRemote) throw new Error("The selected PR branch is unavailable on the remote");
     await cloneWorkspaceVolume(issueId, branch, onRemote ? remote : REF,
-      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(), `refs/remotes/origin/${await defaultBranch()}`);
+      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(), `refs/remotes/origin/${target ?? await defaultBranch()}`);
   });
 }
 
@@ -198,8 +206,10 @@ export async function syncWorkspace(issueId: string, merge = false) {
     const token = await requireToken();
     await git(["-C", path, "fetch", "--quiet", "--prune", repoUrl(String(await getSetting("githubRepo"))), "+refs/heads/*:refs/remotes/origin/*"], token);
     if (merge) {
+      const { assertNoMerge, workspaceContext } = await import("../workspaces/workspaceIntegration.js");
+      await assertNoMerge(issueId);
       if ((await git(["-C", path, "status", "--porcelain"])).trim()) throw new Error("Workspace has unfinished edits. Fetch completed; commit or resolve them before merging.");
-      const branch = await defaultBranch();
+      const branch = (await workspaceContext(issueId)).targetBranch;
       await git(["-C", path, "merge", "--no-edit", `refs/remotes/origin/${branch}`]);
     }
     return { fetched: true, merged: merge };

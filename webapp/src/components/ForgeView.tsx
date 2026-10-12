@@ -43,6 +43,10 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
       {pipeline.started && <CheckpointActivity issueId={issueId} pipeline={pipeline} onSelect={setSelected}
         onContentChange={setActivityContent} />}
       {pipeline.error && <Alert severity="error">{pipeline.error}</Alert>}
+      {pipeline.integration?.status === "conflicts" && <Alert severity="warning">
+        Resolve conflicts with {pipeline.integration.targetBranch}
+        {pipeline.integration.conflicts.length > 0 && ` — ${pipeline.integration.conflicts.join(", ")}`}
+      </Alert>}
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
       <Box data-chat-message="">
         <PipelineRequest issueId={issueId} pipeline={pipeline} onStart={(note) => start.mutate(note)} onReply={reply} onRedirect={(request) => redirect.mutate(request)}
@@ -53,7 +57,7 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
         <PullRequestCard issueId={issueId} />
         <FeedbackCard
           title="Request changes"
-          placeholder="Describe what to change. The coder will revise it, followed by setup, checks, review, and QA."
+          placeholder="Describe what to change. The coder will revise it, followed by setup, review, and QA."
           feedbackLabel="Send to coder" onFeedback={(feedback) => redirect.mutate({ target: "coder", feedback })} loading={resume.isPending || redirect.isPending || Boolean(pipeline.redirecting)} />
       </>}
       {pipeline.browserUrl && <Accordion slotProps={{ transition: { unmountOnExit: true } }}>

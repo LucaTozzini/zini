@@ -8,9 +8,18 @@ export const availableAppPort = async (issueId: string) => workspaceRequest<numb
 type Status = { status: "stopped" | "starting" | "ready" | "failed"; url?: string | null; previewUrl?: string | null; error?: string | null; output?: string; plan?: AppLaunchPlan | null };
 export class WorkspaceAppRuntime {
   private sessions = new Map<string, { sandbox: Sandbox; state: Status }>();
+  private refreshing = new Map<string, Promise<Status>>();
   status(issueId: string): Status { return this.sessions.get(issueId)?.state ?? { status: "stopped" }; }
   starting(issueId: string) { return this.status(issueId).status === "starting"; }
-  async refresh(issueId: string) {
+  refresh(issueId: string) {
+    let pending = this.refreshing.get(issueId);
+    if (!pending) {
+      pending = this.refreshSession(issueId).finally(() => this.refreshing.delete(issueId));
+      this.refreshing.set(issueId, pending);
+    }
+    return pending;
+  }
+  private async refreshSession(issueId: string) {
     try {
       const sandbox = await existingSandbox(issueId);
       if (!sandbox) { this.sessions.delete(issueId); return this.status(issueId); }

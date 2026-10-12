@@ -4,14 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LinearClient } from "@linear/sdk";
-import type { Workspace } from "shared";
+import type { Workspace, WorkspaceGitStatus } from "shared";
 
 test("PR creation rejects unfinished work and uses the workspace branch and configured base", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "zini-pr-test-"));
   process.env.DB_PATH = join(dir, "db.sqlite");
   const { openWorkspacePullRequest: open } = await import("./workspacePullRequests.js");
   type Dependencies = NonNullable<Parameters<typeof open>[3]>;
-  let workspace: Workspace = { issueId: "issue", branch: "feature/email", path: "docker-volume:fixture/repo", createdAt: "", forgeRunning: false, uncommitted: false, unpushed: false };
+  let workspace: Workspace & WorkspaceGitStatus = { issueId: "issue", branch: "feature/email", path: "docker-volume:fixture/repo", createdAt: "", forgeRunning: false, uncommitted: false, unpushed: false };
   let pushed = true, running = false;
   const calls: Parameters<Dependencies["create"]>[] = [];
   const deps: Dependencies = {

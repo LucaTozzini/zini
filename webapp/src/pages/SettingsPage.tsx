@@ -15,8 +15,9 @@ import {
 import { useSaveSettings, useSettings } from "../api/settings.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
 import type { ModelProvider, Provider, Settings } from "shared";
-import { Container, FormControlLabel, MenuItem, Switch, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, MenuItem, Switch, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
+import DevelopmentEnvironmentCard from "../components/DevelopmentEnvironmentCard.tsx";
 
 type KeyCardProps = { provider: Provider; name: string; helperText: string };
 
@@ -119,11 +120,18 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
   const save = useSaveSettings();
   // Only the edited fields; the others show their saved value.
   const [drafts, setDrafts] = useState<Partial<Record<keyof Settings, string>>>({});
+  const [confirmRepoChange, setConfirmRepoChange] = useState(false);
   const edited = Object.keys(drafts).length > 0;
   const valueOf = (setting: keyof Settings) => drafts[setting] ?? settings.data?.[setting] ?? "";
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (drafts.githubRepo &&
+      drafts.githubRepo.trim().toLowerCase() !== (settings.data?.githubRepo ?? "").toLowerCase()) {
+      save.reset();
+      setConfirmRepoChange(true);
+      return;
+    }
     save.mutate(drafts, { onSuccess: () => setDrafts({}) });
   }
 
@@ -152,8 +160,16 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
                   helperText={helperText}
                   autoComplete="off"
                   required={!optional}
+                  disabled={save.isPending}
                 />
               ))}
+              {fields.some((field) => field.setting === "githubRepo") && (
+                <Alert severity="warning">
+                  Switching repositories deletes all workspaces, their Docker containers and volumes,
+                  and Forge history and logs. Local changes and unpushed commits will be lost.
+                  Pause running Forges and stop app launches before switching.
+                </Alert>
+              )}
               {save.isError && (
                 <Alert severity="error">{errorMessage(save.error)}</Alert>
               )}
@@ -171,6 +187,25 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
           )}
         </Stack>
       </CardContent>
+      <Dialog open={confirmRepoChange} onClose={() => !save.isPending && setConfirmRepoChange(false)}
+        aria-labelledby="repo-change-title" maxWidth="sm" fullWidth>
+        <DialogTitle id="repo-change-title">Delete workspaces and switch repository?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Switching to {drafts.githubRepo?.trim()} permanently deletes all workspaces, their Docker
+            containers, volumes, Forge history and logs. Uncommitted changes and unpushed commits
+            will be lost. This cannot be undone.
+          </DialogContentText>
+          {save.isError && <Alert severity="error" sx={{ mt: 2 }}>{errorMessage(save.error)}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={save.isPending} onClick={() => setConfirmRepoChange(false)}>Cancel</Button>
+          <Button color="error" variant="contained" loading={save.isPending}
+            onClick={() => save.mutate({ ...drafts, confirmWorkspaceDeletion: true }, {
+              onSuccess: () => { setDrafts({}); setConfirmRepoChange(false); },
+            })}>Delete workspaces and switch</Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 }
@@ -358,6 +393,7 @@ function ConductorCard() {
 }
 
 function SettingsPage() {
+  const settings = useSettings();
   return (
     <Container maxWidth="md" sx={{ my: 5 }}>
       <Typography variant="h4" component="h1" gutterBottom>
@@ -391,6 +427,9 @@ function SettingsPage() {
             },
           ]}
         />
+        {settings.data?.githubRepo && (
+          <DevelopmentEnvironmentCard key={settings.data.githubRepo} repository={settings.data.githubRepo} />
+        )}
         <ChatGptCard />
         <ModelCard
           title="Project Lead"

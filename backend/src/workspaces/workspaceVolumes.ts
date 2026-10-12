@@ -97,3 +97,8 @@ export async function workspaceGit(issueId: string, args: string[], token?: stri
     });
   });
 }
+
+// Refresh from the trusted host cache, also used by evals with a local upstream.
+export async function refreshWorkspaceRefs(issueId: string) {
+  await volumeHelper(issueId, { operation: "refresh" }, resolve(dirname(storage), "repo.git"));
+}

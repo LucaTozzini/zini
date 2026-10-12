@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 export async function docker(args: string[]) {
-  return (await exec("docker", args, { windowsHide: true, timeout: args[0] === "build" ? 600000 : 30000, maxBuffer: 50 * 1024 * 1024 })).stdout;
+  return (await exec("docker", args, { windowsHide: true, timeout: args[0] === "build" ? 600000 : args[0] === "pull" ? 180000 : 30000, maxBuffer: 50 * 1024 * 1024 })).stdout;
 }
 
 // Credentials travel over stdin, never Docker arguments, environment or image files.

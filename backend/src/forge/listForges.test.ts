@@ -31,7 +31,7 @@ test("subscribedOnly excludes other workspaces and retains approvals and complet
   ], ["watched", "done"], async (id) => {
     read.push(id);
     return id === "watched" ? { ...pipeline, running: null, waiting: { kind: "approve_plan" } }
-      : { ...pipeline, running: null, finished: true, qa: { verdict: "partial", failures: [], couldNotTest: [],
+      : { ...pipeline, running: null, finished: true, qa: { verdict: "partial", failures: [], environmentFailures: [], couldNotTest: [],
         blockingQuestions: [], coverage: [] } };
   }, true);
   assert.deepEqual(read, ["watched", "done"]);

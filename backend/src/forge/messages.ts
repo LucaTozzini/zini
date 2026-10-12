@@ -4,11 +4,10 @@ import type { AgentRole, ForgeHumanMessage, ForgeMessage, PipelineResume, Pipeli
 import { randomUUID } from "node:crypto";
 import { isSummary, summaryText } from "../agents/compaction.js";
 
-const roles = new Set(["planner", "coder", "setup", "checks", "reviewer", "qa"]);
+const roles = new Set(["planner", "coder", "reviewer", "qa"]);
 const documents: [string, AgentRole][] = [["plan", "planner"], ["implementation", "coder"],
-  ["environmentPlan", "setup"], ["environmentReport", "setup"],
-  ["checksPlan", "checks"], ["checksReport", "checks"], ["review", "reviewer"], ["qaReport", "qa"]];
-const submissions = new Set(["submit_plan", "submit_implementation", "submit_environment_setup", "submit_checks", "submit_review", "submit_qa_report"]);
+  ["review", "reviewer"], ["qaReport", "qa"]];
+const submissions = new Set(["submit_plan", "submit_implementation", "submit_review", "submit_qa_report"]);
 
 export function humanMessage(content: string, username?: string): ForgeHumanMessage {
   return { id: randomUUID(), t: new Date().toISOString(), content, ...(username ? { username } : {}) };
@@ -17,11 +16,7 @@ export function humanMessage(content: string, username?: string): ForgeHumanMess
 export function replyMessage(reply: PipelineResume, waiting: PipelineWaiting | null, username?: string) {
   const content = "answers" in reply ? reply.answers.map((answer, i) =>
     `${waiting?.kind === "questions" ? `${waiting.questions[i]}\n` : ""}${answer}`).join("\n\n") :
-    "approve" in reply ? "Approved the plan." :
-      reply.decisions.map((decision, i) => {
-        const command = waiting?.kind === "approve_commands" ? waiting.commands[i]?.command : undefined;
-        return `${decision.type === "approve" ? "Approved" : "Rejected"}${command ? `: ${command}` : " command"}${decision.type === "reject" && decision.message ? `\n${decision.message}` : ""}`;
-      }).join("\n\n");
+    "Approved the plan.";
   return humanMessage(content, username);
 }
 
@@ -32,10 +27,10 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
   const items = new Map<string, ForgeMessage>();
   const results = new Map<string, ToolMessage>();
   const versions = new Map<string, unknown>();
+  const stageVersions = new Map<string, unknown>();
   const seenMessages = new Set<string>();
   const lastAssistant = new Map<string, string>();
   const toolKeys = new Map<string, { result: string; ns: string; assistant: string }>();
-  const selectedCommands = new Map<AgentRole, { id: string; command: string; cwd: string }[]>();
   let activeNamespace = "";
   const put = (item: ForgeMessage) => {
     const old = items.get(item.id);
@@ -55,28 +50,21 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
       for (const [field, role] of documents) {
         const version = checkpoint.channel_versions[field];
         if (values[field] && versions.get(field) !== version) {
-          if (field === "checksPlan" || field === "environmentPlan") {
-            if ([...items.values()].at(-1)?.agent !== role)
-              put({ id: `stage:${role}:${checkpoint.id}`, t, agent: role, kind: "stage" });
-            activeNamespace = `__${role}__`;
-            const selection = values[field] as { commands: { command: string; cwd: string }[] };
-            const selectedChecks = (selection.commands ?? []).map((entry, i) => ({ ...entry, id: `check:${checkpoint.id}:${i}` }));
-            selectedCommands.set(role, selectedChecks);
-            for (const entry of selectedChecks) put({ id: entry.id, t, agent: role, kind: "tool", call: {
-              role: "tool", name: "run_command", args: { command: entry.command, cwd: entry.cwd }, status: "pending",
-            } });
-          }
-          if (field === "checksReport" || field === "environmentReport") {
-            const selectedChecks = selectedCommands.get(role) ?? [];
-            const report = values[field] as { results: { command: string; cwd: string; output: string; status: string }[] };
-            report.results.forEach((entry, i) => put({ id: selectedChecks.find((selected) => selected.command === entry.command && selected.cwd === entry.cwd)?.id ?? `check:${checkpoint.id}:${i}`, t, agent: role, kind: "tool", call: {
-              role: "tool", name: "run_command", args: { command: entry.command, cwd: entry.cwd },
-              status: entry.status === "passed" ? "done" : "error", ...(entry.status !== "passed" ? { error: entry.output } : {}),
-            }, result: entry.output }));
-          }
-          if (field !== "checksPlan" && field !== "environmentPlan") put({ id: `doc:${field}:${checkpoint.id}`, t, agent: role, kind: "document" });
+          put({ id: `doc:${field}:${checkpoint.id}`, t, agent: role, kind: "document" });
         }
         versions.set(field, version);
+      }
+      // Root routing channels record each agent invocation independently of its
+      // conversation. Remembered agents share a namespace, and compaction can
+      // replace their opening messages; neither changes the stage timeline.
+      for (const channel of Object.keys(values)) {
+        if (!channel.startsWith("branch:to:")) continue;
+        const role = channel.slice("branch:to:".length) as AgentRole;
+        if (!roles.has(role)) continue;
+        const version = checkpoint.channel_versions[channel];
+        if (stageVersions.has(channel) && stageVersions.get(channel) === version) continue;
+        stageVersions.set(channel, version);
+        put({ id: `stage:${role}:${checkpoint.id}`, t, agent: role, kind: "stage" });
       }
       continue;
     }
@@ -97,7 +85,6 @@ export function checkpointMessages(checkpoints: CheckpointTuple[], live: boolean
       }
       if (message.type === "human") {
         if (!seenMessages.has(key)) {
-          put({ id: `stage:${key}`, t: messageTime, agent, kind: "stage" });
           activeNamespace = ns;
         }
         seenMessages.add(key);

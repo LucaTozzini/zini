@@ -6,7 +6,7 @@ import { forgetRun, isRunning, startRun, withPausedRun } from "../agents/runs.js
 import type { State } from "./graphState.js";
 
 const prepared = {
-  plan: { summary: "Plan", steps: [], blockingQuestions: [] }, planApproved: true, implementation: { blockingQuestions: [] },
+  plan: { summary: "Plan", existingImplementation: "None", steps: [], blockingQuestions: [], acceptanceCriteria: [{ id: "issue", requirement: "Fixture behavior", source: "Fixture issue" }] }, planApproved: true, implementation: { blockingQuestions: [], commitMessage: "", replanReason: "" },
   environmentReport: { revision: "revision", results: [], complete: true, blockingQuestions: [] }, checksReport: { revision: "revision", results: [], complete: true },
   review: { blockingQuestions: [], requiredChanges: [] },
 } satisfies Partial<State>;
@@ -14,17 +14,17 @@ const prepared = {
 test("steering rejects forward jumps and missing prerequisites, and clears downstream results", () => {
   assert.ok(steeringOptions(prepared, "planner", true).find((o) => o.target === "coder")?.reason);
   assert.ok(steeringOptions({ ...prepared, planApproved: false }, "qa", true).find((o) => o.target === "coder")?.reason);
-  assert.ok(steeringOptions({ ...prepared, checksReport: null }, "reviewer", true).find((o) => o.target === "reviewer")?.reason);
+  assert.equal(steeringOptions({ ...prepared, checksReport: null }, "reviewer", true).find((o) => o.target === "reviewer")?.reason, null);
   assert.ok(steeringOptions({ ...prepared, review: { blockingQuestions: [], requiredChanges: ["Fix it"] } }, "qa", true).find((o) => o.target === "qa")?.reason);
   assert.ok(steeringOptions({}, null, false).every((o) => o.reason));
   assert.ok(steeringOptions(prepared, "qa", true).every((o) => !o.reason));
   const update = redirectUpdate({ target: "coder", feedback: "Change the color" });
   assert.equal(update.plan, undefined);
   assert.equal(update.implementation, null);
-  assert.equal(update.environmentReport, null);
+  assert.equal(update.environmentReport, undefined, "Redirect preserves preparation evidence");
   assert.equal(update.checksReport, null);
   assert.equal(update.review, null);
-  assert.equal(update.qaReport, null);
+  assert.equal(update.qaReport, undefined, "Redirect preserves previous QA findings for retesting");
   assert.deepEqual(update.implementationFeedback, ["Change the color"]);
   assert.equal(redirectUpdate({ target: "planner", feedback: "New plan" }).planApproved, false);
   assert.equal(readRedirect({ target: "setup", feedback: "x" }), null);
@@ -36,7 +36,7 @@ test("routing checkpoint replaces an approval instead of resuming the old task",
   const calls: string[] = [];
   const graph = new StateGraph(state)
     .addNode("redirect", () => ({}))
-    .addNode("approval", () => { interrupt("approve old QA command"); calls.push("old command"); return {}; })
+    .addNode("approval", () => { interrupt("approve previous plan"); calls.push("previous plan"); return {}; })
     .addNode("coder", (s) => { calls.push(`coder: ${s.feedback}`); return {}; })
     .addNode("qa", () => { calls.push("qa"); return {}; })
     .addConditionalEdges("redirect", (s) => s.redirectTarget, ["coder", "qa", "approval"])

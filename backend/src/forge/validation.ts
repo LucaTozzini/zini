@@ -48,6 +48,7 @@ export function enforceCoverage(report: Omit<QaDocument, "verdict" | "couldNotTe
   checks: ChecksDocument | null, revision: string): QaDocument {
   const failures = [...report.failures];
   const gaps: string[] = [];
+  gaps.push(...report.environmentFailures.map(failure => `${failure.command}: ${failure.reason}`));
   for (const criterion of criteria) {
     const entries = report.coverage.filter((entry) => entry.criterionId === criterion.id);
     if (entries.length !== 1 || !entries[0]!.evidence.trim()) gaps.push(`No unambiguous evidence for ${criterion.id}: ${criterion.requirement}`);

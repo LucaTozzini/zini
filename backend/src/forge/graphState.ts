@@ -9,9 +9,8 @@ import type {
   ChecksDocument,
   ForgeHumanMessage,
   EnvironmentSetupDocument,
+  IntegrationState,
 } from "shared";
-import type { z } from "zod";
-import type { CHECKS_SCHEMA, ENVIRONMENT_SETUP_SCHEMA } from "./documents.js";
 import type { Runbook } from "./validation.js";
 import type { CodebaseContext } from "./codebaseContext.js";
 
@@ -33,13 +32,11 @@ export const PipelineGraphState = Annotation.Root({
   planApproved: latest(false),
   implementation: latest<ImplementationDocument | null>(null),
   runbook: latest<Runbook>({}),
-  environmentPlan: latest<z.infer<typeof ENVIRONMENT_SETUP_SCHEMA> | null>(null),
   environmentReport: latest<EnvironmentSetupDocument | null>(null),
-  checksPlan: latest<z.infer<typeof CHECKS_SCHEMA> | null>(null),
   checksReport: latest<ChecksDocument | null>(null),
-  repairAttempts: latest(0),
   review: latest<ReviewDocument | null>(null),
-  // The QA's latest report. Not "qa": that's its node's name, and a graph can't use one
+  // The QA's latest report, retained through repairs as historical retest context.
+  // Not "qa": that's its node's name, and a graph can't use one
   // name for both.
   qaReport: latest<QaDocument | null>(null),
   // Keyed facts discovered by the roles. Each node replaces this with its merged,
@@ -52,6 +49,8 @@ export const PipelineGraphState = Annotation.Root({
   planFeedback: appended<string>(),
   implementationFeedback: appended<string>(),
   finished: latest(false),
+  integration: latest<IntegrationState | null>(null),
+  integrationAttempts: latest(0),
 });
 
 export type State = typeof PipelineGraphState.State;

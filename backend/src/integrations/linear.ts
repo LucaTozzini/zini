@@ -92,6 +92,30 @@ export async function fetchLinearIssue(client: LinearClient, id: string): Promis
   return { ...issue, comments: oldestFirst };
 }
 
+// PR associations belong to Linear. Paginate so older links are not silently lost.
+export async function linkedPullRequests(client: LinearClient, id: string, repo: string) {
+  type Attachments = { nodes: { url: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+  const numbers = new Set<number>();
+  let after: string | null = null;
+  do {
+    const result: { data?: { issue: { attachments: Attachments } } } = await client.client.rawRequest<{
+      issue: { attachments: Attachments };
+    }, { id: string; after: string | null }>(`query IssuePullRequests($id: String!, $after: String) {
+      issue(id: $id) { attachments(first: 100, after: $after) { nodes { url } pageInfo { hasNextPage endCursor } } }
+    }`, { id, after });
+    const attachments: Attachments = result.data!.issue.attachments;
+    for (const { url } of attachments.nodes) {
+      try {
+        const parsed = new URL(url);
+        const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)\/?$/.exec(parsed.pathname);
+        if (parsed.hostname === "github.com" && match?.[1]?.toLowerCase() === repo.toLowerCase()) numbers.add(Number(match[2]));
+      } catch { /* Other attachment URLs are not PRs. */ }
+    }
+    after = attachments.pageInfo.hasNextPage ? attachments.pageInfo.endCursor : null;
+  } while (after);
+  return [...numbers];
+}
+
 type Team = {
   id: string;
   key: string;

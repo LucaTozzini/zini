@@ -52,13 +52,33 @@ test("compaction preserves original history without treating its summary as a hu
   assert.ok(!items.some((item) => item.kind === "message" && item.message.role === "user"));
 });
 
-test("document versions create one event each and deterministic checks have real results", () => {
+test("pipeline transitions label compacted and repeated agent runs without opening messages", () => {
+  const summary = new HumanMessage({ id: "summary", content: "Earlier review summarized",
+    additional_kwargs: { lc_source: "summarization" } });
+  const items = checkpointMessages([
+    saved("", 1, { "branch:to:reviewer": null }, { "branch:to:reviewer": "1" }),
+    saved("", 2, { "branch:to:reviewer": null }, { "branch:to:reviewer": "1" }),
+    saved("", 3, { review: { environmentFailures: [{ command: "npm test", reason: "Missing fixture" }] },
+      "branch:to:coder": null }, { review: "1", "branch:to:coder": "1" }),
+    saved("", 4, { "branch:to:commit": null }),
+    saved("", 5, { "branch:to:reviewer": null }, { "branch:to:reviewer": "2" }),
+    saved("reviewer", 6, { compacted: [summary], messages: [new HumanMessage({ id: "second-input", content: "Review again" }),
+      new AIMessage({ id: "reply", content: "Reviewed" })] }),
+  ], false);
+  assert.deepEqual(items.filter(item => item.kind === "stage").map(item => [item.agent, item.t]),
+    [["reviewer", new Date(1000).toISOString()], ["coder", new Date(3000).toISOString()],
+      ["reviewer", new Date(5000).toISOString()]]);
+  assert.ok(items.findIndex(item => item.kind === "stage" && item.agent === "reviewer") <
+    items.findIndex(item => item.kind === "document" && item.agent === "reviewer"));
+});
+
+test("document versions create one event each and checks belong to reviewer", () => {
   const report = { results: [{ command: "npm test", cwd: ".", output: "passed", status: "passed" }] };
   const items = checkpointMessages([saved("", 1, { plan: { summary: "Plan" } }, { plan: "1" }),
     saved("", 2, { plan: { summary: "Plan" } }, { plan: "1" }),
-    saved("", 3, { checksReport: report }, { checksReport: "2" })], false);
+    saved("", 3, { checksReport: report, review: { requiredChanges: [], blockingQuestions: [], environmentFailures: [] } }, { checksReport: "2", review: "2" })], false);
   assert.equal(items.filter((item) => item.kind === "document").length, 2);
-  assert.equal(items.find((item) => item.kind === "tool")?.kind, "tool");
+  assert.equal(items.find((item) => item.kind === "document" && item.agent === "reviewer")?.agent, "reviewer");
 });
 
 test("approval requests remain pending while live and interrupted calls are not marked successful", () => {
@@ -70,17 +90,13 @@ test("approval requests remain pending while live and interrupted calls are not 
   assert.equal(stopped?.kind === "tool" && stopped.call.status, "error");
 });
 
-test("selected deterministic checks show live proposals and results replace them without duplication", () => {
-  const selection = saved("", 1, { checksPlan: { commands: [{ command: "npm test", cwd: "." }] } }, { checksPlan: "1" });
-  const pending = checkpointMessages([selection], true).find((item) => item.kind === "tool");
-  assert.equal(pending?.kind === "tool" && pending.call.status, "pending");
-  const report = saved("", 2, { checksPlan: { commands: [{ command: "npm test", cwd: "." }] }, checksReport: {
-    results: [{ command: "npm test", cwd: ".", status: "passed", output: "Passed" }],
-  } }, { checksPlan: "1", checksReport: "2" });
-  const items = checkpointMessages([selection, report], false);
-  assert.equal(items.filter((item) => item.kind === "tool").length, 1);
-  const done = items.find((item) => item.kind === "tool");
-  assert.equal(done?.kind === "tool" && done.call.status, "done");
+test("reviewer check tool results are not duplicated by the recorded check document", () => {
+  const call = new AIMessage({ id: "review-check", content: "", tool_calls: [{ id: "check", name: "run_check", args: { entry: { command: "npm test", cwd: "." } } }] });
+  const result = new ToolMessage({ content: "Passed", tool_call_id: "check" });
+  const items = checkpointMessages([saved("reviewer:one", 1, { messages: [call, result] }),
+    saved("", 2, { checksReport: { results: [{ command: "npm test", cwd: ".", status: "passed", output: "Passed" }] } }, { checksReport: "2" })], false);
+  assert.equal(items.filter(item => item.kind === "tool").length, 1);
+  assert.equal(items.find(item => item.kind === "tool")?.agent, "reviewer");
 });
 
 test("durable pending tool results survive cancellation before the next full checkpoint", () => {
@@ -94,10 +110,9 @@ test("durable pending tool results survive cancellation before the next full che
 
 test("human approval/answer content includes context and author", () => {
   assert.equal(replyMessage({ answers: ["Yes"] }, { kind: "questions", from: "planner", questions: ["Ship it?"] }, "luca").content, "Ship it?\nYes");
-  const reply = replyMessage({ decisions: [{ type: "reject", message: "No installs" }] },
-    { kind: "approve_commands", commands: [{ tool: "run_command", command: "npm install" }] }, "luca");
+  const reply = replyMessage({ approve: true }, { kind: "approve_plan" }, "luca");
   assert.equal(reply.username, "luca");
-  assert.equal(reply.content, "Rejected: npm install\nNo installs");
+  assert.equal(reply.content, "Approved the plan.");
 });
 
 test("SQLite round-trip preserves messages across namespaces after reopening", async () => {
@@ -155,4 +170,5 @@ test("real nested agent checkpoints are readable across fresh invocations and hu
   assert.equal(items.filter((item) => item.kind === "message" && item.message.role === "user" && item.message.username === "Forge").length, 2);
   assert.ok(JSON.stringify(items).includes("INTERNAL CONTEXT"));
   assert.ok(items.some((item) => item.kind === "tool" && item.result === "file contents"));
+  assert.deepEqual(items.filter(item => item.kind === "stage").map(item => item.agent), ["reviewer", "reviewer"]);
 });

@@ -8,11 +8,13 @@ import { getSetting } from "../core/settings.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import { syncWorkspace } from "../repositories/git.js";
+import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
 import {
   commitAndPush,
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
+  getWorkspaceGitStatus,
   isForgeRunning,
   isIssueId,
 } from "../workspaces/workspaces.js";
@@ -49,6 +51,13 @@ workspaces.get("/:issueId", async (req, res) => {
     console.error(`Reading the workspace for ${issueId} failed:`, err);
     res.status(500).json({ error: `Couldn't read the workspace: ${lastLine(err)}` });
   }
+});
+
+// Expensive live Git reads are independent of the issue panel metadata request.
+workspaces.get("/:issueId/git-status", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  try { res.json(await getWorkspaceGitStatus(issueId)); }
+  catch (error) { res.status(500).json({ error: `Couldn't read Git status: ${lastLine(error)}` }); }
 });
 
 // Everything changed in the workspace since it branched, as a unified diff (see
@@ -145,9 +154,15 @@ workspaces.post("/", async (req, res) => {
   }
 
   try {
-    const { workspace, created } = await createWorkspace(linear, issueId);
+    const selection = { pullRequest: req.body?.pullRequest, fresh: req.body?.fresh };
+    if ((selection.pullRequest !== undefined && (!Number.isSafeInteger(selection.pullRequest) || selection.pullRequest <= 0)) ||
+        (selection.fresh !== undefined && typeof selection.fresh !== "boolean") || (selection.fresh && selection.pullRequest)) {
+      res.status(400).json({ error: "Choose a pull request number or fresh branch" }); return;
+    }
+    const { workspace, created } = await createWorkspace(linear, issueId, selection);
     res.status(created ? 201 : 200).json(workspace);
   } catch (err) {
+    if (err instanceof WorkspaceChoiceRequired) { res.status(409).json({ error: err.message, choices: err.choices }); return; }
     if (err instanceof InvalidInputLinearError) {
       res.status(404).json({ error: "Issue not found" });
       return;

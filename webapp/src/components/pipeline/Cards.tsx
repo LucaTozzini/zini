@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Alert, Box, Button, Paper, Skeleton, Stack, TextField, Typography } from "@mui/material";
-import type { Decision, PendingCommand } from "shared";
+
 import { errorMessage } from "../../api/client.ts";
 import { useCreateWorkspace, useWorkspace } from "../../api/workspaces.ts";
+import { WorkspaceChoices } from "../WorkspaceChoices.tsx";
 
 // The cards the pipeline shows when it's waiting on you.
 
@@ -42,6 +43,7 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
           "You’ll be asked to approve the plan and any commands that need permission."}
       </Typography>
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
+      <WorkspaceChoices error={failure} busy={busy} choose={selection => create.mutate({ issueId, ...selection })} />
       {ready && <TextField
         size="small"
         multiline
@@ -99,55 +101,6 @@ export function QuestionsCard({
         <Stack direction="row">
           <Button type="submit" variant="contained" disabled={!complete} loading={loading}>
             Submit answers
-          </Button>
-        </Stack>
-      </Stack>
-    </CardFrame>
-  );
-}
-
-// The commands the QA wants to run on this machine. Approve or reject applies to all of
-// them; a reject's note tells the QA why (e.g. what to run instead).
-export function CommandsCard({
-  commands,
-  onDecide,
-  loading,
-}: {
-  commands: PendingCommand[];
-  onDecide: (decision: Decision) => void;
-  loading?: boolean;
-}) {
-  const [note, setNote] = useState("");
-  return (
-    <CardFrame title={commands.length === 1 ? "Run this command?" : "Run these commands?"}>
-      <Stack spacing={2}>
-        {commands.map((command, i) => (
-          <Box key={i}>
-            <Typography variant="caption" color="text.secondary">
-              {command.tool === "start_process" ? "Start, and leave running" : "Run"}
-            </Typography>
-            <Typography component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "monospace" }}>
-              {command.command}
-            </Typography>
-          </Box>
-        ))}
-        <TextField
-          size="small"
-          slotProps={{ htmlInput: { "aria-label": "Reason for rejecting commands (optional)" } }}
-          placeholder="Optional note if rejecting, e.g. use npm test -- --run instead"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-        <Stack direction="row" spacing={1}>
-          <Button variant="contained" loading={loading} onClick={() => onDecide({ type: "approve" })}>
-            Approve
-          </Button>
-          <Button
-            color="error"
-            disabled={loading}
-            onClick={() => onDecide({ type: "reject", message: note.trim() || undefined })}
-          >
-            Reject
           </Button>
         </Stack>
       </Stack>

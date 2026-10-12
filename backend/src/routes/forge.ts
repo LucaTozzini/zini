@@ -16,12 +16,12 @@ import {
 } from "../forge/forge.js";
 import { readRedirect } from "../forge/steering.js";
 import { addViewer } from "../browser/agentBrowser.js";
-import { writeCommitMessage, writePullRequest } from "../forge/writers.js";
+import { writePullRequest } from "../forge/writers.js";
 import { listRunLogs, readRunLog } from "../forge/runLog.js";
 import { Workspace } from "../models/Workspace.js";
 import { beginRun, isRunning, pauseRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
-import { branchCommits, hasUncommitted } from "../workspaces/workspaceFiles.js";
+import { branchCommits } from "../workspaces/workspaceFiles.js";
 import { isIssueId } from "../workspaces/workspaces.js";
 
 // An issue's forge pipeline, at /api/forge/:issueId (see forge.ts).
@@ -165,33 +165,6 @@ forge.post("/:issueId/pause", async (req, res) => {
   }
   sendEvent({ type: "forge.updated", issueId });
   res.status(202).end();
-});
-
-// Writes a commit message for the workspace's uncommitted changes (see committer.ts),
-// for you to read and edit before committing. Answers { commitMessage } once written.
-// Not while the pipeline is running.
-forge.post("/:issueId/commit-message", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  if (!(await requireWorkspace(issueId, res))) return;
-  if (isRunning(forgeThreadId(issueId))) {
-    res.status(409).json({ error: "The Forge is still working in this workspace" });
-    return;
-  }
-  if (!(await hasUncommitted(issueId))) {
-    res.status(409).json({ error: "There's nothing to commit" });
-    return;
-  }
-  const setup = await loadSetup(res);
-  if (!setup) return;
-  try {
-    res.json({ commitMessage: await writeCommitMessage(setup, issueId) });
-  } catch (err) {
-    console.error(`Writing the commit message for ${issueId} failed:`, err);
-    res.status(500).json({
-      error: `Couldn't write the commit message: ${err instanceof Error ? err.message : String(err)}`,
-    });
-  }
 });
 
 // Writes a pull request's { title, body } for the branch's commits (see writers.ts),

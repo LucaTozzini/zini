@@ -30,6 +30,11 @@ try {
     await validateGit(root);
     await writeFile("/volume/ready.json", JSON.stringify({ version: 1 }));
     console.log(JSON.stringify({ ready: true }));
+  } else if (request.operation === "refresh") {
+    await validateGit(root);
+    const result = await executeGit(root, ["fetch", "--quiet", "--prune", "/source", "+refs/remotes/origin/*:refs/remotes/origin/*"], undefined, true);
+    if (result.code) throw new Error(result.stderr);
+    console.log(JSON.stringify({ ready: true }));
   } else if (request.operation === "git") {
     await validateGit(root);
     if (request.token && !request.args.some((arg: string) => /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/.test(arg))) throw new Error("Authenticated Git requires an explicit GitHub repository URL");

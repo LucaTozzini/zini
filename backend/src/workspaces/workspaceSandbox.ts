@@ -10,7 +10,7 @@ export { sandboxImage, sandboxName } from "./workspaceVolumes.js";
 
 const root = sandboxRoot;
 const pending = new Map<string, Promise<Sandbox>>();
-export type Sandbox = { name: string; port: number; token: string };
+export type Sandbox = { name: string; port: number; token: string; generation?: string };
 export async function buildSandboxImage() { await docker(["build", "-f", resolve(root, "sandbox/Dockerfile"), "-t", sandboxImage, root]); }
 async function inspect(name: string) {
   try { return JSON.parse(await docker(["inspect", name]))[0]; }
@@ -22,7 +22,7 @@ export async function existingSandbox(issueId: string): Promise<Sandbox | null> 
   if (info.Config.Labels?.["zini.owner"] !== owner || info.Config.Labels?.["zini.workspace"] !== issueId) throw new Error("Container name belongs to a different Zini installation");
   if (!info.Mounts?.some((mount: { Name?: string; Destination: string }) => mount.Name === workspaceVolume(issueId) && mount.Destination === "/workspace")) return null;
   if (info.Config.Labels?.["zini.storage"] !== workspaceIdentity) throw new Error("Workspace container belongs to a different data directory");
-  if (!info.State.Running) return null;
+  if (!info.State.Running || info.State.Paused) return null;
   const mappings = info.NetworkSettings?.Ports?.["7777/tcp"] ?? [];
   const mapping = mappings[0];
   const token = info.Config.Env?.find((entry: string) => entry.startsWith("WORKSPACE_TOKEN="))?.slice(16);
@@ -41,7 +41,7 @@ export async function existingSandbox(issueId: string): Promise<Sandbox | null> 
     })}`);
   }
   registerGitSandbox(workspacePath(issueId), name);
-  return { name, port: Number(mapping.HostPort), token };
+  return { name, port: Number(mapping.HostPort), token, generation: `${info.Id}:${info.State.StartedAt}` };
 }
 export function ensureSandbox(issueId: string) {
   let promise = pending.get(issueId);
@@ -56,7 +56,7 @@ async function create(issueId: string) {
     // Storage is initialized or verified before a gateway starts using it.
     if (!sandbox) {
       const info = await inspect(name);
-      if (info) await docker(["start", name]);
+      if (info) await docker([info.State.Paused ? "unpause" : "start", name]);
       else {
         await docker(["image", "inspect", sandboxImage]);
         const volume = `${name}-state`;
@@ -78,8 +78,13 @@ async function create(issueId: string) {
     }
     if (!sandbox) throw new Error("Workspace container did not start");
     for (let attempt = 0; attempt < 60; attempt++) {
-      try { await sandboxRequest(sandbox, "health", {}, AbortSignal.timeout(1000)); return sandbox; }
-      catch { await new Promise(resolve => setTimeout(resolve, 250)); }
+      const health = await sandboxRequest<{ ok: boolean }>(sandbox, "health", {}, AbortSignal.timeout(1000)).catch(() => null);
+      if (health?.ok) {
+        const { restoreWorkspaceServices } = await import("./workspaceServices.js");
+        await restoreWorkspaceServices(issueId, sandbox);
+        return sandbox;
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
     }
     throw new Error(`Workspace gateway did not become ready. Inspect docker logs ${name}`);
   } catch (error) { throw new Error(`Docker workspace unavailable; commands were not run on the host. ${String(error)}. Build the image with npm run sandbox:build and start Docker.`); }
@@ -103,6 +108,8 @@ async function remove(issueId: string, storagePath?: string) {
   const files = await resource("volume", workspaceVolume(issueId));
   if (files && (files.Labels?.["zini.owner"] !== owner || files.Labels?.["zini.storage"] !== expectedIdentity)) throw new Error("Workspace volume belongs to a different data directory");
   const info = await inspect(name);
+  const { removeWorkspaceServices } = await import("./workspaceServices.js");
+  await removeWorkspaceServices(issueId, expectedIdentity);
   if (!info) { forgetGitSandbox(workspacePath(issueId)); await removeOwnedResource("volume", `${name}-state`); await removeOwnedResource("network", `${name}-network`); await removeWorkspaceVolume(issueId, expectedIdentity); return; }
   // Validate ownership even for stopped containers before removing anything.
   if (info.Config.Labels?.["zini.owner"] !== owner) throw new Error("Container is not owned by this installation");

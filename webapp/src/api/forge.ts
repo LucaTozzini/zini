@@ -59,17 +59,6 @@ export function usePipelineControl(issueId: string) {
   })
 }
 
-// Writes a commit message for the workspace's uncommitted changes; a model call, so no
-// timeout.
-export function useWriteCommitMessage(issueId: string) {
-  return useMutation({
-    mutationFn: () =>
-      api
-        .post(`forge/${issueId}/commit-message`, { timeout: false })
-        .json<{ commitMessage: string }>(),
-  })
-}
-
 // Writes a pull request's title and body for the branch; a model call, so no timeout.
 export function useWritePullRequest(issueId: string) {
   return useMutation({

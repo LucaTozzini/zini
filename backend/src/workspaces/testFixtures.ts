@@ -3,11 +3,13 @@ import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { storage } from "../db.js";
+import { storage, initDb } from "../db.js";
+import "../core/developmentEnvironment.js";
 import { cloneWorkspace } from "../repositories/git.js";
 
 // Trusted host fixtures seed the same bare cache used by production clones.
 export async function createTestWorkspace(issueId: string, files: Record<string, string>) {
+  await initDb();
   const dir = dirname(storage), source = join(dir, "fixture-source"), bare = join(dir, "repo.git");
   const git = async (...args: string[]) => promisify(execFile)("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", ...args]);
   if (!existsSync(bare)) {

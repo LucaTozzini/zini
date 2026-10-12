@@ -16,8 +16,16 @@ export function useSettings() {
 export function useSaveSettings() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (changes: Partial<Record<keyof Settings, string>>) =>
+    mutationFn: (changes: Partial<Record<keyof Settings, string>> & { confirmWorkspaceDeletion?: boolean }) =>
       api.put('settings', { json: changes, timeout: false }).json<Settings>(),
-    onSuccess: (data) => queryClient.setQueryData(settingsKey, data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(settingsKey, data)
+    },
+    onSettled: (_data, _error, changes) => {
+      if (changes.githubRepo) {
+        void queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+        void queryClient.invalidateQueries({ queryKey: ['forge'] })
+      }
+    },
   })
 }

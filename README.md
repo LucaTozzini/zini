@@ -22,21 +22,22 @@ Turn Linear tickets into merged PRs: a Project Lead chat front-end with an agent
 
    This works today too: the Project Lead writes the spec onto the issue.
 
-3. **Build** — a Forge spins up an isolated workspace per ticket and runs the agent pipeline: plan → code → environment setup → checks → review → QA.
+3. **Build** — a Forge spins up an isolated workspace per ticket and runs the agent pipeline: plan → code → review (environment preparation, checks and code review) → QA.
 
-   Environment setup selects repository-defined dependency installation, fixtures and
-   readiness commands before each check round. Commands run automatically inside the workspace Docker sandbox. If setup
-   fails or needs configuration, the pipeline pauses there for your answer; checks
-   and review wait until preparation succeeds. Reusable setup instructions live in
-   the source-validated runbook.
+   Reviewer prepares repository dependencies, migrations, fixtures, services and TLS
+   through tools, observes outputs and repairs routine environment failures in the same
+   turn. It then executes tests, static checks, builds and diagnostics and reviews the
+   complete diff against the issue and plan. Missing external configuration pauses for
+   your answer; source defects return to coder. Preparation and check results are
+   recorded automatically. Reusable instructions live in the source-validated runbook.
 
-   All four stages work. The QA works out how to run the software from the repo itself (its CI config, scripts and README), then tests the changes: it runs the project's checks, starts the app, calls its APIs and uses its UI in a headless browser you can watch live. Commands run inside Docker without per-command approval; plan approval and explicit commit/push remain. What it finds broken goes back to the coder.
+   QA uses the prepared environment and runbook to start the app, call its APIs and test its UI in a headless browser you can watch live. It verifies acceptance criteria through product behavior and reuses Reviewer's check results. Commands run inside Docker without per-command approval. QA findings return to Reviewer, which repairs environment prerequisites or requests concrete source fixes from coder before QA retests. Coder receives current repair requests in system context. QA keeps its conversation and previous report across repairs, retests exact failed examples first, and collects fresh evidence for current coverage.
 
    The QA browser runs inside the workspace container. Project Lead chats keep their browser on the host.
 
 4. **Ship** — a PR is created; the workspace is torn down after merge.
 
-   This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and you then commit and push the branch yourself from the pipeline panel, where a committer agent writes the commit message for you to edit before you press Commit & push. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the container, Linux workspace and runtime volumes, the host marker folder, the setup log, the pipeline conversation and the run logs.
+   This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and each completed coder round is committed automatically using its submitted commit message, and you push the commits explicitly from the pipeline panel. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the container, Linux workspace and runtime volumes, the host marker folder, the setup log, the pipeline conversation and the run logs.
 
 ## Backend source layout
 
@@ -64,7 +65,7 @@ Tests live beside the modules they cover as `*.test.ts` files.
 ## Status
 
 What works today: the Project Lead chat; an independent Git clone and Docker sandbox per issue;
-the plan → code → environment setup → checks → review → QA pipeline with questions and
+the plan → code → review (environment preparation, checks and code review) → QA pipeline with questions and
 plan approval; the diff view, logs, live QA browser, persistent previews, and explicit
 commit/push. Setup, check and QA commands run automatically inside Docker. See
 [sandbox setup and lifecycle](sandbox/README.md).
@@ -89,13 +90,20 @@ unfinished claims are retried; conversation message IDs prevent duplicate input 
 crash occurred between saving and acknowledgement. Recovery assumes one backend process.
 `GET /api/project-lead/subscriptions` lists subscribed chats as `{ threadId, forgeIds }[]`.
 
+Changing the repository in Settings requires confirmation: all tracked workspaces,
+their Docker containers and volumes, and Forge history/logs are deleted. Local changes
+and unpushed commits are lost. Running Forges must be paused and app launches stopped
+first. The new repository is cloned and validated before cleanup starts; workspace
+creation and Forge starts cannot race the switch. A cleanup failure leaves the old
+repository setting in place, but workspaces already deleted cannot be restored.
+
 The Project Lead can launch an existing workspace's web app for manual use. A read-only launcher
 subagent (`launch_workspace_app`, taking `issueId` and `request`) discovers whether the workspace contains a web app,
 its prerequisites, startup commands, ports and readiness endpoints, or asks about
 missing configuration. The launcher executes its setup and server plan inside the workspace sandbox, diagnoses startup failures and returns the preview URL to the Project Lead when ready. Changed workspace files
 invalidate a plan before execution. `workspace_app_status` reports readiness, errors
 and recent output; `stop_workspace_app` stops the session. Servers survive the Project Lead turn
-and are owned separately from QA. The gateway owns sessions and keeps the launch plan in a persistent volume. Backend restarts reconnect to existing processes; container restarts recover the plan. The returned
+and are owned separately from QA. The gateway owns sessions and keeps the launch plan in a persistent volume. Preview requests and explicit app-status queries reconnect to existing processes on demand, including after backend restarts; there is no background workspace polling. Container restarts recover the plan. The returned
 `previewUrl` is a relative `/preview/<issueId>/...` link through Zini, usable from any
 device that can reach Zini. The local `url` is retained for diagnostics. The proxy
 streams HTTP bodies and WebSockets, including HMR, to declared loopback services.
@@ -126,3 +134,24 @@ All revisions use `/api/forge/:issueId/redirect` / `redirect_forge`.
 The plan revision and completed-work "Send to coder" cards are shortcuts to that
 same operation. `/resume` / `reply_to_pipeline` accepts only answers, plan approval,
 and command decisions. Completed pipelines have `waiting: null`.
+
+### Development environment variables
+
+Settings provides development variables for the selected GitHub repository. Add a
+name and value or import a `.env` file; imports add names and replace matching names.
+Values are stored as ordinary rows in SQLite and never returned by the Settings
+API. Each row contains repository, name and value. Agents receive names and
+configured status only; Settings masks entered values.
+
+Variables are applied before the next workspace command, setup operation or preview
+launch. Restart running apps after changing values. Generated PostgreSQL/Redis
+connection settings take precedence. Missing provider credentials pause setup and
+direct you to Settings. Variable values are not deliberately included in prompts or logs.
+
+### Continuing existing work
+
+Workspace creation uses Linear-linked GitHub PRs in the configured repository. A single open PR resumes its actual head branch and retains its target branch. Multiple open PRs or closed unmerged work require a choice. Completed PRs start a fresh branch; an exact suggested branch without a PR can be resumed. Fork PRs require starting fresh. Existing workspaces are preserved.
+
+Forge integrates the target branch before planning, after each completed coder round, and before declaring the run finished. Planner sees inherited work and merge conflicts, retains full issue acceptance criteria, and plans only the remaining changes. Coder resolves conflicts through file tools and controlled resolution tools; infrastructure completes merges and commits. Reviewer and QA validate the complete implementation. Upstream integration invalidates earlier validation and returns to planner for assessment and approval. Integration retries are capped at three; redirecting resets the budget. No force push or automatic publication is performed.
+
+Workspaces record starting context when created. Uncommitted edits in interrupted workspaces are preserved and integration is deferred until a completed coder round commits them.

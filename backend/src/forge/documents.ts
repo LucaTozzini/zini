@@ -17,6 +17,8 @@ export const REPO_COMMAND = z.object({
   sources: z.array(z.string().min(1)).min(1).max(5).describe("Only repo files defining this command or its required setup; not incidental implementation/test files or docs"),
 });
 const runbookUpdates = z.array(REPO_COMMAND).max(16);
+const environmentFailures = z.array(z.object({ command: z.string().min(1), reason: z.string().min(1) }))
+  .describe("Observed environment blockers for Reviewer to repair, with the exact failed command and evidence; empty if none");
 export const ACCEPTANCE_CRITERION = z.object({
   id: z.string().min(1).max(80),
   requirement: z.string().min(1).describe("Observable outcome required by the issue, not an implementation step"),
@@ -39,6 +41,7 @@ export const CONTEXT_UPDATES = z
 export const PLAN_SCHEMA = z
   .object({
     summary: z.string().describe("The approach, in a few sentences"),
+    existingImplementation: z.string().describe("What is already implemented, with file/diff evidence; provisional until validation. Say none when starting fresh."),
     steps: z
       .array(z.string())
       .describe(
@@ -56,7 +59,10 @@ export const PLAN_SCHEMA = z
   });
 
 export const IMPLEMENTATION_SCHEMA = z
-  .object({ blockingQuestions: questions, contextUpdates: CONTEXT_UPDATES, runbookUpdates })
+  .object({ blockingQuestions: questions, contextUpdates: CONTEXT_UPDATES, runbookUpdates,
+    commitMessage: z.string().describe("Meaningful commit message describing only this round's changes; empty when no changes or blocked"),
+    replanReason: z.string().describe("Why upstream changes invalidate the approved approach; empty when the plan remains applicable. Do not invent a replacement plan."),
+  })
   .meta({
     title: "submit_implementation",
     description:
@@ -72,8 +78,8 @@ export const REVIEW_SCHEMA = z
       ),
     blockingQuestions: questions,
     contextUpdates: CONTEXT_UPDATES,
-    environmentFailures: z.array(z.object({ command: z.string(), reason: z.string().min(1) }))
-      .describe("Failed checks proven to be missing environment prerequisites, not defects; identify the exact command and evidence"),
+    runbookUpdates,
+    noChecksReason: z.string().min(1).optional().describe("Source-backed reason no finite check applies; only when no run_check results exist"),
   })
   .meta({
     title: "submit_review",
@@ -96,28 +102,10 @@ export const QA_SCHEMA = z
     blockingQuestions: questions,
     contextUpdates: CONTEXT_UPDATES,
     runbookUpdates,
+    environmentFailures,
   })
   .meta({
     title: "submit_qa_report",
     description:
       "Hand in your QA report. Call it once, when you're done testing: it ends your turn.",
   });
-
-export const CHECKS_SCHEMA = z.object({
-  commands: z.array(REPO_COMMAND).max(16).describe("Relevant finite checks in execution order; no duplicates or servers. Empty only with noChecksReason"),
-  noChecksReason: z.string().min(1).optional().describe("Only when commands is empty: why no check applies, with repo evidence (e.g. no configured test, lint or build command)"),
-  blockingQuestions: questions,
-  contextUpdates: CONTEXT_UPDATES,
-  runbookUpdates,
-}).meta({
-  title: "submit_checks",
-  description: "Submit the selected commands. The Forge executes them and records their real results.",
-});
-
-export const ENVIRONMENT_SETUP_SCHEMA = z.object({
-  commands: z.array(REPO_COMMAND).max(16).describe("Finite setup/readiness commands, in dependency order; kind must be setup"),
-  noSetupReason: z.string().min(1).optional().describe("Repository evidence that no environment setup is required; only when commands is empty"),
-  blockingQuestions: questions,
-  contextUpdates: CONTEXT_UPDATES,
-  runbookUpdates,
-}).meta({ title: "submit_environment_setup", description: "Submit prerequisites to prepare before deterministic checks." });

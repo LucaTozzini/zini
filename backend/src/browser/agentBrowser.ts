@@ -52,6 +52,7 @@ async function launch(key: string): Promise<Session> {
   // works rather than failing on a permission headless Chromium doesn't grant.
   const page = await browser.newPage({
     viewport: DEFAULT_VIEWPORT,
+    ignoreHTTPSErrors: !key.startsWith("project-lead:"),
     permissions: ["clipboard-read", "clipboard-write"],
   });
   const session: Session = {

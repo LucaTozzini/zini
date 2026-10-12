@@ -1,23 +1,26 @@
 import { useState } from "react";
-import { Alert, Button, Stack, TextField } from "@mui/material";
+import { Alert, Button, Skeleton, Stack, TextField } from "@mui/material";
 import { errorMessage } from "../../api/client.ts";
-import { useCommitAndPush, useWorkspace } from "../../api/workspaces.ts";
-import { useWriteCommitMessage } from "../../api/forge.ts";
+import { useCommitAndPush, useWorkspaceGitStatus } from "../../api/workspaces.ts";
+
 import { CardFrame } from "./Cards.tsx";
 
-// Commits the workspace's changes and pushes its branch. The committer writes the
-// message into the field, where you can read and edit it first. With only unpushed
-// commits left (e.g. a push that failed), just a push. Nothing when all is pushed.
+// Forge commits completed coder rounds. Interrupted edits can still be
+// committed with a user-entered message; the normal completed flow only pushes.
 function CommitCard({ issueId }: { issueId: string }) {
-  const workspace = useWorkspace(issueId);
-  const write = useWriteCommitMessage(issueId);
+  const workspace = useWorkspaceGitStatus(issueId);
+
   const commit = useCommitAndPush(issueId);
   const [message, setMessage] = useState("");
 
+  if (workspace.isPending) return <Skeleton height={60} />;
+  if (workspace.isError) return <Alert severity="error" action={<Button onClick={() => workspace.refetch()}>Retry</Button>}>
+    {errorMessage(workspace.error)}
+  </Alert>;
   const { uncommitted = false, unpushed = false } = workspace.data ?? {};
   if (!uncommitted && !unpushed) return null;
 
-  const failure = write.error ?? commit.error;
+  const failure = commit.error;
   return (
     <CardFrame title={uncommitted ? "Commit and push the changes" : "Push the commits"}>
       <Stack spacing={2}>
@@ -33,18 +36,9 @@ function CommitCard({ issueId }: { issueId: string }) {
           />
         )}
         <Stack direction="row" spacing={1}>
-          {uncommitted && (
-            <Button
-              disabled={commit.isPending}
-              loading={write.isPending}
-              onClick={() => write.mutate(undefined, { onSuccess: (data) => setMessage(data.commitMessage) })}
-            >
-              Write message
-            </Button>
-          )}
           <Button
             variant="contained"
-            disabled={(uncommitted && !message.trim()) || write.isPending}
+            disabled={(uncommitted && !message.trim())}
             loading={commit.isPending}
             onClick={() => commit.mutate(message.trim(), { onSuccess: () => setMessage("") })}
           >

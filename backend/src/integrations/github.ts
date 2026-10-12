@@ -47,6 +47,16 @@ export async function findPullRequest(token: string, repo: string, branch: strin
   return pull ? toPullRequest(pull) : null;
 }
 
+export async function getPullRequest(token: string, repo: string, number: number) {
+  const res = await fetch(`${GITHUB_API_URL}/repos/${repo}/pulls/${number}`, { headers: headers(token) });
+  if (!res.ok) throw await apiError("Reading the pull request", res);
+  const pull = await res.json() as GitHubPull & {
+    title: string; body: string | null; head: { ref: string; sha: string; repo: { full_name: string } | null }; base: { ref: string };
+  };
+  return { ...toPullRequest(pull), title: pull.title, body: pull.body ?? "", branch: pull.head.ref,
+    head: pull.head.sha, headRepo: pull.head.repo?.full_name ?? null, base: pull.base.ref };
+}
+
 // Opens a pull request from branch into base, ready for review.
 export async function createPullRequest(
   token: string,

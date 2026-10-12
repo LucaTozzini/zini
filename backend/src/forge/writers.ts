@@ -2,17 +2,13 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { LinearIssueDetails, LogRole } from "shared";
 import { commitContext, forgeModel, type Setup } from "./forge.js";
 import { fetchLinearIssue } from "../integrations/linear.js";
-import { branchCommitMessages, branchCommits } from "../workspaces/workspaceFiles.js";
+import { branchCommitMessages } from "../workspaces/workspaceFiles.js";
 import { clarificationsText, inputText, listText, planText } from "./inputs.js";
 import { openRunLog } from "./runLog.js";
-import { COMMITTER_PROMPT, PR_WRITER_PROMPT } from "./systemPrompts.js";
+import { PR_WRITER_PROMPT } from "./systemPrompts.js";
 import { diffForModel } from "./tools.js";
 
-// The writers: the committer writes the commit message for the workspace's uncommitted
-// changes, and the PR writer the pull request for its branch, for you to read (and
-// edit) before using them. Outside the pipeline, and one-shots: one model call each,
-// with no tools, answering with text. Logged like the subagents (see runLog.ts), with
-// just their start and end.
+// The PR writer describes the whole branch for review before publication.
 
 // The issue, and what the pipeline says about the changes: the approved plan, and your
 // answers and feedback, which explain them.
@@ -50,20 +46,6 @@ async function write(setup: Setup, issueId: string, role: LogRole, prompt: strin
     await log.write({ event: "end", outcome: "error", error: String(err) });
     throw err;
   }
-}
-
-export async function writeCommitMessage(setup: Setup, issueId: string) {
-  const [{ issue, sections }, commits, changes] = await Promise.all([
-    context(setup, issueId),
-    branchCommits(issueId),
-    diffForModel(issueId, undefined, { uncommitted: true, tools: false }),
-  ]);
-  const input = inputText(issue, [
-    ...sections,
-    ["Earlier commits on this branch, oldest first", commits.length > 0 && listText(commits)],
-    ["The changes in this commit", changes],
-  ]);
-  return write(setup, issueId, "committer", COMMITTER_PROMPT, input);
 }
 
 // The pull request's title always starts with the issue's identifier, so Linear links

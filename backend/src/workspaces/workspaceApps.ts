@@ -16,13 +16,14 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { storage } from "../db.js";
 import { logTo } from "../forge/runLog.js";
+import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
 
 const command = z.object({ command: z.string().min(1), cwd: z.string().min(1) });
 const APP_LAUNCH_PLAN = z.object({
   setup: z.array(command).max(8),
   services: z.array(command.extend({
     id: z.string().min(1), port: z.number().int().min(1024).max(65535),
-    readiness: z.enum(["http", "tcp"]), path: z.string(),
+    readiness: z.enum(["http", "https", "tcp"]), path: z.string(),
   })).min(1).max(6),
   app: z.object({ serviceId: z.string(), path: z.string(),
     preservePreviewPath: z.boolean().optional().describe("True when the app server expects its configured /preview/<issueId>/ base in requests (e.g. Vite --base). Otherwise the proxy strips the preview base.") }),
@@ -48,7 +49,7 @@ use the user's requested app or ask which one. Missing credentials, configuratio
 requirements produce needs_input and specific questions. Never invent secrets.
 For a webapp, call start_app_services with finite prerequisite commands in setup, then all necessary local
 servers in dependency order. Each service needs an explicit port, a supported startup
-command that uses that port, and HTTP or TCP readiness. Use available_port to choose
+command that uses that port, and HTTP, HTTPS or TCP readiness. Use available_port to choose
 unused ports where the repo supports configurable ports; respect required fixed ports.
 Servers bind to 127.0.0.1; Zini proxies them for remote browsers under the preview base
 provided below. Configure the frontend's asset and router base with supported startup
@@ -66,7 +67,7 @@ Do not disable dev server host checks globally; the proxy forwards the loopback 
 If source changes are required to support the base or replace hardcoded browser URLs,
 return needs_input and explain the required changes. Do not edit source or claim the
 app is remotely usable without evidence. Readiness/app paths start with /.
-The browser-facing service must have HTTP readiness. Use a real health/page endpoint.
+The browser-facing service must have HTTP or HTTPS readiness. Use a real health/page endpoint. Set readiness=https for TLS services. Generated workspace TLS paths and CA trust variables are inherited; if missing, report that Forge setup should call generate_tls_certificates.
 Reuse current runbook instructions and completed preparation, but do not assume an
 install is present. Include an idempotent install/readiness command when uncertain.
 Execute only through start_app_services, which runs the plan in the Docker sandbox.\nInclude the verified workspace revision in each start_app_services call. If the workspace
@@ -94,13 +95,13 @@ export async function launchWorkspaceApp(model: BaseChatModel, issueId: string, 
   const file = join(logDir, `${randomUUID()}.jsonl`);
   let queue = Promise.resolve();
   const log = { write(entry: unknown) {
-    queue = queue.then(() => appendFile(file, `${JSON.stringify({ t: new Date().toISOString(), entry })}\n`));
+    queue = queue.then(async () => appendFile(file, `${JSON.stringify({ t: new Date().toISOString(), entry })}\n`));
     return queue;
   } };
   await log.write({ event: "start", request, revision });
   const agent = createAgent({
     model, checkpointer: true, responseFormat: toolStrategy(REPORT),
-    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\nPreview base: ${previewBase(issueId)}\n\nCurrent source-validated runbook:\n${runbookText(book)}\n\nPrevious environment preparation:\n${JSON.stringify(values.environmentReport ?? null)}`,
+    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\nPreview base: ${previewBase(issueId)}\n\nCurrent source-validated runbook:\n${runbookText(book)}\n\nPrevious environment preparation:\n${JSON.stringify(values.environmentReport ?? null)}\n\nConfigured development variables (names/status only):\n${await developmentEnvironmentContext()}\nMissing credentials must be added in Settings → Development environment variables (/settings), never pasted into chat or launch commands.`,
     tools: [tool(async () => availableAppPort(issueId), {
       name: "available_port", description: "Find an unused local port for a service with configurable ports. It is checked again before launch.", schema: z.object({}),
     }), tool(async () => workspaceRevision(issueId), {

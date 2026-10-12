@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Link, Stack, TextField, Typography } from "@mui/material";
 import { errorMessage } from "../../api/client.ts";
-import { useOpenPullRequest, usePullRequest, useWorkspace } from "../../api/workspaces.ts";
+import { useOpenPullRequest, usePullRequest, useWorkspaceGitStatus } from "../../api/workspaces.ts";
 import { useWritePullRequest } from "../../api/forge.ts";
 import { CardFrame } from "./Cards.tsx";
 
@@ -9,7 +9,7 @@ import { CardFrame } from "./Cards.tsx";
 // pushed. The PR writer fills in the title and body, which you can read and edit first.
 // Once there's a pull request (opened here or on GitHub), a link to it instead.
 function PullRequestCard({ issueId }: { issueId: string }) {
-  const workspace = useWorkspace(issueId);
+  const workspace = useWorkspaceGitStatus(issueId);
   const shipped = Boolean(workspace.data && !workspace.data.uncommitted && !workspace.data.unpushed);
   const status = usePullRequest(issueId, shipped);
   const write = useWritePullRequest(issueId);

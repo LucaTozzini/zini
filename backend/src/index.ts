@@ -21,7 +21,6 @@ import cookieParser from "cookie-parser";
 import { startProjectLeadMessageWorker } from "./projectLead/messageWorker.js";
 import { recoverMessageQueue } from "./projectLead/messageQueue.js";
 import { requireApiUser } from "./auth/session.js";
-import { Workspace } from "./models/Workspace.js";
 import { startConductor } from "./conductor/conductor.js";
 import conductorRouter from "./routes/conductor.js";
 
@@ -67,29 +66,6 @@ if (existsSync(webapp)) {
 
 await initDb();
 await recoverMessageQueue();
-let recovering: Promise<void> | null = null;
-function recoverPreviews() {
-  recovering ??= refreshPreviews().finally(() => {
-    recovering = null;
-  });
-  return recovering;
-}
-async function refreshPreviews() {
-  for (const workspace of await Workspace.findAll()) {
-    await workspaceApps
-      .refresh(workspace.issueId)
-      .catch((error) =>
-        console.error(
-          `Workspace preview recovery [${workspace.issueId}]:`,
-          error,
-        ),
-      );
-  }
-}
-await recoverPreviews();
-setInterval(() => {
-  void recoverPreviews();
-}, 5000).unref();
 startProjectLeadMessageWorker();
 await startConductor();
 

@@ -18,7 +18,7 @@ const LOG_DIR = resolve(dirname(storage), "forge-logs");
 
 // A run id, split into the time it started (its ISO string, with : and . as -) and
 // its role. Checked before an id is used in a file path.
-const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|setup|checks|reviewer|qa|committer|pr_writer)$/;
+const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|qa|pr_writer)$/;
 
 const runLogPath = (issueId: string, runId: string) => join(LOG_DIR, issueId, `${runId}.jsonl`);
 
@@ -32,9 +32,8 @@ export async function openRunLog(issueId: string, role: LogRole): Promise<RunLog
   let queue = Promise.resolve();
   return {
     write(entry) {
-      const line = JSON.stringify({ t: new Date().toISOString(), ...entry });
       queue = queue
-        .then(() => appendFile(file, `${line}\n`))
+        .then(async () => appendFile(file, `${JSON.stringify({ t: new Date().toISOString(), ...entry })}\n`))
         .then(() => sendEvent({ type: "forge.log", issueId, runId }))
         .catch((err) => {
           console.error(`Writing the run log ${file} failed:`, err);

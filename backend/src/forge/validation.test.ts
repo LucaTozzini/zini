@@ -41,7 +41,7 @@ test("startup handoffs retain operational details and survive unrelated source e
   assert.deepEqual(await freshRunbook(current, fingerprint), {});
 });
 
-const report = { failures: [], blockingQuestions: [], coverage: [] };
+const report = { environmentFailures: [], failures: [], blockingQuestions: [], coverage: [] };
 const checks: ChecksDocument = { revision: "v1", complete: true, results: [] };
 const criteria = [{ id: "c1", requirement: "CLI returns the result", source: "Returns the result" }];
 test("a pass needs current, complete checks and evidence for every criterion", () => {

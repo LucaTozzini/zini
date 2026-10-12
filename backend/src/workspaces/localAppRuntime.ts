@@ -1,10 +1,11 @@
+import { localResponse } from "./localHttp.js";
 import type { ChildProcess } from "node:child_process";
 import { createServer, connect } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { killTree, spawnShell } from "../core/processes.js";
 
 export type AppCommand = { command: string; cwd: string };
-export type AppService = AppCommand & { id: string; port: number; readiness: "http" | "tcp"; path: string };
+export type AppService = AppCommand & { id: string; port: number; readiness: "http" | "https" | "tcp"; path: string };
 export type PreviewRoute = { prefix: string; serviceId: string; stripPrefix: boolean };
 export type AppLaunchPlan = { setup: AppCommand[]; services: AppService[];
   app: { serviceId: string; path: string; preservePreviewPath?: boolean }; routes?: PreviewRoute[] };
@@ -56,8 +57,8 @@ export function validateAppLaunchPlan(plan: AppLaunchPlan) {
     localPath(service.path);
   }
   if (!ids.has(plan.app.serviceId)) throw new Error("The app must refer to a declared service.");
-  if (plan.services.find((service) => service.id === plan.app.serviceId)?.readiness !== "http")
-    throw new Error("The browser-facing service must use HTTP readiness.");
+  if (!["http", "https"].includes(plan.services.find((service) => service.id === plan.app.serviceId)?.readiness ?? ""))
+    throw new Error("The browser-facing service must use HTTP(S) readiness.");
   localPath(plan.app.path);
   const prefixes = new Set<string>();
   for (const route of plan.routes ?? []) {
@@ -65,8 +66,8 @@ export function validateAppLaunchPlan(plan: AppLaunchPlan) {
     if (route.prefix === "/" || /[?#%]/.test(route.prefix) || route.prefix.endsWith("/") || prefixes.has(route.prefix))
       throw new Error("Preview route prefixes must be unique paths without trailing slashes, queries or fragments.");
     prefixes.add(route.prefix);
-    if (plan.services.find((service) => service.id === route.serviceId)?.readiness !== "http")
-      throw new Error("Preview routes must refer to declared HTTP services.");
+    if (!["http", "https"].includes(plan.services.find((service) => service.id === route.serviceId)?.readiness ?? ""))
+      throw new Error("Preview routes must refer to declared HTTP(S) services.");
   }
 }
 
@@ -82,11 +83,10 @@ async function isReady(service: AppService) {
     });
   }
   try {
-    const response = await fetch(`http://127.0.0.1:${service.port}${service.path}`, {
-      redirect: "manual", signal: AbortSignal.timeout(1000),
-    });
-    await response.body?.cancel();
-    return response.status >= 200 && response.status < 400 || response.status === 401 || response.status === 403;
+    const response = await localResponse(new URL(`${service.readiness === "https" ? "https" : "http"}://127.0.0.1:${service.port}${service.path}`), { signal: AbortSignal.timeout(1000) });
+    response.resume();
+    const status = response.statusCode ?? 0;
+    return status >= 200 && status < 400 || status === 401 || status === 403;
   } catch { return false; }
 }
 
@@ -106,7 +106,7 @@ export class WorkspaceAppRuntime {
 
   starting(issueId: string) { return this.sessions.get(issueId)?.status === "starting"; }
 
-  // Only an active, ready session's declared HTTP services can be reached by the proxy.
+  // Only an active, ready session's declared HTTP(S) services can be reached by the proxy.
   previewTarget(issueId: string, path: string) {
     const session = this.sessions.get(issueId);
     if (session?.status !== "ready") return null;
@@ -119,7 +119,7 @@ export class WorkspaceAppRuntime {
     if (route?.stripPrefix) upstreamPath = path.slice(route.prefix.length) || "/";
     if (upstreamPath.startsWith("?")) upstreamPath = `/${upstreamPath}`;
     if (!route && plan.app.preservePreviewPath) upstreamPath = `${previewBase(issueId)}${path}`;
-    return { port: service.port, path: upstreamPath, prefix: route?.prefix ?? "", stripPrefix: route?.stripPrefix ?? false };
+    return { protocol: service.readiness === "https" ? "https:" : "http:", port: service.port, path: upstreamPath, prefix: route?.prefix ?? "", stripPrefix: route?.stripPrefix ?? false };
   }
 
   async stop(issueId: string) {
@@ -144,7 +144,7 @@ export class WorkspaceAppRuntime {
     if (existing && existing.status !== "failed") return this.status(issueId);
     validateAppLaunchPlan(plan);
     const appService = plan.services.find((service) => service.id === plan.app.serviceId)!;
-    const session: Session = { status: "starting", url: `http://127.0.0.1:${appService.port}${plan.app.preservePreviewPath ? previewBase(issueId) : ""}${plan.app.path}`,
+    const session: Session = { status: "starting", url: `${appService.readiness === "https" ? "https" : "http"}://127.0.0.1:${appService.port}${plan.app.preservePreviewPath ? previewBase(issueId) : ""}${plan.app.path}`,
       error: null, output: "", children: new Set(), plan };
     this.sessions.set(issueId, session);
     const append = (text: string) => { session.output = (session.output + text).slice(-200_000); };
