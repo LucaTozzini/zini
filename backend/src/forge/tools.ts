@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   deleteWorkspaceFile,
   moveWorkspaceFile,
-  workspaceChanges,
+  workspaceDiffSnapshot,
   workspaceDiff,
 } from "../workspaces/workspaceFiles.js";
 import { repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
@@ -42,7 +42,7 @@ export async function diffForModel(
       : diff;
   }
 
-  const changes = await workspaceChanges(issueId, uncommitted);
+  const { changes, diff } = await workspaceDiffSnapshot(issueId, "", uncommitted);
   if (changes.length === 0) return "No changes.";
   const list = changes
     .map(({ path, added, removed, isNew }) => {
@@ -50,7 +50,6 @@ export async function diffForModel(
       return `${path} (${isNew ? "new, " : ""}${lines})`;
     })
     .join("\n");
-  const { diff } = await workspaceDiff(issueId, "", uncommitted);
   if (diff.length <= MAX_DIFF_FOR_MODEL) return `Changed files:\n${list}\n\n${diff}`;
 
   // Cut before the first file that doesn't fit; if even the first doesn't, partway

@@ -16,12 +16,10 @@ through Zini removes containers, the network and both volumes, and the host mark
 
 The trusted backend handles models, credentials and checkpoints. Agent file tools
 read, search and edit through the container gateway, with virtual repository paths and
-symlink checks. Git operations run in temporary trusted containers mounting the same
+symlink checks. Git operations run in a reusable trusted helper per workspace, mounting the same
 files volume. Authentication is sent over stdin only for the requested Git operation;
 it never becomes Docker environment, an image layer, a mounted token file or Git config.
-The agent container is paused during trusted Git operations. The trusted helper exits
-and is removed after each operation, while commits and any conflict state remain in
-the files volume. The host's bare repository cache is mounted read-only during clone.
+The agent container is paused during trusted Git operations. Each command process exits after its operation; the helper container remains until workspace deletion. Commits and any conflict state remain in the files volume. The host's bare repository cache is mounted read-only during clone.
 Repository commands run as UID 1000 through `/bin/sh`, with no Linux capabilities,
 2 CPUs, 4 GiB memory and 512 processes. Only one authenticated gateway port is published
 on host loopback. There is no Docker socket, host home or credential mount. Startup
@@ -83,7 +81,7 @@ turn. Successful commands on the same revision are reused;
 explicit reruns support changed test data/configuration. Required external secrets
 remain blockers; source defects return to coder.
 
-Development provider credentials belong in Settings â†’ Development environment
+Development provider credentials belong in Settings → Development environment
 variables for the selected repository. Setup and preview agents see names/status
 only. Each command/launch refreshes the injected environment; running servers need
 a restart after changes. Generated service settings override repository variables,
@@ -123,3 +121,5 @@ external Project Lead browsing keeps normal certificate verification.
 $env:ZINI_DOCKER_TESTS='1'
 node --import tsx --test backend/src/workspaces/workspaceTls.test.ts
 ```
+
+Diff collection batches its merge base, file summary and patch into one helper invocation and one workspace pause cycle. Clone and local-cache refresh still use temporary containers with a read-only cache mount. Workspace deletion removes its persistent Git helper.

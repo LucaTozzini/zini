@@ -45,6 +45,38 @@ export async function volumeHelper(issueId: string, request: unknown, source?: s
   if (result.error) throw new Error(result.error);
   return result;
 }
+export const gitHelperName = (issueId: string) => `${sandboxName(issueId)}-git`;
+
+async function inspectGitHelper(issueId: string, expectedIdentity = workspaceIdentity) {
+  let info;
+  try { info = JSON.parse(await docker(["inspect", gitHelperName(issueId)]))[0]; }
+  catch (error) { if (/No such/i.test(String((error as { stderr?: string }).stderr))) return null; throw error; }
+  const labels = info.Config.Labels;
+  if (labels?.["zini.owner"] !== sandboxOwner || labels?.["zini.workspace"] !== issueId || labels?.["zini.storage"] !== expectedIdentity || labels?.["zini.role"] !== "trusted-git") throw new Error("Unowned workspace Git helper");
+  return info;
+}
+
+async function gitHelper(issueId: string, request: unknown) {
+  const info = await inspectGitHelper(issueId);
+  if (!info) {
+    await docker(["run", "-d", "--name", gitHelperName(issueId), "--user", "1000:1000", "--cpus", "2", "--memory", "4g", "--pids-limit", "128", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=64m", "--network", "bridge",
+      "--label", `zini.owner=${sandboxOwner}`, "--label", `zini.workspace=${issueId}`, "--label", `zini.storage=${workspaceIdentity}`, "--label", "zini.role=trusted-git",
+      "--mount", `type=volume,source=${workspaceVolume(issueId)},target=/volume`, "--entrypoint", "/bin/sleep", sandboxImage, "infinity"]);
+  } else if (!info.State.Running) await docker(["start", gitHelperName(issueId)]);
+  const result = JSON.parse(await dockerInput(["exec", "-i", gitHelperName(issueId), "/opt/zini/node_modules/.bin/tsx", "/opt/zini/sandbox/trustedGit.ts"], request));
+  if (result.error) throw new Error(result.error);
+  return result;
+}
+
+// One lock and freeze covers the entire semantic operation, including all its Git commands.
+export async function workspaceGitOperation<T>(issueId: string, request: unknown): Promise<T> {
+  return withWorkspaceLock(issueId, async () => {
+    await ensureWorkspaceVolume(issueId);
+    const { workspacePath } = await import("../repositories/git.js");
+    return trustedGit(workspacePath(issueId), () => gitHelper(issueId, request));
+  });
+}
+
 async function prepareVolume(issueId: string) {
   await ownedResource("volume", workspaceVolume(issueId), { "zini.workspace": issueId, "zini.storage": workspaceIdentity });
   await docker(["run", "--rm", "--network", "none", "--mount", `type=volume,source=${workspaceVolume(issueId)},target=/volume`, "--entrypoint", "/bin/sh", sandboxImage, "-c", "chown 1000:1000 /volume"]);
@@ -83,19 +115,14 @@ export async function cloneWorkspaceVolume(issueId: string, branch: string, ref:
 export async function removeWorkspaceVolume(issueId: string, expectedIdentity = workspaceIdentity) {
   const info = await resource("volume", workspaceVolume(issueId));
   if (info && info.Labels?.["zini.storage"] !== expectedIdentity) throw new Error("Workspace volume belongs to a different data directory");
+  if (await inspectGitHelper(issueId, expectedIdentity)) await docker(["rm", "-f", gitHelperName(issueId)]);
   await removeOwnedResource("volume", workspaceVolume(issueId));
   ready.delete(issueId);
 }
 export async function workspaceGit(issueId: string, args: string[], token?: string) {
-  return withWorkspaceLock(issueId, async () => {
-    await ensureWorkspaceVolume(issueId);
-    const { workspacePath } = await import("../repositories/git.js");
-    return trustedGit(workspacePath(issueId), async () => {
-      const result = await volumeHelper(issueId, { operation: "git", args, token });
-      if (result.code) throw Object.assign(new Error(result.stderr), result);
-      return result.stdout as string;
-    });
-  });
+  const result = await workspaceGitOperation<{ code: number; stdout: string; stderr: string }>(issueId, { operation: "git", args, token });
+  if (result.code) throw Object.assign(new Error(result.stderr), result);
+  return result.stdout;
 }
 
 // Refresh from the trusted host cache, also used by evals with a local upstream.
