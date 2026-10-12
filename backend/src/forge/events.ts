@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Transaction } from "sequelize";
 import type { AgentRole, PipelineWaiting, QaDocument } from "shared";
 import { sequelize } from "../db.js";
 import { ForgeSubscription } from "../models/ForgeSubscription.js";
@@ -28,7 +29,9 @@ export function forgeEventContent(event: ForgeLifecycleEvent): string {
 }
 // Only explicit lifecycle events enter this durable fan-out path.
 export async function emitForgeEvent(issueId: string, event: ForgeLifecycleEvent, eventId: string = randomUUID()) {
-  await sequelize.transaction(async (transaction) => {
+  // Reserve the write lock before reading subscribers; a deferred read-to-write
+  // upgrade can deadlock against the queue worker's concurrent transaction.
+  await sequelize.transaction({ type: Transaction.TYPES.IMMEDIATE }, async (transaction) => {
     const subscribers = await ForgeSubscription.findAll({ where: { issueId }, transaction });
     await enqueueMessages(subscribers.map((row) => row.threadId), {
       eventId, source: "forge", sourceId: issueId, eventType: event.type, content: forgeEventContent(event),

@@ -8,6 +8,7 @@ dist
 
 # SQLite (holds the Linear API key)
 backend/data/
+/data/
 *.sqlite
 *.sqlite-journal
 
