@@ -69,22 +69,6 @@ export async function workspaceChanges(issueId: string, uncommitted = false) {
 
 // ---- Committing ----------------------------------------------------------------------
 
-// The subjects of the commits on the workspace's branch since it branched, oldest first.
-export async function branchCommits(issueId: string) {
-  const base = await diffBase(issueId);
-  const out = await inWorkspace(issueId, ["log", "--reverse", "--format=%s", `${base}..HEAD`]);
-  return out.split("\n").filter(Boolean);
-}
-
-// The whole messages (subject and body) of the commits on the workspace's branch since
-// it branched, oldest first.
-export async function branchCommitMessages(issueId: string) {
-  const base = await diffBase(issueId);
-  // Each message ends with a NUL, since a body can hold blank lines.
-  const out = await inWorkspace(issueId, ["log", "--reverse", "--format=%B%x00", `${base}..HEAD`]);
-  return out.split("\0").map((message) => message.trim()).filter(Boolean);
-}
-
 // Whether anything isn't committed yet: changed, deleted or new files, not ignored ones.
 export async function hasUncommitted(issueId: string) {
   return (await inWorkspace(issueId, ["status", "--porcelain"])).trim() !== "";

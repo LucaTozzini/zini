@@ -16,12 +16,10 @@ import {
 } from "../forge/forge.js";
 import { readRedirect } from "../forge/steering.js";
 import { addViewer } from "../browser/agentBrowser.js";
-import { writePullRequest } from "../forge/writers.js";
 import { listRunLogs, readRunLog } from "../forge/runLog.js";
 import { Workspace } from "../models/Workspace.js";
-import { beginRun, isRunning, pauseRun } from "../agents/runs.js";
+import { beginRun, pauseRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
-import { branchCommits } from "../workspaces/workspaceFiles.js";
 import { isIssueId } from "../workspaces/workspaces.js";
 
 // An issue's forge pipeline, at /api/forge/:issueId (see forge.ts).
@@ -165,32 +163,6 @@ forge.post("/:issueId/pause", async (req, res) => {
   }
   sendEvent({ type: "forge.updated", issueId });
   res.status(202).end();
-});
-
-// Writes a pull request's { title, body } for the branch's commits (see writers.ts),
-// for you to read and edit before opening it. Not while the pipeline is running.
-forge.post("/:issueId/pull-request-text", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  if (!(await requireWorkspace(issueId, res))) return;
-  if (isRunning(forgeThreadId(issueId))) {
-    res.status(409).json({ error: "The Forge is still working in this workspace" });
-    return;
-  }
-  if ((await branchCommits(issueId)).length === 0) {
-    res.status(409).json({ error: "The branch has no commits to open a pull request for" });
-    return;
-  }
-  const setup = await loadSetup(res);
-  if (!setup) return;
-  try {
-    res.json(await writePullRequest(setup, issueId));
-  } catch (err) {
-    console.error(`Writing the pull request for ${issueId} failed:`, err);
-    res.status(500).json({
-      error: `Couldn't write the pull request: ${err instanceof Error ? err.message : String(err)}`,
-    });
-  }
 });
 
 // The QA's browser, live, as MJPEG (an <img> shows it), while it's open; 404 when it

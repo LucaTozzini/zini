@@ -12,7 +12,6 @@ import type {
   IntegrationState,
 } from "shared";
 import type { Runbook } from "./validation.js";
-import type { CodebaseContext } from "./codebaseContext.js";
 
 const latest = <T>(initial: T) =>
   Annotation<T>({ reducer: (_old, next) => next, default: () => initial });
@@ -39,9 +38,6 @@ export const PipelineGraphState = Annotation.Root({
   // Not "qa": that's its node's name, and a graph can't use one
   // name for both.
   qaReport: latest<QaDocument | null>(null),
-  // Keyed facts discovered by the roles. Each node replaces this with its merged,
-  // source-checked view so later roles don't inherit stale claims.
-  codebaseContext: latest<CodebaseContext>({}),
   // Every question a subagent asked and your answer; given to every subagent.
   clarifications: appended<Clarification>(),
   // Your notes on the plan (for the planner), and on the finished changes (for the

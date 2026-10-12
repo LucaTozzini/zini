@@ -44,7 +44,10 @@ try {
     };
     const path = request.path ?? "";
     if (typeof path !== "string" || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..") || path.includes("\0")) throw new Error("Invalid diff path");
-    const base = request.uncommitted ? "HEAD" : (await run(["merge-base", "HEAD", "origin/HEAD"])).trim();
+    // During a merge the working tree already holds the merged-in branch's changes, so
+    // compare with that commit: it becomes the merge base once the merge is committed.
+    const merging = (await run(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], true)).trim();
+    const base = request.uncommitted ? "HEAD" : merging || (await run(["merge-base", "HEAD", "origin/HEAD"])).trim();
     const paths = path ? [path] : [];
     const changes = request.summary ? (await run(["diff", "--numstat", "-z", "--no-renames", base, "--", ...paths])).split("\0").filter(Boolean).map(record => {
       const [added, removed, ...rest] = record.split("\t");

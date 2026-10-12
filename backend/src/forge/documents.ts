@@ -25,19 +25,6 @@ export const ACCEPTANCE_CRITERION = z.object({
   source: z.string().min(1).describe("Quote from the issue or user clarification supporting this criterion"),
 });
 
-// Durable, source-backed repo findings for the next role. The forge records
-// file hashes and discards a fact when one of its sources changes.
-export const CONTEXT_UPDATES = z
-  .array(
-    z.object({
-      key: z.string().min(1).max(80).describe("Stable topic key; reuse it to correct an earlier fact"),
-      fact: z.string().min(1).describe("One concise, reusable codebase fact"),
-      sources: z.array(z.string().min(1)).min(1).max(5).describe("Workspace files that support this fact"),
-    }),
-  )
-  .max(8)
-  .describe("New or corrected codebase facts for later roles; empty if nothing durable was learned");
-
 export const PLAN_SCHEMA = z
   .object({
     summary: z.string().describe("The approach, in a few sentences"),
@@ -48,8 +35,6 @@ export const PLAN_SCHEMA = z
         "Plain instructions, in order, each naming the files it touches",
       ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES,
-    runbookUpdates,
     acceptanceCriteria: z.array(ACCEPTANCE_CRITERION).min(1).max(64),
   })
   .meta({
@@ -59,7 +44,7 @@ export const PLAN_SCHEMA = z
   });
 
 export const IMPLEMENTATION_SCHEMA = z
-  .object({ blockingQuestions: questions, contextUpdates: CONTEXT_UPDATES, runbookUpdates,
+  .object({ blockingQuestions: questions,
     commitMessage: z.string().describe("Meaningful commit message describing only this round's changes; empty when no changes or blocked"),
     replanReason: z.string().describe("Why upstream changes invalidate the approved approach; empty when the plan remains applicable. Do not invent a replacement plan."),
   })
@@ -77,7 +62,6 @@ export const REVIEW_SCHEMA = z
         "What the coder must change, each naming the file and line; empty if none",
       ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES,
     runbookUpdates,
     noChecksReason: z.string().min(1).optional().describe("Source-backed reason no finite check applies; only when no run_check results exist"),
   })
@@ -100,7 +84,6 @@ export const QA_SCHEMA = z
         "What doesn't work because of the changes, each with how to reproduce it and the evidence (e.g. the error); empty if none",
       ),
     blockingQuestions: questions,
-    contextUpdates: CONTEXT_UPDATES,
     runbookUpdates,
     environmentFailures,
   })

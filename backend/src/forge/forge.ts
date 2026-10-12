@@ -36,7 +36,6 @@ import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook }
 import { redirectUpdate, steeringOptions } from "./steering.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import { PipelineGraphState, type State } from "./graphState.js";
-import { contextText, freshContext, updateContext } from "./codebaseContext.js";
 import {
   answersText,
   clarificationsText,
@@ -97,7 +96,7 @@ export async function loadSetup(): Promise<Setup | string> {
 export const forgeThreadId = (issueId: string) =>
   `forge:${issueId}`;
 
-// The Forge model is shared by its subagents and PR writer.
+// The Forge model is shared by its subagents.
 // Our middleware owns retries, and must stop immediately on model rate limits.
 export const forgeModel = (setup: Setup) => chatModel(setup.connection, setup.model, { maxRetries: 0 });
 
@@ -229,7 +228,6 @@ function buildPipeline(run: Run | null) {
   };
   const issue = () => fetchLinearIssue(need().setup.linear, need().issueId);
   const fingerprint = (path: string) => fingerprintWorkspaceFile(need().issueId, path);
-  const codebaseContext = (state: State) => freshContext(state.codebaseContext ?? {}, fingerprint);
   const runbook = (state: State) => freshRunbook(state.runbook ?? {}, fingerprint);
 
   // Every pipeline agent gets current issue/state context in its system prompt,
@@ -238,9 +236,7 @@ function buildPipeline(run: Run | null) {
 
   async function planner(state: State) {
     const { plan: previous } = state;
-    const context = await codebaseContext(state);
-    const book = await runbook(state);
-    const { contextUpdates, runbookUpdates, ...plan } = await runSubagent(need(), {
+    const plan = await runSubagent(need(), {
       role: "planner",
       prompt: `${PLANNER_PROMPT}\n\n${inputText(await issue(), [
         ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
@@ -250,8 +246,6 @@ function buildPipeline(run: Run | null) {
         ["Coder request to revise the plan", state.implementation?.replanReason],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-        ["Shared codebase context", contextText(context)],
-        ["Repo runbook", runbookText(book, state.checksReport)],
         [
           "The user's feedback on your plan (address it)",
           state.planFeedback.length > 0 && listText(state.planFeedback),
@@ -273,18 +267,15 @@ function buildPipeline(run: Run | null) {
     });
     if (new Set(plan.acceptanceCriteria.map((entry) => entry.id)).size !== plan.acceptanceCriteria.length)
       throw new Error("Acceptance criterion ids must be unique");
-    return { plan, planApproved: false, checksReport: null,
-      runbook: await updateRunbook(book, runbookUpdates, fingerprint),
-      codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
+    return { plan, planApproved: false, checksReport: null };
   }
 
   async function coder(state: State) {
     const { issueId, notify } = need();
     const { implementation: previous } = state;
     const changes = state.review?.requiredChanges ?? [];
-    const context = await codebaseContext(state);
     const book = await runbook(state);
-    const { contextUpdates, runbookUpdates, ...implementation } = await runSubagent(need(), {
+    const implementation = await runSubagent(need(), {
       role: "coder",
       prompt: `${CODER_PROMPT}\n\n${inputText(await issue(), [
         ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
@@ -293,7 +284,6 @@ function buildPipeline(run: Run | null) {
         ["Current Reviewer requested changes", listText(changes) || "No Reviewer changes currently requested."],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-        ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         ["Recorded checks and diagnostics", checksText(state.checksReport)],
         [
@@ -322,14 +312,11 @@ function buildPipeline(run: Run | null) {
                 : "Implement the current approved plan, including pending conflicts; preserve existing work.",
       remember: true,
     });
-    return { implementation,
-      runbook: await updateRunbook(book, runbookUpdates, fingerprint),
-      codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
+    return { implementation };
   }
 
   async function reviewer(state: State) {
     const { issueId } = need();
-    const context = await codebaseContext(state);
     const book = await runbook(state);
     const revision = await workspaceRevision(issueId);
     const evidence = new ReviewEvidence(state.checksReport, revision);
@@ -346,7 +333,6 @@ function buildPipeline(run: Run | null) {
         ["The approved plan", state.plan && planText(state.plan)],
         ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-        ["Shared codebase context", contextText(context)],
         ["Repo runbook", runbookText(book, state.checksReport)],
         ["Recorded deterministic checks", checksText(state.checksReport)],
         ["Previous environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
@@ -374,10 +360,9 @@ function buildPipeline(run: Run | null) {
       },
     });
     } finally { await stopAllProcesses(issueId); }
-    const { contextUpdates, runbookUpdates, noChecksReason, ...review } = document;
+    const { runbookUpdates, noChecksReason, ...review } = document;
     return { review, checksReport: evidence.report(noChecksReason),
       environmentReport: preparation.report(review),
-      codebaseContext: await updateContext(context, contextUpdates, fingerprint),
       runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
   }
 
@@ -386,13 +371,12 @@ function buildPipeline(run: Run | null) {
   async function qa(state: State) {
     const { issueId, notify } = need();
     const { qaReport: previous } = state;
-    const context = await codebaseContext(state);
     const book = await runbook(state);
     if (!state.plan) throw new Error("QA requires the approved plan");
     const criteria = state.plan.acceptanceCriteria;
     let paused = false;
     try {
-      const { contextUpdates, runbookUpdates, ...report } = await runSubagent(need(), {
+      const { runbookUpdates, ...report } = await runSubagent(need(), {
         role: "qa",
         prompt: `${QA_PROMPT}\n\n${inputText(await issue(), [
         ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
@@ -400,7 +384,6 @@ function buildPipeline(run: Run | null) {
           ["The approved plan", state.plan && planText(state.plan)],
           ["The user's answers", clarificationsText(state.clarifications)],
         ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-          ["Shared codebase context", contextText(context)],
           ["Repo runbook", runbookText(book, state.checksReport)],
           ["Recorded deterministic checks (do not repeat)", checksText(state.checksReport)],
           ["Completed environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
@@ -429,8 +412,7 @@ function buildPipeline(run: Run | null) {
         remember: true,
       });
       return { qaReport: enforceCoverage(report, criteria, state.checksReport, await workspaceRevision(issueId)),
-        runbook: await updateRunbook(book, runbookUpdates, fingerprint),
-        codebaseContext: await updateContext(context, contextUpdates, fingerprint) };
+        runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
     } catch (err) {
       paused = isGraphInterrupt(err);
       throw err;
@@ -722,19 +704,6 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
     browserUrl: browserUrl(issueId),
     finished: values.finished ?? false,
     error,
-  };
-}
-
-// What the PR writer is told about the pipeline: the approved plan, and your answers
-// and feedback, which explain the changes.
-export async function commitContext(issueId: string) {
-  const snapshot = await buildPipeline(null).getState(threadConfig(forgeThreadId(issueId)));
-  const values = snapshot.values as Partial<State>;
-  return {
-    plan: values.planApproved ? (values.plan ?? null) : null,
-    clarifications: values.clarifications ?? [],
-    planFeedback: values.planFeedback ?? [],
-    implementationFeedback: values.implementationFeedback ?? [],
   };
 }
 

@@ -2,17 +2,15 @@ import { useState } from "react";
 import { Alert, Button, Link, Stack, TextField, Typography } from "@mui/material";
 import { errorMessage } from "../../api/client.ts";
 import { useOpenPullRequest, usePullRequest, useWorkspaceGitStatus } from "../../api/workspaces.ts";
-import { useWritePullRequest } from "../../api/forge.ts";
 import { CardFrame } from "./Cards.tsx";
 
 // Opens a pull request for the workspace's branch, once everything is committed and
-// pushed. The PR writer fills in the title and body, which you can read and edit first.
-// Once there's a pull request (opened here or on GitHub), a link to it instead.
+// pushed, with the title and body you write (the issue's identifier is added to the
+// title). Once there's a pull request (opened here or on GitHub), a link to it instead.
 function PullRequestCard({ issueId }: { issueId: string }) {
   const workspace = useWorkspaceGitStatus(issueId);
   const shipped = Boolean(workspace.data && !workspace.data.uncommitted && !workspace.data.unpushed);
   const status = usePullRequest(issueId, shipped);
-  const write = useWritePullRequest(issueId);
   const open = useOpenPullRequest(issueId);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -36,11 +34,10 @@ function PullRequestCard({ issueId }: { issueId: string }) {
     );
   }
 
-  const failure = write.error ?? open.error;
   return (
     <CardFrame title="Open a pull request">
       <Stack spacing={2}>
-        {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
+        {open.error && <Alert severity="error">{errorMessage(open.error)}</Alert>}
         <TextField size="small" label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         <TextField
           size="small"
@@ -52,22 +49,8 @@ function PullRequestCard({ issueId }: { issueId: string }) {
         />
         <Stack direction="row" spacing={1}>
           <Button
-            disabled={open.isPending}
-            loading={write.isPending}
-            onClick={() =>
-              write.mutate(undefined, {
-                onSuccess: (pull) => {
-                  setTitle(pull.title);
-                  setBody(pull.body);
-                },
-              })
-            }
-          >
-            Write PR
-          </Button>
-          <Button
             variant="contained"
-            disabled={!title.trim() || write.isPending}
+            disabled={!title.trim()}
             loading={open.isPending}
             onClick={() => open.mutate({ title: title.trim(), body: body.trim() })}
           >

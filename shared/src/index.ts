@@ -329,13 +329,11 @@ export type Provider = (typeof PROVIDERS)[number];
 type IntegrationStatus = { connected: boolean; keyHint?: string };
 export type Integrations = Record<Provider, IntegrationStatus>;
 
-export type LogRole = AgentRole | "pr_writer";
-
 // A subagent run's log, for debugging: one entry per line of its log file, written as
 // the run goes. A model call or tool call logs when it starts and when it ends, so
 // the last entry says what the run is doing (e.g. model_call: waiting on the model).
 export type RunLogEntry =
-  | { event: "start"; role: LogRole; model: string; prompt: string; input: string }
+  | { event: "start"; role: AgentRole; model: string; prompt: string; input: string }
   | { event: "model_call" }
   | {
       event: "model_reply";
@@ -362,7 +360,7 @@ export type RunLogEvent = RunLogEntry & { t: string };
 // outcome is null while it runs, or if the server stopped before it ended.
 export type RunLogSummary = {
   id: string;
-  role: LogRole;
+  role: AgentRole;
   startedAt: string;
   outcome: "done" | "error" | null;
 };

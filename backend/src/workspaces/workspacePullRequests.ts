@@ -1,7 +1,6 @@
-import type { PullRequest } from "shared";
+import type { LinearIssueDetails, PullRequest } from "shared";
 import { createPullRequest } from "../integrations/github.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
-import { withIdentifier } from "../forge/writers.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
 import { defaultBranch } from "../repositories/git.js";
@@ -29,6 +28,11 @@ const dependencies = {
   noMerge: assertNoMerge,
   target: async (id: string) => (await Workspace.findByPk(id))?.context?.targetBranch,
 };
+
+// The pull request's title always starts with the issue's identifier, so Linear links
+// it to the issue.
+const withIdentifier = (issue: Pick<LinearIssueDetails, "identifier">, title: string) =>
+  title.startsWith(issue.identifier) ? title : `${issue.identifier}: ${title}`;
 
 // Shared by the workspace UI and Project Lead. Never commits or pushes implicitly.
 export async function openWorkspacePullRequest(

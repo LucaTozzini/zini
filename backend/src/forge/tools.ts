@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   deleteWorkspaceFile,
   moveWorkspaceFile,
+  workspaceChanges,
   workspaceDiffSnapshot,
   workspaceDiff,
 } from "../workspaces/workspaceFiles.js";
@@ -23,16 +24,22 @@ export function workspaceFilesystem(issueId: string, writable = false, notify?: 
 const filesIn = (diff: string) =>
   new Set([...diff.matchAll(/^diff --git a\/(.+) b\/\1$/gm)].map((match) => match[1]));
 
+const changeList = (changes: Awaited<ReturnType<typeof workspaceChanges>>) =>
+  changes
+    .map(({ path, added, removed, isNew }) => {
+      const lines = added === "-" ? "binary" : `+${added} -${removed}`;
+      return `${path} (${isNew ? "new, " : ""}${lines})`;
+    })
+    .join("\n");
+
 // Without a path: the list of changed files, then the diff, cut between files once it
 // passes MAX_DIFF_FOR_MODEL, with a note naming the files left out, so they can be
 // asked for by path. With a path: just that file's (or folder's) diff. With
-// uncommitted: only the changes since the last commit. Without tools: for a model that
-// can't ask for the files left out (the PR writer), so the note only
-// names them.
+// uncommitted: only the changes since the last commit.
 export async function diffForModel(
   issueId: string,
   path?: string,
-  { uncommitted = false, tools = true } = {},
+  { uncommitted = false } = {},
 ) {
   if (path) {
     const { diff } = await workspaceDiff(issueId, path);
@@ -44,12 +51,7 @@ export async function diffForModel(
 
   const { changes, diff } = await workspaceDiffSnapshot(issueId, "", uncommitted);
   if (changes.length === 0) return "No changes.";
-  const list = changes
-    .map(({ path, added, removed, isNew }) => {
-      const lines = added === "-" ? "binary" : `+${added} -${removed}`;
-      return `${path} (${isNew ? "new, " : ""}${lines})`;
-    })
-    .join("\n");
+  const list = changeList(changes);
   if (diff.length <= MAX_DIFF_FOR_MODEL) return `Changed files:\n${list}\n\n${diff}`;
 
   // Cut before the first file that doesn't fit; if even the first doesn't, partway
@@ -58,10 +60,6 @@ export async function diffForModel(
   const shown = end > 0 ? diff.slice(0, end + 1) : diff.slice(0, MAX_DIFF_FOR_MODEL);
   const shownFiles = filesIn(shown);
   const left = changes.filter((change) => !shownFiles.has(change.path)).map((change) => change.path);
-  if (!tools) {
-    const cut = end > 0 ? "" : "The first file is cut off. ";
-    return `Changed files:\n${list}\n\n${shown}\n[The diff is too long to show. ${cut}Not shown: ${left.join(", ")}.]`;
-  }
   const cut = end > 0 ? "" : "The first file is cut off: read it for the rest. ";
   return (
     `Changed files:\n${list}\n\n${shown}\n` +
@@ -70,13 +68,20 @@ export async function diffForModel(
   );
 }
 
+// The subagents' git_diff: without a path, only the list of changed files, so they ask
+// for the diffs they need by path instead of carrying the whole patch in every call.
 export const diffTool = (issueId: string) =>
-  tool(async ({ path }) => diffForModel(issueId, path), {
+  tool(async ({ path }) => {
+    if (path) return diffForModel(issueId, path);
+    const changes = await workspaceChanges(issueId);
+    return changes.length ? `Changed files:\n${changeList(changes)}` : "No changes.";
+  }, {
     name: "git_diff",
     description:
-      "Every change in the workspace since it branched, new files included: the list of " +
-      "changed files, then a unified diff. A long diff is cut between files, with a note " +
-      "naming the rest; pass a path for one file's (or folder's) diff.",
+      "Every change in the workspace since it branched (during a merge, compared with the " +
+      "branch being merged in), new files included. Without a path: the list of changed " +
+      "files with their added/removed line counts. With a path: that file's (or folder's) " +
+      "unified diff.",
     schema: z.object({ path: z.string().optional() }),
   });
 

@@ -59,16 +59,6 @@ export function usePipelineControl(issueId: string) {
   })
 }
 
-// Writes a pull request's title and body for the branch; a model call, so no timeout.
-export function useWritePullRequest(issueId: string) {
-  return useMutation({
-    mutationFn: () =>
-      api
-        .post(`forge/${issueId}/pull-request-text`, { timeout: false })
-        .json<{ title: string; body: string }>(),
-  })
-}
-
 export function useRedirectPipeline(issueId: string) {
   const queryClient = useQueryClient()
   return useMutation({

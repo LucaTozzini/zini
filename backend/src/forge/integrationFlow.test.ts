@@ -62,7 +62,9 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         process.stderr.write(`Scripted model loop: ${stages.slice(-5).join(", ")} ${JSON.stringify(body.messages.slice(-2))}\n`);
         throw new Error("Scripted model did not finish");
       }
-      const common = { blockingQuestions: [], contextUpdates: [], runbookUpdates: [] };
+      // Reviewer and QA documents also take runbookUpdates.
+      const common = { blockingQuestions: [] };
+      const validation = { ...common, runbookUpdates: [] };
       let name = submit;
       let args: unknown;
       if (submit === "submit_plan") args = { ...common, summary: "Preserve issue and upstream behavior", existingImplementation: "Inherited issue behavior in file.txt; validate it too",
@@ -87,9 +89,9 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         if (reviewCalls === 9) assert.ok(body.messages.some((message: { role: string; content: unknown }) =>
           message.role === "tool" && JSON.stringify(message.content).includes("test -f file.txt")),
           "Reviewer retains diagnostics across QA repair rounds");
-        if (reviewCalls === 1) args = { ...common, requiredChanges: ["Observed startup code defect requires a coder repair"] };
-        else if (reviewCalls === 2) args = { ...common, requiredChanges: [], blockingQuestions: ["Add DEV_TOKEN in Settings /settings"] };
-        else if (reviewCalls === 12) args = { ...common, requiredChanges: ["QA reproduced source bug: create qa_fix.txt with the repaired product behavior"] };
+        if (reviewCalls === 1) args = { ...validation, requiredChanges: ["Observed startup code defect requires a coder repair"] };
+        else if (reviewCalls === 2) args = { ...validation, requiredChanges: [], blockingQuestions: ["Add DEV_TOKEN in Settings /settings"] };
+        else if (reviewCalls === 12) args = { ...validation, requiredChanges: ["QA reproduced source bug: create qa_fix.txt with the repaired product behavior"] };
         else if ([3, 6, 9, 13, 16].includes(reviewCalls)) {
           name = "run_setup";
           const command = setupEntry.command + (reviewCalls === 6 ? " && touch /state/reviewer-ready" : reviewCalls === 9 ? " && touch /state/reviewer-ready /state/qa-ready" : "");
@@ -97,7 +99,7 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         } else if ([4, 5, 7, 10, 14, 17].includes(reviewCalls)) {
           name = "run_check";
           args = { entry: { id: "fixture-check", kind: "check", command: reviewCalls === 5 ? "test -f file.txt" : reviewCalls >= 14 ? "test -f qa_fix.txt && test -f file.txt" : "test -f /state/reviewer-ready", cwd: ".", purpose: "Verify runtime prerequisite", sources: ["file.txt"] } };
-        } else args = { ...common, requiredChanges: [] };
+        } else args = { ...validation, requiredChanges: [] };
       }
       else if (submit === "submit_qa_report") {
         qaCalls++;
@@ -113,7 +115,7 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         }
         if (qaCalls === 7) assert.match(system, /Previous QA report[\s\S]*Both behaviors preserved/, "QA report survives upstream integration");
         if (qaCalls % 2 === 1) { name = "run_command"; args = { command: qaCalls === 1 ? "test -f /state/qa-ready" : "cat qa_fix.txt" }; }
-        else args = { ...common, coverage: [{ criterionId: "both", status: qaCalls === 2 ? "blocked" : qaCalls === 4 ? "fail" : "pass",
+        else args = { ...validation, coverage: [{ criterionId: "both", status: qaCalls === 2 ? "blocked" : qaCalls === 4 ? "fail" : "pass",
           evidence: qaCalls === 2 ? "Missing runtime fixture" : qaCalls === 4 ? "QA reproduced source bug: qa_fix.txt missing" : "Both behaviors preserved and repair retested" }],
           failures: qaCalls === 4 ? ["QA reproduced source bug: qa_fix.txt missing"] : [],
           environmentFailures: qaCalls === 2 ? [{ command: "test -f /state/qa-ready", reason: "Product QA observed missing runtime fixture" }] : [] };
