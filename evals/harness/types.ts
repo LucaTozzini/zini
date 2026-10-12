@@ -42,3 +42,31 @@ export type CheckResult = { passed: boolean; details: string };
 // check.ts's default export. It throws, or returns passed: false, when the result is
 // wrong.
 export type Check = (context: CheckContext) => Promise<CheckResult>;
+
+// An agent test: one run of one Forge agent from a fixed starting point, in
+// evals/agents/<repo>/<name>/agent.json (see run-agent.ts). Its check.ts exports an
+// AgentCheck.
+export type AgentTest = {
+  // The agent; only the reviewer for now.
+  role: "reviewer";
+  // The issue.
+  title: string;
+  description: string;
+  // A patch in the test's folder, applied to the repo before its first commit.
+  patch?: string;
+  // Patches committed one by one on the issue branch: the code as the agent finds it.
+  branchPatches?: string[];
+  preinstalledDependencies?: boolean;
+  // A JSON file of pipeline state the agent starts from (e.g. the approved plan);
+  // anything it leaves out starts empty.
+  state?: string;
+  // A JSON file of the agent's earlier conversation, as messages:
+  // { role: "user" | "assistant" | "tool", content, tool_calls?, tool_call_id? }.
+  history?: string;
+};
+
+// An agent test's check.ts: the run's log and the document the agent submitted (null
+// if it didn't), with the workspace as hidden checks get it.
+export type AgentCheck = (
+  context: CheckContext & { log: import("shared").RunLogEvent[]; document: unknown },
+) => Promise<CheckResult>;

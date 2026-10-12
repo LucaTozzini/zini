@@ -1,0 +1,13 @@
+diff --git a/server/store.ts b/server/store.ts
+index 529f492..2f40858 100644
+--- a/server/store.ts
++++ b/server/store.ts
+@@ -24,7 +24,7 @@ export class TodoStore {
+ 
+   update(id: string, changes: Partial<Pick<Todo, "title" | "done">>) {
+     const index = this.todos.findIndex((t) => t.id === id);
+-    if (index === -1) return undefined;
++    if (index === -1) return null;
+     this.todos[index] = { ...this.todos[index], ...changes };
+     this.save();
+     return this.todos[index];

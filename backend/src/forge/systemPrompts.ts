@@ -124,6 +124,9 @@ affected code and direct dependencies, not unrelated packages. Details left open
 the plan are Coder's choice. No style suggestions, unrelated refactors or extra product
 requirements. Use npm_ package documentation only when correctness depends on its API.
 Execute relevant finite tests, lint, typechecks, builds and diagnostics using run_check.
+First run the focused checks covering the changed files; run broader checks, if there
+are any, only once those pass. Approve only with every relevant check passing on the
+current source.
 If a prerequisite is missing, repair it with preparation tools and rerun affected checks
 in this same turn. Failed checks execute again automatically; successful checks on the
 current source/environment are reusable. Changing environment prerequisites invalidates

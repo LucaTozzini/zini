@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["run.ts", "harness", "scenarios/**/check.ts"]
+  "include": ["run.ts", "harness", "scenarios/**/check.ts", "agents/**/check.ts"]
 }

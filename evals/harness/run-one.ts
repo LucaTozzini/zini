@@ -1,17 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { LinearClient } from "@linear/sdk";
 import type { PipelineResume, PipelineWaiting } from "shared";
 import {
   getPipeline,
@@ -20,166 +10,50 @@ import {
   startPipeline,
   stopQa,
 } from "../../backend/src/forge/forge.js";
-import { initDb, storage } from "../../backend/src/db.js";
-import { cloneWorkspace, git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
+import { initDb } from "../../backend/src/db.js";
+import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
 import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
-import { ensureSandbox, removeSandbox, sandboxRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
-import { chromium } from "playwright";
-import { runCommandResult } from "../../backend/src/forge/qaProcesses.js";
-import { startApp } from "./app.js";
+import { removeSandbox } from "../../backend/src/workspaces/workspaceSandbox.js";
 import type { RunMetrics } from "shared";
 import { roleMetrics, totals } from "./metrics.js";
 import type { Check, Scenario } from "./types.js";
 import { isModelRateLimit } from "../../backend/src/providers/modelErrors.js";
 import { codeVersion } from "./version.js";
-import type { ModelConnection } from "../../backend/src/providers/modelProvider.js";
+import {
+  checkContext,
+  cloneLikeZini,
+  connection,
+  dataDir,
+  EVALS,
+  fakeLinear,
+  followLogs,
+  git,
+  makeSourceRepo,
+  makeWorkspace,
+  model,
+  required,
+  type Fixture,
+} from "./workspace.js";
 
-// One eval run, in its own process (see run.ts): DB_PATH puts all of zini's data (its
-// database, the repo's clone, the workspace, the run logs) in a fresh folder. The run
-// logs are linked into EVAL_RUN_DIR, the results folder, so they can be followed live;
-// the results (metrics.json, diff.patch) are written there too.
+// One eval run, in its own process (see run.ts), with its own data folder (see
+// workspace.ts). The run logs are linked into EVAL_RUN_DIR, the results folder, so they
+// can be followed live; the results (metrics.json, diff.patch) are written there too.
 
-const EVALS = resolve(import.meta.dirname, "..");
 const scenarioName = required("EVAL_SCENARIO"); // e.g. todo-app/remaining-count
 const runDir = resolve(required("EVAL_RUN_DIR"));
-const model = required("EVAL_MODEL");
-// The backend keeps the mounted ChatGPT token current; reread it for every request.
-const connection: ModelConnection = process.env.EVAL_PROVIDER === "chatgpt"
-  ? { provider: "chatgpt", token: async () => readFileSync(required("CHATGPT_TOKEN_FILE"), "utf8") }
-  : { provider: "openrouter", key: required("OPENROUTER_API_KEY") };
-const dataDir = dirname(resolve(storage));
-
-// The trusted harness stays outside the repository sandbox.
-if (existsSync("/.dockerenv")) {
-  console.error(
-    "Run the trusted harness on the host; repository commands run in the workspace sandbox.",
-  );
-  process.exit(1);
-}
-
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} isn't set`);
-  return value;
-}
-
-const git = (args: string[], cwd?: string) =>
-  execFileSync("git", ["-c", "core.autocrlf=false", "-c", "user.name=zini evals", "-c", "user.email=evals@zini.local", ...args], {
-    cwd,
-    encoding: "utf8",
-  });
-
-const repoName = scenarioName.split("/")[0]!;
 const scenarioDir = join(EVALS, "scenarios", scenarioName);
-const repoDir = join(EVALS, "repos", repoName);
 const scenario = JSON.parse(readFileSync(join(scenarioDir, "scenario.json"), "utf8")) as Scenario;
-
-// ---- The repo and the workspace --------------------------------------------------
-
-// The test repo as a fresh git repo with one commit, the scenario's patch applied.
-function makeSourceRepo() {
-  const source = join(dataDir, "source");
-  const skip = new Set(["node_modules", "dist", "data"]);
-  cpSync(repoDir, source, {
-    recursive: true,
-    filter: (path) => !skip.has(path.slice(repoDir.length + 1).split(/[\\/]/)[0] ?? ""),
-  });
-  git(["init", "--quiet", "-b", "main"], source);
-  if (scenario.patch) git(["apply", join(scenarioDir, scenario.patch)], source);
-  git(["add", "-A"], source);
-  git(["commit", "--quiet", "-m", "Initial commit"], source);
-  if (scenario.branchPatch) {
-    git(["checkout", "--quiet", "-b", `eval/${scenarioName.replace("/", "-")}`], source);
-    git(["apply", join(scenarioDir, scenario.branchPatch)], source);
-    git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Inherited implementation"], source);
-    git(["checkout", "--quiet", "main"], source);
-  }
-  if (scenario.upstreamPatch) {
-    git(["apply", join(scenarioDir, scenario.upstreamPatch)], source);
-    git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream update"], source);
-  }
-  return source;
-}
-
-// The clone zini works from, made like cloneRepo makes one from GitHub (see git.ts):
-// bare, with origin/* branches and origin/HEAD pointing at the default branch.
-function cloneLikeZini(source: string) {
-  const repo = join(dataDir, "repo.git");
-  git(["clone", "--bare", "--quiet", source, repo]);
-  git(["-C", repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
-  git(["-C", repo, "fetch", "--quiet", "origin"]);
-  git(["-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
-}
-
-// A workspace like createWorkspace makes, without Linear: its independent clone and row.
-// Scenarios can omit the image's dependency install to exercise preparation.
-async function makeWorkspace(issueId: string) {
-  await cloneWorkspace(issueId, `eval/${scenarioName.replace("/", "-")}`);
-  await ensureSandbox(issueId);
-  if (scenario.preinstalledDependencies !== false) {
-    const install = await runCommandResult(issueId, "npm ci");
-    if (install.exitCode !== 0) throw new Error(`Fixture dependencies failed: ${install.output}`);
-  }
-  await Workspace.create({ issueId, context: { branch: `eval/${scenarioName.replace("/", "-")}`, initialHead: (await workspaceGit(["-C", workspacePath(issueId), "rev-parse", "HEAD"])).trim(), targetBranch: "main",
-    sourcePr: scenario.branchPatch ? { number: 1, url: "https://github.com/evals/fixture/pull/1", state: "open", title: scenario.title, body: scenario.description } : null } });
-}
-
-// Linear, as far as the pipeline uses it: fetchLinearIssue's query, answered with the
-// scenario's issue. Any other call fails, so a new one shows up instead of misleading.
-function fakeLinear(issueId: string): LinearClient {
-  const issue = {
-    id: issueId,
-    identifier: "EVAL-1",
-    title: scenario.title,
-    description: scenario.description,
-    priority: 0,
-    url: "",
-    updatedAt: new Date().toISOString(),
-    branchName: `eval/${scenarioName}`,
-    state: { name: "Todo", type: "unstarted" },
-    assignee: null,
-    team: { key: "EVAL", name: "Evals" },
-    comments: { nodes: [] },
-  };
-  const rawRequest = async (query: string) => {
-    if (!query.includes("query Issue(")) throw new Error(`Linear call not mocked in evals:\n${query}`);
-    return { data: { issue } };
-  };
-  return { client: { rawRequest } } as unknown as LinearClient;
-}
-
-// ---- Following the run ------------------------------------------------------------
-
-// Prints each run log line as it's written: who's working and what they call.
-function followLogs(logDir: string) {
-  const read = new Map<string, number>();
-  const short = (value: unknown) => {
-    const text = typeof value === "string" ? value : JSON.stringify(value);
-    return text.length > 90 ? `${text.slice(0, 90)}…` : text;
-  };
-  const poll = () => {
-    if (!existsSync(logDir)) return;
-    for (const file of readdirSync(logDir).sort()) {
-      const role = file.replace(/\.jsonl$/, "").split("-").at(-1);
-      const lines = readFileSync(join(logDir, file), "utf8").split("\n").filter(Boolean);
-      for (const line of lines.slice(read.get(file) ?? 0)) {
-        const event = JSON.parse(line) as { event: string; name?: string; args?: Record<string, unknown>; outcome?: string };
-        if (event.event === "start") console.log(`▶ ${role}`);
-        else if (event.event === "tool_call") {
-          const first = Object.values(event.args ?? {})[0];
-          console.log(`  ${role}: ${event.name}${first === undefined ? "" : ` ${short(first)}`}`);
-        } else if (event.event === "end") console.log(`■ ${role}: ${event.outcome}`);
-      }
-      read.set(file, lines.length);
-    }
-  };
-  const timer = setInterval(poll, 1500);
-  return () => {
-    clearInterval(timer);
-    poll();
-  };
-}
+const fixture: Fixture = {
+  name: scenarioName,
+  dir: scenarioDir,
+  title: scenario.title,
+  description: scenario.description,
+  patch: scenario.patch,
+  branchPatches: scenario.branchPatch ? [scenario.branchPatch] : [],
+  upstreamPatch: scenario.upstreamPatch,
+  preinstalledDependencies: scenario.preinstalledDependencies,
+};
 
 // ---- Answering the pauses ---------------------------------------------------------
 
@@ -212,13 +86,13 @@ async function main() {
   symlinkSync(join(runDir, "logs"), join(dataDir, "forge-logs"), "junction");
 
   await initDb();
-  cloneLikeZini(makeSourceRepo());
+  cloneLikeZini(makeSourceRepo(fixture));
   const issueId = randomUUID();
-  await makeWorkspace(issueId);
+  await makeWorkspace(issueId, fixture);
   console.log(`${scenarioName}: ${scenario.title} (model ${model})`);
 
   let refreshes = 0;
-  const run = pipelineRun({ linear: fakeLinear(issueId), connection, model }, issueId, "Evals", async () => {
+  const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
     refreshes++;
     if (refreshes === 2 && scenario.upstreamAfterCoderPatch) {
       const source = join(dataDir, "source");
@@ -271,10 +145,7 @@ async function main() {
   if (existsSync(checkFile) && !isModelRateLimit(error)) {
     console.log("Running the hidden check…");
     const { default: runCheck } = (await import(pathToFileURL(checkFile).href)) as { default: Check };
-    check = await runCheck({ readFile: async path => sandboxRequest(await ensureSandbox(issueId), "file", { operation: "readText", path }), runCommand: command => runCommandResult(issueId, command), startApp: (options) => startApp(issueId, options), launchBrowser: async () => {
-      const sandbox = await ensureSandbox(issueId); await sandboxRequest(sandbox, "browser");
-      return chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
-    } }).catch(
+    check = await runCheck(checkContext(issueId)).catch(
       (err: unknown) => ({ passed: false, details: `The check failed to run: ${String(err)}` }),
     );
     console.log(`${check.passed ? "✓" : "✗"} check: ${check.details}`);

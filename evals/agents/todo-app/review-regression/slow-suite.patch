@@ -1,0 +1,115 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 88437d2..e793d3c 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -15,4 +15,5 @@ jobs:
+       - run: npm run typecheck
+       - run: npm run lint
+       - run: npm test
++      - run: npm run test:ui
+       - run: npm run build
+diff --git a/README.md b/README.md
+index 70ad6b7..ea7aaca 100644
+--- a/README.md
++++ b/README.md
+@@ -19,6 +19,7 @@ For production, `npm run build`, then `npm start`.
+ - `npm run typecheck`: TypeScript, for the server and the app
+ - `npm run lint`: ESLint
+ - `npm test`: the server's tests (Vitest)
++- `npm run test:ui`: the app's tests, against a simulated slow network (about 1.5 minutes)
+ - `npm run build`: type-checks, then builds the app into `dist/`
+ 
+ ## API
+diff --git a/package.json b/package.json
+index 2602ec1..42e9538 100644
+--- a/package.json
++++ b/package.json
+@@ -9,7 +9,8 @@
+     "build": "tsc && vite build",
+     "typecheck": "tsc",
+     "lint": "eslint .",
+-    "test": "vitest run"
++    "test": "vitest run",
++    "test:ui": "vitest run --config vitest.ui.config.ts"
+   },
+   "dependencies": {
+     "express": "^5.2.1",
+diff --git a/src/api.test.ts b/src/api.test.ts
+new file mode 100644
+index 0000000..b2ceae5
+--- /dev/null
++++ b/src/api.test.ts
+@@ -0,0 +1,57 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { addTodo, deleteTodo, fetchTodos, setDone } from "./api";
++
++// The app's API client against a simulated slow network: every response arrives after
++// LATENCY, like the production connection the app has to cope with.
++const LATENCY = 15_000;
++
++const respond = (status: number, body?: unknown) =>
++  vi.fn(
++    () =>
++      new Promise<Response>((resolve) =>
++        setTimeout(
++          () => resolve(new Response(body === undefined ? null : JSON.stringify(body), { status })),
++          LATENCY,
++        ),
++      ),
++  );
++
++const todo = { id: "a", title: "Buy milk", done: false, createdAt: "2026-01-01T00:00:00.000Z" };
++
++afterEach(() => vi.unstubAllGlobals());
++
++describe("the API client on a slow network", () => {
++  it("fetches the to-dos", async () => {
++    vi.stubGlobal("fetch", respond(200, [todo]));
++    expect(await fetchTodos()).toEqual([todo]);
++  });
++
++  it("adds a to-do", async () => {
++    const fetch = respond(201, todo);
++    vi.stubGlobal("fetch", fetch);
++    expect(await addTodo("Buy milk")).toEqual(todo);
++    expect(fetch).toHaveBeenCalledWith("/api/todos", expect.objectContaining({ method: "POST" }));
++  });
++
++  it("ticks a to-do", async () => {
++    const fetch = respond(200, { ...todo, done: true });
++    vi.stubGlobal("fetch", fetch);
++    expect((await setDone("a", true)).done).toBe(true);
++    expect(fetch).toHaveBeenCalledWith("/api/todos/a", expect.objectContaining({ method: "PATCH" }));
++  });
++
++  it("deletes a to-do", async () => {
++    vi.stubGlobal("fetch", respond(204));
++    await expect(deleteTodo("a")).resolves.toBeUndefined();
++  });
++
++  it("reports the server's error", async () => {
++    vi.stubGlobal("fetch", respond(404, { error: "No such to-do" }));
++    await expect(setDone("missing", true)).rejects.toThrow("No such to-do");
++  });
++
++  it("reports a failure without an error message", async () => {
++    vi.stubGlobal("fetch", respond(500));
++    await expect(fetchTodos()).rejects.toThrow("Request failed (500)");
++  });
++});
+diff --git a/vitest.ui.config.ts b/vitest.ui.config.ts
+new file mode 100644
+index 0000000..09929c2
+--- /dev/null
++++ b/vitest.ui.config.ts
+@@ -0,0 +1,10 @@
++import { defineConfig } from "vitest/config";
++
++// The app's tests (src/), separate from the server's: they run against a simulated
++// slow network, so they take a while.
++export default defineConfig({
++  test: {
++    include: ["src/**/*.test.ts"],
++    testTimeout: 60_000,
++  },
++});

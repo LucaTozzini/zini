@@ -7,12 +7,16 @@ import { killTree } from "../backend/src/core/processes.js";
 import { codeVersion } from "./harness/version.js";
 import { BatchConsole, followConsole } from "../backend/src/evals/batchConsole.js";
 
-// Trusted host runner: each scenario gets a separate process, database, clone,
-// workspace container and runtime volume. See evals/README.md.
+// Trusted host runner: each scenario (or with --agents, each agent test) gets a separate
+// process, database, clone, workspace container and runtime volume. See evals/README.md.
 const EVALS = import.meta.dirname;
-const SCENARIOS = join(EVALS, "scenarios");
 
 const args = process.argv.slice(2);
+const agentsAt = args.indexOf("--agents");
+const agents = agentsAt !== -1;
+if (agents) args.splice(agentsAt, 1);
+const SCENARIOS = join(EVALS, agents ? "agents" : "scenarios");
+const definition = agents ? "agent.json" : "scenario.json";
 const repeatAt = args.indexOf("--repeat");
 const repeat = repeatAt === -1 ? 1 : Number(args.splice(repeatAt, 2)[1]);
 const runAt = args.indexOf("--run");
@@ -20,7 +24,7 @@ const only = runAt === -1 ? null : Number(args.splice(runAt, 2)[1]);
 const scenarios = args.includes("all")
   ? readdirSync(SCENARIOS).flatMap((repo) =>
       readdirSync(join(SCENARIOS, repo))
-        .filter((name) => existsSync(join(SCENARIOS, repo, name, "scenario.json")))
+        .filter((name) => existsSync(join(SCENARIOS, repo, name, definition)))
         .map((name) => `${repo}/${name}`),
     )
   : args;
@@ -34,7 +38,7 @@ if (existsSync("/.dockerenv")) {
 }
 if (scenarios.length === 0 || !Number.isInteger(repeat) || repeat < 1 ||
     (only !== null && (!Number.isInteger(only) || only < 1 || only > repeat))) {
-  console.error("Usage: npx tsx evals/run.ts <repo/scenario ...|all> [--repeat N] [--run N]");
+  console.error("Usage: npx tsx evals/run.ts [--agents] <repo/name ...|all> [--repeat N] [--run N]");
   process.exit(1);
 }
 const credential = process.env.EVAL_PROVIDER === "chatgpt" ? "CHATGPT_TOKEN_FILE" : "OPENROUTER_API_KEY";
@@ -45,14 +49,15 @@ for (const name of [credential, "EVAL_MODEL"]) {
   }
 }
 for (const scenario of scenarios) {
-  if (!existsSync(join(SCENARIOS, scenario, "scenario.json"))) {
-    console.error(`No scenario at evals/scenarios/${scenario}`);
+  if (!existsSync(join(SCENARIOS, scenario, definition))) {
+    console.error(`No ${agents ? "agent test" : "scenario"} at ${join(SCENARIOS, scenario)}`);
     process.exit(1);
   }
 }
 
-const results = resolve(process.env.EVAL_RESULTS ?? join(EVALS, "results"));
-const work = resolve(process.env.EVAL_WORK ?? join(tmpdir(), "zini-evals"));
+// Agent tests' results are kept apart from scenarios', under results/agents.
+const results = join(resolve(process.env.EVAL_RESULTS ?? join(EVALS, "results")), agents ? "agents" : "");
+const work = join(resolve(process.env.EVAL_WORK ?? join(tmpdir(), "zini-evals")), agents ? "agents" : "");
 const timeoutMinutes = Number(process.env.EVAL_TIMEOUT_MINUTES) || 60;
 const batch = process.env.EVAL_BATCH ?? new Date().toISOString().replace(/[:.]/g, "-");
 const version = codeVersion();
@@ -67,12 +72,12 @@ async function cleanupRun(dataDir: string, print: (line: string) => void) {
 
 function runOne(scenario: string, runDir: string, dataDir: string, print: (line: string) => void) {
   return new Promise<number>((done) => {
-    const child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "harness", "run-one.ts")], {
+    const child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "harness", agents ? "run-agent.ts" : "run-one.ts")], {
       stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
       env: {
         ...process.env,
         DB_PATH: join(dataDir, "zini.sqlite"),
-        EVAL_SCENARIO: scenario,
+        [agents ? "EVAL_AGENT" : "EVAL_SCENARIO"]: scenario,
         EVAL_RUN_DIR: runDir,
       },
     });

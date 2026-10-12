@@ -13,15 +13,17 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
-import { summarizeRuns, type EvalBatch, type RunMetrics } from "shared";
+import { summarizeRuns, type EvalBatch, type EvalKind, type RunMetrics } from "shared";
 import { errorMessage } from "../api/client.ts";
 import {
   useEvalBatches,
@@ -33,16 +35,18 @@ import {
 } from "../api/evals.ts";
 import DiffView from "../components/pipeline/DiffView.tsx";
 
-// Runs the forge on test scenarios (see evals/README.md) and shows the results: start
-// one, watch its output, and look at past batches, alone or compared with another.
+// Runs the forge on test scenarios, or one agent on an agent test (see evals/README.md),
+// and shows the results: start one, watch its output, and look at past batches, alone or
+// compared with another.
 
 // When a batch started, from its id (an ISO time with : and . as -).
 const batchTime = (id: string) =>
   new Date(id.replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)$/, "$1:$2:$3.$4")).toLocaleString();
 
-// A button that opens the form for starting an eval: a repo, a scenario and how many runs.
-function StartEval({ disabled }: { disabled: boolean }) {
-  const scenarios = useEvalScenarios();
+// A button that opens the form for starting an eval: a repo, a scenario (or agent test)
+// and how many runs.
+function StartEval({ kind, disabled }: { kind: EvalKind; disabled: boolean }) {
+  const scenarios = useEvalScenarios(kind);
   const start = useStartEval();
   const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState("");
@@ -85,7 +89,7 @@ function StartEval({ disabled }: { disabled: boolean }) {
             <TextField
               select
               size="small"
-              label="Scenario"
+              label={kind === "agents" ? "Agent test" : "Scenario"}
               value={scenario}
               onChange={(e) => setScenario(e.target.value)}
               disabled={!repo}
@@ -105,8 +109,9 @@ function StartEval({ disabled }: { disabled: boolean }) {
               slotProps={{ htmlInput: { min: 1, max: 10 } }}
             />
             <Typography variant="body2" color="text.secondary">
-              Each run is a full pipeline run in a Docker container. It spends OpenRouter credit, with the
-              Forge's model, and can take a while.
+              {kind === "agents"
+                ? "Each run is one agent run from the test's starting point, in a Docker container, with the Forge's model."
+                : "Each run is a full pipeline run in a Docker container, with the Forge's model, and can take a while."}
             </Typography>
           </Stack>
         </DialogContent>
@@ -116,7 +121,7 @@ function StartEval({ disabled }: { disabled: boolean }) {
             variant="contained"
             disabled={disabled || !chosen}
             loading={start.isPending}
-            onClick={() => start.mutate({ scenario, repeat }, { onSuccess: () => setOpen(false) })}
+            onClick={() => start.mutate({ kind, scenario, repeat }, { onSuccess: () => setOpen(false) })}
           >
             Start
           </Button>
@@ -144,7 +149,9 @@ function EvalOutput() {
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={2} sx={{ alignItems: "center", justifyContent: "space-between" }}>
           <Typography variant="h6">
-            {running ? `Running ${running.scenario} (${running.repeat} run${running.repeat === 1 ? "" : "s"})` : "Latest eval"}
+            {running
+              ? `Running ${running.kind === "agents" ? "agent test " : ""}${running.scenario} (${running.repeat} run${running.repeat === 1 ? "" : "s"})`
+              : "Latest eval"}
           </Typography>
           {running && (
             <Button color="error" loading={stop.isPending} onClick={() => stop.mutate()}>
@@ -194,10 +201,10 @@ function SummaryTable({ runs, compare }: { runs: RunMetrics[]; compare?: RunMetr
   );
 }
 
-// One run: how it went, its hidden check, and what it changed.
-function RunDetails({ batch, run }: { batch: EvalBatch; run: EvalBatch["runs"][number] }) {
+// One run: how it went, its hidden check, and what it changed (agent tests change nothing).
+function RunDetails({ kind, batch, run }: { kind: EvalKind; batch: EvalBatch; run: EvalBatch["runs"][number] }) {
   const [showDiff, setShowDiff] = useState(false);
-  const diff = useEvalRunDiff(batch.scenario, batch.id, run.id, showDiff);
+  const diff = useEvalRunDiff(kind, batch.scenario, batch.id, run.id, showDiff);
   const m = run.metrics;
   return (
     <Box sx={{ py: 1, borderTop: 1, borderColor: "divider" }}>
@@ -209,7 +216,9 @@ function RunDetails({ batch, run }: { batch: EvalBatch; run: EvalBatch["runs"][n
       ) : (
         <Stack spacing={0.5}>
           <Typography variant="body2">
-            {m.rateLimited ? "Model rate limited" : m.finished ? "Finished" : "Didn't finish"} · QA {m.qaVerdict ?? "didn't report"} · {Math.round(m.seconds)}s ·{" "}
+            {m.rateLimited ? "Model rate limited" : m.finished ? "Finished" : "Didn't finish"} ·{" "}
+            {kind === "scenarios" && `QA ${m.qaVerdict ?? "didn't report"} · `}
+            {Math.round(m.seconds)}s ·{" "}
             {m.totals.toolCalls} tool calls · {Math.round(m.totals.inputTokens / 1000)}k tokens in · model {m.model}
           </Typography>
           {m.error && <Alert severity="error">{m.error}</Alert>}
@@ -218,11 +227,13 @@ function RunDetails({ batch, run }: { batch: EvalBatch; run: EvalBatch["runs"][n
               Hidden check: {m.check.details}
             </Alert>
           )}
-          <Box>
-            <Button size="small" onClick={() => setShowDiff((s) => !s)}>
-              {showDiff ? "Hide changes" : "Show changes"}
-            </Button>
-          </Box>
+          {kind === "scenarios" && (
+            <Box>
+              <Button size="small" onClick={() => setShowDiff((s) => !s)}>
+                {showDiff ? "Hide changes" : "Show changes"}
+              </Button>
+            </Box>
+          )}
           <Collapse in={showDiff} unmountOnExit>
             {diff.isError && <Alert severity="error">{errorMessage(diff.error)}</Alert>}
             {diff.data !== undefined &&
@@ -259,11 +270,11 @@ function batchRow(b: EvalBatch) {
   };
 }
 
-// Past batches of one scenario. Selecting one shows its summary and runs; a second is its
-// baseline, compared with it.
-function Results() {
-  const batches = useEvalBatches();
-  const scenarios = useEvalScenarios();
+// Past batches of one scenario (or agent test). Selecting one shows its summary and runs;
+// a second is its baseline, compared with it.
+function Results({ kind }: { kind: EvalKind }) {
+  const batches = useEvalBatches(kind);
+  const scenarios = useEvalScenarios(kind);
   const status = useEvalStatus();
   const [chosenScenario, setChosenScenario] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -271,7 +282,8 @@ function Results() {
   if (batches.isError) return <Alert severity="error">{errorMessage(batches.error)}</Alert>;
   const all = batches.data ?? [];
   // Until one is chosen: the running eval's scenario, or the latest batch's.
-  const scenario = chosenScenario || status.data?.running?.scenario || all[0]?.scenario || "";
+  const running = status.data?.running?.kind === kind ? status.data.running.scenario : "";
+  const scenario = chosenScenario || running || all[0]?.scenario || "";
   const list = all.filter((b) => b.scenario === scenario);
   const [main, other] = selected.map((id) => list.find((b) => b.id === id)).filter((b): b is EvalBatch => Boolean(b));
   const toggle = (id: string) =>
@@ -283,7 +295,7 @@ function Results() {
       <TextField
         select
         size="small"
-        label="Scenario"
+        label={kind === "agents" ? "Agent test" : "Scenario"}
         value={scenario}
         onChange={(e) => {
           setChosenScenario(e.target.value);
@@ -297,7 +309,7 @@ function Results() {
         ))}
       </TextField>
       {!batches.data ? null : list.length === 0 ? (
-        <Typography color="text.secondary">No results for this scenario yet.</Typography>
+        <Typography color="text.secondary">No results for this {kind === "agents" ? "agent test" : "scenario"} yet.</Typography>
       ) : (
         <>
           <Typography variant="body2" color="text.secondary">
@@ -312,7 +324,7 @@ function Results() {
                   <TableCell>Model</TableCell>
                   <TableCell>zini hash</TableCell>
                   <TableCell align="right">Check</TableCell>
-                  <TableCell align="right">QA</TableCell>
+                  {kind === "scenarios" && <TableCell align="right">QA</TableCell>}
                   <TableCell>Issues</TableCell>
                 </TableRow>
               </TableHead>
@@ -331,7 +343,7 @@ function Results() {
                       <TableCell>{row.model}</TableCell>
                       <TableCell sx={{ fontFamily: "monospace" }}>{row.code}</TableCell>
                       <TableCell align="right">{row.check}</TableCell>
-                      <TableCell align="right">{row.qa}</TableCell>
+                      {kind === "scenarios" && <TableCell align="right">{row.qa}</TableCell>}
                       <TableCell>{row.issues}</TableCell>
                     </TableRow>
                   );
@@ -349,12 +361,12 @@ function Results() {
           </Typography>
           <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
           {main.hasLog && (
-            <Button component="a" href={`/api/evals/batches/${main.scenario}/${main.id}/log`} target="_blank" rel="noopener" sx={{ alignSelf: "flex-start" }}>
+            <Button component="a" href={`/api/evals/batches/${main.scenario}/${main.id}/log?kind=${kind}`} target="_blank" rel="noopener" sx={{ alignSelf: "flex-start" }}>
               Open full batch log
             </Button>
           )}
           {main.runs.map((run) => (
-            <RunDetails key={run.id} batch={main} run={run} />
+            <RunDetails key={run.id} kind={kind} batch={main} run={run} />
           ))}
         </Stack>
       )}
@@ -364,12 +376,17 @@ function Results() {
 
 function EvalsPage() {
   const status = useEvalStatus();
+  const [kind, setKind] = useState<EvalKind>("scenarios");
   return (
     <Container maxWidth="md" sx={{ py: 3 }}>
       <Stack spacing={2}>
-        <StartEval disabled={Boolean(status.data?.running)} />
+        <Tabs value={kind} onChange={(_e, value: EvalKind) => setKind(value)}>
+          <Tab value="scenarios" label="Scenarios" />
+          <Tab value="agents" label="Agent tests" />
+        </Tabs>
+        <StartEval key={kind} kind={kind} disabled={Boolean(status.data?.running)} />
         <EvalOutput />
-        <Results />
+        <Results key={kind} kind={kind} />
       </Stack>
     </Container>
   );

@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { EvalBatch, EvalScenario, EvalStatus } from 'shared'
+import type { EvalBatch, EvalKind, EvalScenario, EvalStatus } from 'shared'
 import { api } from './client.ts'
 
 export const evalsKey = ['evals']
 const statusKey = [...evalsKey, 'status']
 
-export function useEvalScenarios() {
+// The scenarios, or the agent tests.
+export function useEvalScenarios(kind: EvalKind) {
   return useQuery({
-    queryKey: [...evalsKey, 'scenarios'],
-    queryFn: () => api.get('evals/scenarios').json<EvalScenario[]>(),
+    queryKey: [...evalsKey, 'scenarios', kind],
+    queryFn: () => api.get('evals/scenarios', { searchParams: { kind } }).json<EvalScenario[]>(),
   })
 }
 
@@ -22,18 +23,18 @@ export function useEvalStatus() {
 
 // Every batch of results, newest first; refetched with the status, so a finished run
 // shows up.
-export function useEvalBatches() {
+export function useEvalBatches(kind: EvalKind) {
   return useQuery({
-    queryKey: [...evalsKey, 'batches'],
-    queryFn: () => api.get('evals/batches').json<EvalBatch[]>(),
+    queryKey: [...evalsKey, 'batches', kind],
+    queryFn: () => api.get('evals/batches', { searchParams: { kind } }).json<EvalBatch[]>(),
   })
 }
 
 // What one run changed, fetched while enabled (e.g. its diff is open).
-export function useEvalRunDiff(scenario: string, batch: string, run: string, enabled: boolean) {
+export function useEvalRunDiff(kind: EvalKind, scenario: string, batch: string, run: string, enabled: boolean) {
   return useQuery({
-    queryKey: [...evalsKey, 'diff', scenario, batch, run],
-    queryFn: () => api.get(`evals/batches/${scenario}/${batch}/${run}/diff`).text(),
+    queryKey: [...evalsKey, 'diff', kind, scenario, batch, run],
+    queryFn: () => api.get(`evals/batches/${scenario}/${batch}/${run}/diff`, { searchParams: { kind } }).text(),
     enabled,
   })
 }
@@ -42,7 +43,7 @@ export function useEvalRunDiff(scenario: string, batch: string, run: string, ena
 export function useStartEval() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (start: { scenario: string; repeat: number }) => api.post('evals/runs', { json: start }),
+    mutationFn: (start: { kind: EvalKind; scenario: string; repeat: number }) => api.post('evals/runs', { json: start }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: statusKey }),
   })
 }

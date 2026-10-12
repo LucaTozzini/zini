@@ -12,7 +12,7 @@ export function codeVersion(root = resolve(import.meta.dirname, "../..")) {
       else if (/\.(ts|json|patch)$/.test(entry.name)) hash.update(path).update("\0").update(readFileSync(join(root, path)));
     }
   }
-  for (const folder of ["backend/src", "shared/src", "evals/harness", "evals/scenarios"]) add(folder);
+  for (const folder of ["backend/src", "shared/src", "evals/harness", "evals/scenarios", "evals/agents"]) add(folder);
   hash.update(readFileSync(join(root, "evals/run.ts")));
   hash.update(readFileSync(join(root, "package-lock.json")));
   for (const file of ["sandbox/Dockerfile", "sandbox/gateway.ts", "sandbox/entrypoint.sh", "sandbox/package-lock.json", "sandbox/workspaceFiles.ts", "sandbox/trustedGit.ts", "sandbox/gitPolicy.ts"]) hash.update(file).update(readFileSync(join(root, file)));

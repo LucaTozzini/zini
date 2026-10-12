@@ -77,6 +77,21 @@ The continuation scenarios cover partial and complete implementations, initial c
 
 Runs also save `zini.diff.patch` (changes since the initial head) and `git.json` (initial/final heads, commit history, latest integration, validated revision, refresh count and unfinished Git state). A completed run with dirty files or a pending merge fails the harness. Scenario patch contents contribute to `codeVersion`.
 
+## Agent tests
+
+An agent test runs one Forge agent once, from a fixed starting point, instead of the
+whole pipeline: `agents/<repo>/<name>/agent.json` names the role (only `reviewer` so far),
+the issue, the patches for main (`patch`) and the issue branch (`branchPatches`,
+committed one by one), a `state` file of pipeline state (e.g. the approved plan) and a
+`history` file of the agent's earlier conversation, standing in for what it remembers.
+Its `check.ts` gets the run's log and the submitted document as well as the workspace,
+so it can check how the agent worked, not just what it decided.
+
+Run them from the Evals page's Agent tests tab, or with
+`node --import tsx evals/run.ts --agents todo-app/review-repair --repeat 1`. Results go to
+`results/agents/<repo>/<name>/<batch>/run-N/`, with `document.json` (what the agent
+submitted) next to the usual files.
+
 ## PostgreSQL and Redis
 
 `todo-app/postgres-redis` adds a SQL-backed todo statistics API and Redis cache to the fixture through a scenario patch. Dependencies start uninstalled. Interactive setup must provision PostgreSQL 16 and Redis 7, install locked dependencies, migrate, seed, verify fixtures and probe backend readiness. The issue fixes an incorrect remaining count. Hidden checks use real SQL and Redis clients to verify counts, caching, invalidation and app-restart persistence; the original file-backed API must remain available.

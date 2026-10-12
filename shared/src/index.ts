@@ -367,8 +367,12 @@ export type RunLogSummary = {
 
 // ---- Evals (see evals/README.md) ---------------------------------------------------
 
-// A scenario the forge can be evaluated on: evals/scenarios/<repo>/<name>. id is
-// "<repo>/<name>".
+// What an eval runs: scenarios run the whole Forge pipeline on an issue
+// (evals/scenarios), agent tests run one agent from a fixed starting point
+// (evals/agents).
+export type EvalKind = "scenarios" | "agents";
+
+// A scenario or agent test: evals/<kind>/<repo>/<name>. id is "<repo>/<name>".
 export type EvalScenario = { id: string; repo: string; name: string; title: string };
 
 // One subagent role's share of an eval run, from its run logs.
@@ -417,7 +421,7 @@ export type EvalBatch = {
 // The eval going on now, if any, and the console output of the latest one, as returned by
 // GET /api/evals/status. One runs at a time.
 export type EvalStatus = {
-  running: { scenario: string; repeat: number; startedAt: string } | null;
+  running: { kind: EvalKind; scenario: string; repeat: number; startedAt: string } | null;
   output: string[];
   // How the latest one ended: null while it runs, or if there hasn't been one.
   ended: { ok: boolean; error: string | null } | null;

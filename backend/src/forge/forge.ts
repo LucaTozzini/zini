@@ -5,6 +5,7 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { createAgent, toolStrategy } from "langchain";
 import type {
   AgentRole,
+  LinearIssueDetails,
   PendingApproval,
   PipelineResume,
   PipelineRedirect,
@@ -108,26 +109,22 @@ const pausedLogs = new Map<string, RunLog>();
 // its messages, and long ones are compacted. Without, it starts fresh every time. Each
 // run is logged (see runLog.ts). Repository commands execute in the Docker sandbox
 // without tool approvals. The pipeline owns plan approval and clarification pauses.
-async function runSubagent<S extends z.ZodObject>(
+export type Subagent<S extends z.ZodObject> = {
+  role: AgentRole;
+  prompt: string;
+  tools: StructuredToolInterface[];
+  schema: S;
+  input: string;
+  remember?: boolean;
+  // Messages before the input: an earlier conversation an agent eval starts from.
+  history?: BaseMessage[];
+  // What's wrong with a submitted document, or nothing if it's valid.
+  validate?: (document: z.infer<S>) => string | undefined | Promise<string | undefined>;
+};
+
+export async function runSubagent<S extends z.ZodObject>(
   { setup, issueId, notify, signal, execution }: Run,
-  {
-    role,
-    prompt,
-    tools,
-    schema,
-    input,
-    remember = false,
-    validate,
-  }: {
-    role: AgentRole;
-    prompt: string;
-    tools: StructuredToolInterface[];
-    schema: S;
-    input: string;
-    remember?: boolean;
-    // What's wrong with a submitted document, or nothing if it's valid.
-    validate?: (document: z.infer<S>) => string | undefined | Promise<string | undefined>;
-  },
+  { role, prompt, tools, schema, input, remember = false, history = [], validate }: Subagent<S>,
 ): Promise<z.infer<S>> {
   const logKey = `${issueId}:${role}`;
   let log = pausedLogs.get(logKey);
@@ -188,7 +185,7 @@ async function runSubagent<S extends z.ZodObject>(
     return { messages: result.messages ?? [], document: result.structuredResponse };
   };
   try {
-    let { messages, document } = await respond([{ role: "user", content: input }]);
+    let { messages, document } = await respond([...history, { role: "user", content: input }]);
     // A document that breaks a rule its schema can't express goes back to the agent
     // with the error, on top of its conversation (its memory only lasts one call).
     for (let attempt = 1, error = await validate?.(document); error; attempt++, error = await validate?.(document)) {
@@ -206,10 +203,65 @@ async function runSubagent<S extends z.ZodObject>(
   }
 }
 
+// The reviewer for the issue's state: its agent, and what its document adds to the
+// state. Shared by the pipeline and agent evals (evals/agents).
+export async function reviewerAgent(issueId: string, issue: LinearIssueDetails, state: State) {
+  const fingerprint = (path: string) => fingerprintWorkspaceFile(issueId, path);
+  const book = await freshRunbook(state.runbook ?? {}, fingerprint);
+  const revision = await workspaceRevision(issueId);
+  const evidence = new ReviewEvidence(state.checksReport, revision);
+  const preparation = new SetupEvidence(state.environmentReport, revision, () => { evidence.results = []; });
+  const agent: Subagent<typeof REVIEW_SCHEMA> = {
+    role: "reviewer",
+    tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence)],
+    schema: REVIEW_SCHEMA,
+    prompt: `${REVIEWER_PROMPT}
+
+${inputText(issue, [
+      ["Workspace starting point", JSON.stringify(await workspaceContext(issueId))],
+      ["Upstream integration", JSON.stringify(state.integration)],
+      ["The approved plan", state.plan && planText(state.plan)],
+      ["The user's answers", clarificationsText(state.clarifications)],
+      ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
+      ["Repo runbook", runbookText(book, state.checksReport)],
+      ["Recorded deterministic checks", checksText(state.checksReport)],
+      ["Previous environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
+      ["Configured development variable names (values are private)", await developmentEnvironmentContext()],
+      [
+        "The user's feedback on the changes (they must be applied too)",
+        state.implementationFeedback.length > 0 &&
+          listText(state.implementationFeedback),
+      ],
+      [
+        "Previous QA report (historical findings to reassess against the current implementation)",
+        state.qaReport && JSON.stringify(state.qaReport),
+      ],
+    ])}`,
+    input: "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks.",
+    remember: true,
+    validate: async review => {
+      const invalid = evidence.validate(review);
+      if (invalid) return invalid;
+      if (!review.requiredChanges.length && !review.blockingQuestions.length) {
+        try { await workspaceServiceHealth(issueId); }
+        catch (error) { return `Required workspace service is not healthy: ${String(error)}. Repair it or submit blockingQuestions.`; }
+      }
+      if (await workspaceRevision(issueId) !== revision) return "Validation changed tracked source. Restore it; report necessary source changes to coder instead of editing implementation.";
+    },
+  };
+  const finish = async (document: z.infer<typeof REVIEW_SCHEMA>) => {
+    const { runbookUpdates, noChecksReason, ...review } = document;
+    return { review, checksReport: evidence.report(noChecksReason),
+      environmentReport: preparation.report(review),
+      runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
+  };
+  return { agent, finish };
+}
+
 // ---- The graph -------------------------------------------------------------------
 
 // What running a node needs. Absent when the graph is only read (getPipeline).
-type Run = { setup: Setup; issueId: string; notify: () => void; signal?: AbortSignal; execution: PipelineExecution; username?: string; refreshUpstream?: () => Promise<void> };
+export type Run = { setup: Setup; issueId: string; notify: () => void; signal?: AbortSignal; execution: PipelineExecution; username?: string; refreshUpstream?: () => Promise<void> };
 
 // A run of the issue's pipeline, which tells every connected webapp whenever it changes.
 export const pipelineRun = (setup: Setup, issueId: string, username?: string, refreshUpstream?: () => Promise<void>): Run => ({
@@ -317,53 +369,11 @@ function buildPipeline(run: Run | null) {
 
   async function reviewer(state: State) {
     const { issueId } = need();
-    const book = await runbook(state);
-    const revision = await workspaceRevision(issueId);
-    const evidence = new ReviewEvidence(state.checksReport, revision);
-    const preparation = new SetupEvidence(state.environmentReport, revision, () => { evidence.results = []; });
+    const { agent, finish } = await reviewerAgent(issueId, await issue(), state);
     let document;
-    try {
-      document = await runSubagent(need(), {
-      role: "reviewer",
-      tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence)],
-      schema: REVIEW_SCHEMA,
-      prompt: `${REVIEWER_PROMPT}\n\n${inputText(await issue(), [
-        ["Workspace starting point", JSON.stringify(await workspaceContext(need().issueId))],
-        ["Upstream integration", JSON.stringify(state.integration)],
-        ["The approved plan", state.plan && planText(state.plan)],
-        ["The user's answers", clarificationsText(state.clarifications)],
-        ["Forge steering feedback (oldest first)", listText(state.steeringFeedback ?? [])],
-        ["Repo runbook", runbookText(book, state.checksReport)],
-        ["Recorded deterministic checks", checksText(state.checksReport)],
-        ["Previous environment preparation", state.environmentReport && JSON.stringify(state.environmentReport)],
-        ["Configured development variable names (values are private)", await developmentEnvironmentContext()],
-        [
-          "The user's feedback on the changes (they must be applied too)",
-          state.implementationFeedback.length > 0 &&
-            listText(state.implementationFeedback),
-        ],
-        [
-          "Previous QA report (historical findings to reassess against the current implementation)",
-          state.qaReport && JSON.stringify(state.qaReport),
-        ],
-      ])}`,
-      input: "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks.",
-      remember: true,
-      validate: async review => {
-        const invalid = evidence.validate(review);
-        if (invalid) return invalid;
-        if (!review.requiredChanges.length && !review.blockingQuestions.length) {
-          try { await workspaceServiceHealth(issueId); }
-          catch (error) { return `Required workspace service is not healthy: ${String(error)}. Repair it or submit blockingQuestions.`; }
-        }
-        if (await workspaceRevision(issueId) !== revision) return "Validation changed tracked source. Restore it; report necessary source changes to coder instead of editing implementation.";
-      },
-    });
-    } finally { await stopAllProcesses(issueId); }
-    const { runbookUpdates, noChecksReason, ...review } = document;
-    return { review, checksReport: evidence.report(noChecksReason),
-      environmentReport: preparation.report(review),
-      runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
+    try { document = await runSubagent(need(), agent); }
+    finally { await stopAllProcesses(issueId); }
+    return finish(document);
   }
 
   // QA runs commands automatically in Docker. Its processes and browser are stopped

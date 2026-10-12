@@ -2,7 +2,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { EvalBatch, EvalScenario, EvalStatus, RunMetrics } from "shared";
+import type { EvalBatch, EvalKind, EvalScenario, EvalStatus, RunMetrics } from "shared";
 import { sendEvent } from "../core/events.js";
 import { loadConnection, type ModelConnection } from "../providers/modelProvider.js";
 import { getSetting } from "../core/settings.js";
@@ -15,8 +15,11 @@ import { BatchConsole, followConsole, readConsoleTail } from "./batchConsole.js"
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..");
 const EVALS = join(ROOT, "evals");
-const SCENARIOS = join(EVALS, "scenarios");
 const RESULTS = join(EVALS, "results");
+// Scenarios' results are in results/, agent tests' in results/agents/.
+const results = (kind: EvalKind) => (kind === "agents" ? join(RESULTS, "agents") : RESULTS);
+const definition = (kind: EvalKind) => (kind === "agents" ? "agent.json" : "scenario.json");
+export const isEvalKind = (value: unknown): value is EvalKind => value === "scenarios" || value === "agents";
 
 // A folder name from a URL, before it's used in a path: no "..", no separators.
 const NAME = /^[\w.-]+$/;
@@ -30,13 +33,14 @@ const subfolders = (dir: string) =>
         .sort()
     : [];
 
-// Every scenario, by repo.
-export function listScenarios(): EvalScenario[] {
-  return subfolders(SCENARIOS).flatMap((repo) =>
-    subfolders(join(SCENARIOS, repo))
-      .filter((name) => existsSync(join(SCENARIOS, repo, name, "scenario.json")))
+// Every scenario (or agent test), by repo.
+export function listScenarios(kind: EvalKind = "scenarios"): EvalScenario[] {
+  const folder = join(EVALS, kind);
+  return subfolders(folder).flatMap((repo) =>
+    subfolders(join(folder, repo))
+      .filter((name) => existsSync(join(folder, repo, name, definition(kind))))
       .map((name) => {
-        const { title } = JSON.parse(readFileSync(join(SCENARIOS, repo, name, "scenario.json"), "utf8")) as {
+        const { title } = JSON.parse(readFileSync(join(folder, repo, name, definition(kind)), "utf8")) as {
           title: string;
         };
         return { id: `${repo}/${name}`, repo, name, title };
@@ -44,16 +48,17 @@ export function listScenarios(): EvalScenario[] {
   );
 }
 
-// Every batch of runs in evals/results, newest first (batch ids are when they started).
-export function listBatches(): EvalBatch[] {
-  return listScenarios()
+// Every batch of runs of a kind, newest first (batch ids are when they started).
+export function listBatches(kind: EvalKind = "scenarios"): EvalBatch[] {
+  const folder = results(kind);
+  return listScenarios(kind)
     .flatMap(({ id: scenario }) =>
-      subfolders(join(RESULTS, scenario)).map((batch) => ({
+      subfolders(join(folder, scenario)).map((batch) => ({
         scenario,
         id: batch,
-        hasLog: existsSync(join(RESULTS, scenario, batch, "console.log")),
-        runs: subfolders(join(RESULTS, scenario, batch)).map((run) => {
-          const file = join(RESULTS, scenario, batch, run, "metrics.json");
+        hasLog: existsSync(join(folder, scenario, batch, "console.log")),
+        runs: subfolders(join(folder, scenario, batch)).map((run) => {
+          const file = join(folder, scenario, batch, run, "metrics.json");
           return { id: run, metrics: existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RunMetrics) : null };
         }),
       })),
@@ -62,15 +67,15 @@ export function listBatches(): EvalBatch[] {
 }
 
 // What a run changed in its repo, or null if there's no such run (or no diff yet).
-export function runDiff(repo: string, name: string, batch: string, run: string) {
+export function runDiff(kind: EvalKind, repo: string, name: string, batch: string, run: string) {
   if (![repo, name, batch, run].every(isName)) return null;
-  const file = join(RESULTS, repo, name, batch, run, "diff.patch");
+  const file = join(results(kind), repo, name, batch, run, "diff.patch");
   return existsSync(file) ? readFileSync(file, "utf8") : null;
 }
 
-export function batchLogFile(repo: string, name: string, batch: string) {
+export function batchLogFile(kind: EvalKind, repo: string, name: string, batch: string) {
   if (![repo, name, batch].every(isName)) return null;
-  const file = join(RESULTS, repo, name, batch, "console.log");
+  const file = join(results(kind), repo, name, batch, "console.log");
   return existsSync(file) ? file : null;
 }
 
@@ -95,7 +100,7 @@ export async function dockerRunning() {
 
 // Builds the common workspace image, then runs a trusted host harness. Credentials
 // go only to that harness; sandbox commands receive their own minimal environment.
-export function runInDocker(scenario: string, repeat: number, { connection, model }: { connection: ModelConnection; model: string },
+export function runInDocker(kind: EvalKind, scenario: string, repeat: number, { connection, model }: { connection: ModelConnection; model: string },
   onLine: (line: string) => void, batch = new Date().toISOString().replace(/[:.]/g, "-")) {
   let child: ChildProcess | null = null;
   let stopped = false;
@@ -112,7 +117,7 @@ export function runInDocker(scenario: string, repeat: number, { connection, mode
       ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: join(credentials!.directory, "access-token") }
       : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
     const code = await new Promise<number | null>(done => {
-      child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "run.ts"), scenario, "--repeat", String(repeat)], {
+      child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "run.ts"), ...(kind === "agents" ? ["--agents"] : []), scenario, "--repeat", String(repeat)], {
         cwd: ROOT, windowsHide: true, detached: process.platform !== "win32",
         env: { ...process.env, ...credential, EVAL_MODEL: model, EVAL_BATCH: batch, EVAL_WORK: work, EVAL_RESULTS: RESULTS, EVAL_CONSOLE_CAPTURED: "1" },
       });
@@ -156,21 +161,24 @@ function notify() {
 export function evalStatus(): EvalStatus {
   if (!restoredOutput) {
     restoredOutput = true;
-    const latest = listBatches().find(batch => existsSync(join(RESULTS, batch.scenario, batch.id, "console.log")));
+    const latest = (["scenarios", "agents"] as const)
+      .flatMap((kind) => listBatches(kind).filter((batch) => batch.hasLog).map((batch) => ({ ...batch, folder: join(results(kind), batch.scenario, batch.id) })))
+      .sort((a, b) => b.id.localeCompare(a.id))[0];
     if (latest) {
-      const folder = join(RESULTS, latest.scenario, latest.id);
+      const folder = latest.folder;
       output = readConsoleTail(join(folder, "console.log"));
       const result = join(folder, "console-result.json");
       if (existsSync(result)) ended = JSON.parse(readFileSync(result, "utf8")) as EvalStatus["ended"];
     }
   }
-  return { running: running && { scenario: running.scenario, repeat: running.repeat, startedAt: running.startedAt }, output, ended };
+  return { running: running && { kind: running.kind, scenario: running.scenario, repeat: running.repeat, startedAt: running.startedAt }, output, ended };
 }
 
-// Starts repeat runs of scenario; answers once it's started, or with why it can't.
-export async function startEval(scenario: string, repeat: number): Promise<string | null> {
+// Starts repeat runs of a scenario or agent test; answers once it's started, or with why
+// it can't.
+export async function startEval(kind: EvalKind, scenario: string, repeat: number): Promise<string | null> {
   if (running) return "An eval is already running";
-  if (!listScenarios().some((s) => s.id === scenario)) return "No such scenario";
+  if (!listScenarios(kind).some((s) => s.id === scenario)) return kind === "agents" ? "No such agent test" : "No such scenario";
   if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) return "Runs must be between 1 and 10";
   const settings = await evalSettings();
   if (typeof settings === "string") return settings;
@@ -178,16 +186,16 @@ export async function startEval(scenario: string, repeat: number): Promise<strin
   if (running) return "An eval is already running";
 
   const batch = new Date().toISOString().replace(/[:.]/g, "-");
-  const folder = join(RESULTS, scenario, batch);
+  const folder = join(results(kind), scenario, batch);
   const log = new BatchConsole(join(folder, "console.log"));
   restoredOutput = true;
   output = log.tail;
   ended = null;
-  const { done, stop } = runInDocker(scenario, repeat, settings, (line) => {
+  const { done, stop } = runInDocker(kind, scenario, repeat, settings, (line) => {
     log.append(line);
     notify();
   }, batch);
-  running = { scenario, repeat, startedAt: new Date().toISOString(), stop };
+  running = { kind, scenario, repeat, startedAt: new Date().toISOString(), stop };
   notify();
   void done.then((result) => {
     if (result.error) log.append(result.error);
