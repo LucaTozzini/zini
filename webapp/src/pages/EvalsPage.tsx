@@ -384,9 +384,9 @@ function EvalsPage() {
           <Tab value="scenarios" label="Scenarios" />
           <Tab value="agents" label="Agent tests" />
         </Tabs>
-        <StartEval key={kind} kind={kind} disabled={Boolean(status.data?.running)} />
+        <StartEval key={`start-${kind}`} kind={kind} disabled={Boolean(status.data?.running)} />
         <EvalOutput />
-        <Results key={kind} kind={kind} />
+        <Results key={`results-${kind}`} kind={kind} />
       </Stack>
     </Container>
   );
