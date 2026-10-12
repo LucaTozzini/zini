@@ -22,9 +22,8 @@ You can also run the trusted harness with `node --import tsx evals/run.ts all --
 from the repository root after `npm run sandbox:build`. Set `EVAL_MODEL` and either
 `OPENROUTER_API_KEY`, or `EVAL_PROVIDER=chatgpt` and `CHATGPT_TOKEN_FILE`.
 
-Scenario answers and plan approvals remain scripted. Sandbox commands no longer
-produce approval pauses, so the existing `commandsApproved` metric is normally zero;
-legacy paused checkpoints remain compatible. Unsupported runtimes or configuration
+Scenario answers and plan approvals remain scripted. Sandbox commands run without
+approval pauses. Unsupported runtimes or configuration
 failures still surface as blocked validation or questions.
 
 Each run has its own container, network, files volume, runtime volume and database.
@@ -39,6 +38,7 @@ Results stay in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
 
 - `logs/`: live Forge role logs
 - `diff.patch`: workspace changes before hidden checks
+- `validation.json`: setup evidence, Reviewer-executed checks, review decision and QA report
 - `metrics.json`: timing, tokens, tool calls, questions, plan approvals, QA verdict,
   hidden-check result, `codeVersion` and `rateLimited`
 
@@ -68,3 +68,21 @@ loopback proxy (`app.url`); browser checks use the container-local `app.browserU
 Fixture data lives in the persistent runtime volume, outside tracked source.
 
 Linear is stubbed with the scenario issue. Runs do not use GitHub.
+
+## Continuation and integration scenarios
+
+Scenarios can supply `branchPatch` to seed committed inherited work, `upstreamPatch` to advance main before Forge starts, and `upstreamAfterCoderPatch` to advance it at the second upstream checkpoint. The latter runs after coder for normal implementations, or at the final checkpoint when a completed inherited implementation skips coder. The harness refreshes a controlled local upstream while using production merge/commit logic; no live Linear or GitHub credentials are needed.
+
+The continuation scenarios cover partial and complete implementations, initial conflicts, and upstream advancement with and without a coder round. Their hidden checks cover both inherited behavior and upstream preservation. Existing scenarios remain the baseline.
+
+Runs also save `zini.diff.patch` (changes since the initial head) and `git.json` (initial/final heads, commit history, latest integration, validated revision, refresh count and unfinished Git state). A completed run with dirty files or a pending merge fails the harness. Scenario patch contents contribute to `codeVersion`.
+
+## PostgreSQL and Redis
+
+`todo-app/postgres-redis` adds a SQL-backed todo statistics API and Redis cache to the fixture through a scenario patch. Dependencies start uninstalled. Interactive setup must provision PostgreSQL 16 and Redis 7, install locked dependencies, migrate, seed, verify fixtures and probe backend readiness. The issue fixes an incorrect remaining count. Hidden checks use real SQL and Redis clients to verify counts, caching, invalidation and app-restart persistence; the original file-backed API must remain available.
+
+Services belong to each eval workspace and are removed with its sandbox, including their data volumes. They have no host-published ports or production credentials. Existing scenarios don't request services and continue using their original fixtures.
+
+## TLS and HTTPS
+
+`todo-app/https` requires the todo server to serve HTTPS with `TLS_KEY` and `TLS_CERT`, starting without installed dependencies. Reviewer must generate workspace-local certificates, install dependencies and verify HTTPS readiness. The issue adds remaining-todo counts; Reviewer runs checks and QA exercises the real HTTPS UI/API. Hidden checks require a trusted TLS connection, reject plain HTTP, verify the HTTPS preview proxy and test count behavior. Certificates are supplied by Reviewer, never by the hidden check.

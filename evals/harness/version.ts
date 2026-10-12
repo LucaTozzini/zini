@@ -9,7 +9,7 @@ export function codeVersion(root = resolve(import.meta.dirname, "../..")) {
     for (const entry of readdirSync(join(root, folder), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const path = `${folder}/${entry.name}`;
       if (entry.isDirectory()) add(path);
-      else if (/\.(ts|json)$/.test(entry.name)) hash.update(path).update("\0").update(readFileSync(join(root, path)));
+      else if (/\.(ts|json|patch)$/.test(entry.name)) hash.update(path).update("\0").update(readFileSync(join(root, path)));
     }
   }
   for (const folder of ["backend/src", "shared/src", "evals/harness", "evals/scenarios"]) add(folder);

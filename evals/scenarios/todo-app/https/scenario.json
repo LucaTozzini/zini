@@ -1,0 +1,6 @@
+{
+  "title": "Show remaining todo counts in the HTTPS-only app",
+  "description": "Below the list, show how many todos are unfinished as \"3 to-dos left\", or \"1 to-do left\" for one. Hide the count when there are no todos. It must update after additions, completing/uncompleting and deletions, and count all unfinished todos regardless of the selected filter.\n\nThis repository's server requires HTTPS in both development and production: TLS_KEY and TLS_CERT must point to readable PEM files. Prepare workspace-local development certificates and verify HTTPS startup before validation. Preserve HTTPS-only serving; do not add an HTTP fallback, replace the server with a mock, or commit certificates/private keys. Product QA must use the actual UI and API over HTTPS. No external credentials or user-provided certificates are needed.",
+  "patch": "https.patch",
+  "preinstalledDependencies": false
+}

@@ -21,7 +21,7 @@ import {
   stopQa,
 } from "../../backend/src/forge/forge.js";
 import { initDb, storage } from "../../backend/src/db.js";
-import { cloneWorkspace } from "../../backend/src/repositories/git.js";
+import { cloneWorkspace, git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
 import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
 import { ensureSandbox, removeSandbox, sandboxRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
@@ -65,7 +65,7 @@ function required(name: string) {
 }
 
 const git = (args: string[], cwd?: string) =>
-  execFileSync("git", ["-c", "user.name=zini evals", "-c", "user.email=evals@zini.local", ...args], {
+  execFileSync("git", ["-c", "core.autocrlf=false", "-c", "user.name=zini evals", "-c", "user.email=evals@zini.local", ...args], {
     cwd,
     encoding: "utf8",
   });
@@ -89,6 +89,16 @@ function makeSourceRepo() {
   if (scenario.patch) git(["apply", join(scenarioDir, scenario.patch)], source);
   git(["add", "-A"], source);
   git(["commit", "--quiet", "-m", "Initial commit"], source);
+  if (scenario.branchPatch) {
+    git(["checkout", "--quiet", "-b", `eval/${scenarioName.replace("/", "-")}`], source);
+    git(["apply", join(scenarioDir, scenario.branchPatch)], source);
+    git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Inherited implementation"], source);
+    git(["checkout", "--quiet", "main"], source);
+  }
+  if (scenario.upstreamPatch) {
+    git(["apply", join(scenarioDir, scenario.upstreamPatch)], source);
+    git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream update"], source);
+  }
   return source;
 }
 
@@ -111,7 +121,8 @@ async function makeWorkspace(issueId: string) {
     const install = await runCommandResult(issueId, "npm ci");
     if (install.exitCode !== 0) throw new Error(`Fixture dependencies failed: ${install.output}`);
   }
-  await Workspace.create({ issueId });
+  await Workspace.create({ issueId, context: { branch: `eval/${scenarioName.replace("/", "-")}`, initialHead: (await workspaceGit(["-C", workspacePath(issueId), "rev-parse", "HEAD"])).trim(), targetBranch: "main",
+    sourcePr: scenario.branchPatch ? { number: 1, url: "https://github.com/evals/fixture/pull/1", state: "open", title: scenario.title, body: scenario.description } : null } });
 }
 
 // Linear, as far as the pipeline uses it: fetchLinearIssue's query, answered with the
@@ -174,7 +185,6 @@ function followLogs(logDir: string) {
 
 let questionsAnswered = 0;
 let plansApproved = 0;
-let commandsApproved = 0;
 
 function reply(waiting: PipelineWaiting): PipelineResume {
   if (waiting.kind === "questions") {
@@ -186,11 +196,6 @@ function reply(waiting: PipelineWaiting): PipelineResume {
     plansApproved++;
     console.log("✓ plan approved");
     return { approve: true };
-  }
-  if (waiting.kind === "approve_commands") {
-    for (const { command } of waiting.commands) console.log(`✓ $ ${command}`);
-    commandsApproved += waiting.commands.length;
-    return { decisions: waiting.commands.map(() => ({ type: "approve" as const })) };
   }
   throw new Error("Unknown pipeline request");
 }
@@ -212,7 +217,16 @@ async function main() {
   await makeWorkspace(issueId);
   console.log(`${scenarioName}: ${scenario.title} (model ${model})`);
 
-  const run = pipelineRun({ linear: fakeLinear(issueId), connection, model }, issueId);
+  let refreshes = 0;
+  const run = pipelineRun({ linear: fakeLinear(issueId), connection, model }, issueId, "Evals", async () => {
+    refreshes++;
+    if (refreshes === 2 && scenario.upstreamAfterCoderPatch) {
+      const source = join(dataDir, "source");
+      git(["apply", join(scenarioDir, scenario.upstreamAfterCoderPatch)], source);
+      git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
+    }
+    git(["fetch", "--quiet", "--prune", "origin"], join(dataDir, "repo.git"));
+  });
   const stopFollowing = followLogs(join(runDir, "logs", issueId));
   let error: string | null = null;
   try {
@@ -236,9 +250,21 @@ async function main() {
 
   const pipeline = await getPipeline(issueId);
   if (!error && !pipeline.finished) error = pipeline.waiting ? "Stopped after 200 pauses" : "Stopped before finishing";
+  writeFileSync(join(runDir, "validation.json"), JSON.stringify({ setup: pipeline.environmentSetup,
+    checks: pipeline.checks, review: pipeline.review, qa: pipeline.qa }, null, 2));
 
   const { diff, truncated } = await workspaceDiff(issueId);
   writeFileSync(join(runDir, "diff.patch"), truncated ? `${diff}\n[Cut off]\n` : diff);
+  const row = await Workspace.findByPk(issueId);
+  const initialHead = row!.context!.initialHead;
+  const runGit = (args: string[]) => workspaceGit(["-C", workspacePath(issueId), ...args]);
+  const finalHead = (await runGit(["rev-parse", "HEAD"])).trim();
+  writeFileSync(join(runDir, "zini.diff.patch"), await runGit(["diff", initialHead, "HEAD"]));
+  const pendingMerge = await runGit(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]).then(() => true).catch(() => false);
+  const dirty = (await runGit(["status", "--porcelain"])).trim();
+  if (pipeline.finished && (pendingMerge || dirty)) error = "Completed pipeline left uncommitted changes or a pending merge";
+  writeFileSync(join(runDir, "git.json"), JSON.stringify({ initialHead, finalHead, commits: await runGit(["log", "--format=%H %s", `${initialHead}..HEAD`]),
+    integration: pipeline.integration, validatedRevision: pipeline.checks?.revision, upstreamRefreshes: refreshes, pendingMerge, dirty }, null, 2));
 
   let check: RunMetrics["check"] = null;
   const checkFile = join(scenarioDir, "check.ts");
@@ -267,7 +293,6 @@ async function main() {
     seconds: (Date.now() - started) / 1000,
     questionsAnswered,
     plansApproved,
-    commandsApproved,
     roles,
     totals: totals(roles),
   };

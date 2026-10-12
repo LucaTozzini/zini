@@ -13,6 +13,11 @@ export type Scenario = {
   answers?: string[];
   // False exercises pipeline preparation with an initially empty dependency install.
   preinstalledDependencies?: boolean;
+  // Seed an inherited implementation on the issue branch after the baseline commit.
+  branchPatch?: string;
+  // Advance main before Forge starts, or at the second integration checkpoint.
+  upstreamPatch?: string;
+  upstreamAfterCoderPatch?: string;
 };
 
 // What a hidden check is given: the workspace after the run, and a way to run the app in
@@ -21,7 +26,7 @@ export type CheckContext = {
   // Repository files and commands live in the Linux workspace volume.
   readFile: (path: string) => Promise<string>;
   runCommand: (command: string) => Promise<{ exitCode: number | null; output: string }>;
-  startApp: (options?: { dataFile?: string }) => Promise<RunningApp>;
+  startApp: (options?: { dataFile?: string; protocol?: "http" | "https" }) => Promise<RunningApp>;
   launchBrowser: () => Promise<import("playwright").Browser>;
 };
 

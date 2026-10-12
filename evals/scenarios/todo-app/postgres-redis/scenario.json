@@ -1,0 +1,6 @@
+{
+  "title": "Fix remaining counts in the shared PostgreSQL todo API",
+  "description": "The new /api/shared-todos API stores todos in PostgreSQL and caches /api/shared-todos/stats in Redis. Its remaining count is incorrect. Fix it so remaining counts unfinished todos, total counts all todos, the next statistics request is invalidated after changing done, and subsequent requests use the Redis cache. Preserve the original file-backed todo UI.\n\nPrepare the real local test environment: PostgreSQL 16 and Redis 7 are required via DATABASE_URL and REDIS_URL. Use the repo's migrations and seed/verification scripts, and verify backend readiness at /api/service-health before live QA. Test the delivered HTTP API against actual isolated services; mocks or a static frontend do not establish this behavior. Verify persistence after restarting the app. No external credentials are needed.",
+  "patch": "services.patch",
+  "preinstalledDependencies": false
+}
