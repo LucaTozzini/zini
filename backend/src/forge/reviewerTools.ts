@@ -2,7 +2,7 @@ import { tool } from "langchain";
 import { z } from "zod";
 import type { ChecksDocument, ReviewDocument } from "shared";
 import { REPO_COMMAND } from "./documents.js";
-import { runCommandResult } from "./qaProcesses.js";
+import { QUIET_SECONDS, quietSeconds, runCommandResult } from "./qaProcesses.js";
 
 export class ReviewEvidence {
   results: ChecksDocument["results"];
@@ -30,13 +30,13 @@ export class ReviewEvidence {
 }
 
 export function reviewerTools(id: string, evidence: ReviewEvidence) {
-  return [tool(async ({ entry, timeoutSeconds, rerun }, config) => {
+  return [tool(async ({ entry, timeoutSeconds, quietSeconds, rerun }, config) => {
     evidence.budget();
     const previous = evidence.results.find(result => result.command === entry.command && result.cwd === entry.cwd);
     if (previous?.status === "passed" && !rerun) return { ...previous, reused: true };
     let result: ChecksDocument["results"][number];
     try {
-      const actual = await runCommandResult(id, entry.command, entry.cwd, timeoutSeconds ?? 300, config.signal);
+      const actual = await runCommandResult(id, entry.command, entry.cwd, timeoutSeconds ?? 300, config.signal, quietSeconds ?? QUIET_SECONDS);
       result = { command: entry.command, cwd: entry.cwd, purpose: entry.purpose,
         status: actual.timedOut || actual.exitCode === null ? "blocked" : actual.exitCode === 0 ? "passed" : "failed",
         exitCode: actual.exitCode, output: `${actual.status}\n${actual.output}` };
@@ -47,5 +47,5 @@ export function reviewerTools(id: string, evidence: ReviewEvidence) {
     evidence.record(result);
     return result;
   }, { name: "run_check", description: "Execute a finite repository test, lint, typecheck, build or diagnostic and inspect its real exit code/output. Commands run inside the prepared workspace. Recorded commands are reused; set rerun only after addressing the observed cause. No implementation edits, Git mutations, installations, migrations, seeds, watch mode or persistent servers; use run_setup and service tools for environment preparation.",
-    schema: z.object({ entry: REPO_COMMAND.extend({ kind: z.literal("check") }), timeoutSeconds: z.number().int().min(1).max(1800).optional(), rerun: z.boolean().optional() }) })];
+    schema: z.object({ entry: REPO_COMMAND.extend({ kind: z.literal("check") }), timeoutSeconds: z.number().int().min(1).max(1800).optional(), quietSeconds, rerun: z.boolean().optional() }) })];
 }

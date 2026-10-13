@@ -2,7 +2,7 @@ import { tool } from "langchain";
 import { z } from "zod";
 import type { ChecksDocument, EnvironmentSetupDocument, ReviewDocument } from "shared";
 import { REPO_COMMAND } from "./documents.js";
-import { runCommandResult, startProcess, readOutput, stopProcess } from "./qaProcesses.js";
+import { QUIET_SECONDS, quietSeconds, runCommandResult, startProcess, readOutput, stopProcess } from "./qaProcesses.js";
 import { workspaceRequest, ensureSandbox } from "../workspaces/workspaceSandbox.js";
 import { SERVICE_REQUEST, provisionWorkspaceServices, configureWorkspaceEnvironment, provisionWorkspaceTls } from "../workspaces/workspaceServices.js";
 
@@ -37,17 +37,17 @@ export function setupTools(id: string, evidence: SetupEvidence) {
     tool(async ({ values }) => { evidence.budget(); const result = await configureWorkspaceEnvironment(id, values); evidence.changed(); return result; }, {
       name: "configure_environment", description: "Persist repo-specific local test configuration (e.g. NODE_ENV=test) for all workspace commands/apps. Services supply generated connection credentials. Never put production/provider secrets here or invent missing external credentials.", schema: z.object({ values: z.record(z.string(), z.string()).refine(values => Object.keys(values).length <= 32) }),
     }),
-    tool(async ({ entry, timeoutSeconds, rerun }, config) => {
+    tool(async ({ entry, timeoutSeconds, quietSeconds, rerun }, config) => {
       evidence.budget(); if (entry.kind !== "setup") throw new Error("run_setup accepts only setup commands");
       const previous = evidence.results.findLast(result => key(result) === key(entry));
       if (previous?.status === "passed" && !rerun) return { ...previous, reused: true };
       let result: Result;
       try {
-        const actual = await runCommandResult(id, entry.command, entry.cwd, timeoutSeconds ?? 300, config.signal);
+        const actual = await runCommandResult(id, entry.command, entry.cwd, timeoutSeconds ?? 300, config.signal, quietSeconds ?? QUIET_SECONDS);
         result = { command: entry.command, cwd: entry.cwd, purpose: entry.purpose, status: actual.exitCode === 0 && !actual.timedOut ? "passed" : "blocked", exitCode: actual.exitCode, output: `${actual.status}\n${actual.output}` };
       } catch (error) { config.signal?.throwIfAborted(); result = { command: entry.command, cwd: entry.cwd, purpose: entry.purpose, status: "blocked", exitCode: null, output: String(error) }; }
       evidence.record(result); evidence.changed(); return result;
-    }, { name: "run_setup", description: "Execute a finite installation, migration, seed or fixture-verification command and observe real output. Successful commands on the current source revision are reused unless rerun is necessary after environment/data changes. Diagnose failures and repair prerequisites; don't repeat failing commands unchanged. No implementation edits, tests, builds or Git mutations.", schema: z.object({ entry: REPO_COMMAND, timeoutSeconds: z.number().int().min(1).max(1800).optional(), rerun: z.boolean().optional() }) }),
+    }, { name: "run_setup", description: "Execute a finite installation, migration, seed or fixture-verification command and observe real output. Successful commands on the current source revision are reused unless rerun is necessary after environment/data changes. Diagnose failures and repair prerequisites; don't repeat failing commands unchanged. No implementation edits, tests, builds or Git mutations.", schema: z.object({ entry: REPO_COMMAND, timeoutSeconds: z.number().int().min(1).max(1800).optional(), quietSeconds, rerun: z.boolean().optional() }) }),
     tool(async ({ command, url, timeoutSeconds }, config) => {
       evidence.budget(); const target = new URL(url);
       if (!["http:", "https:"].includes(target.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) || target.port === "7777") throw new Error("Readiness URL must be a local HTTP(S) app endpoint");

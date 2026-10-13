@@ -37,21 +37,29 @@ const apps = new WorkspaceAppRuntime(cwd);
 let plan: AppLaunchPlan | null = null;
 let launchAbort: AbortController | null = null;
 let launchTask: Promise<unknown> | null = null;
-type Proc = { child: ReturnType<typeof spawn>; output: string; read: number; exitCode: number | null; status: string; timedOut: boolean; done: Promise<void> };
+type Proc = { child: ReturnType<typeof spawn>; output: string; read: number; exitCode: number | null; status: string; timedOut: boolean; quiet: boolean; done: Promise<void> };
 const processes = new Map<string, Proc>();
 let next = 1;
-async function start(command: string, path = ".", timeout?: number) {
-  const child = spawn(command, { cwd: await cwd(issue, path), shell: "/bin/sh", detached: true,
+// stdin is closed: nothing can answer a prompt. With quiet, a command that prints nothing
+// for that many seconds is stopped, as it's probably waiting for input.
+async function start(command: string, path = ".", timeout?: number, quiet?: number) {
+  const child = spawn(command, { cwd: await cwd(issue, path), shell: "/bin/sh", detached: true, stdio: ["ignore", "pipe", "pipe"],
     env: { PATH: process.env.PATH, HOME: "/state/home", LANG: "C.UTF-8", CI: "1", NO_COLOR: "1", FORCE_COLOR: "0", PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "/workspace", ...environment } });
   const id = `p${next++}`;
-  const proc: Proc = { child, output: "", read: 0, exitCode: null, status: "running", timedOut: false, done: Promise.resolve() };
-  const append = (chunk: Buffer) => { proc.output = (proc.output + chunk.toString().replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")).slice(-200000); };
+  const proc: Proc = { child, output: "", read: 0, exitCode: null, status: "running", timedOut: false, quiet: false, done: Promise.resolve() };
+  let lastOutput = Date.now();
+  const append = (chunk: Buffer) => { lastOutput = Date.now(); proc.output = (proc.output + chunk.toString().replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")).slice(-200000); };
   child.stdout?.on("data", append); child.stderr?.on("data", append);
   proc.done = new Promise<void>((done) => {
     const timer = timeout ? setTimeout(() => { proc.timedOut = true; killTree(child); }, Math.min(1800, Math.max(1, timeout)) * 1000) : null;
+    const quietTimer = quiet ? setInterval(() => {
+      if (!proc.quiet && Date.now() - lastOutput >= quiet * 1000) { proc.quiet = true; killTree(child); }
+    }, 1000) : null;
     child.once("error", error => { append(Buffer.from(String(error))); });
-    child.once("close", (code, signal) => { killTree(child); if (timer) clearTimeout(timer); proc.exitCode = code;
-      proc.status = proc.timedOut ? "Timed out and stopped" : code === null ? `stopped (${signal})` : `exited with code ${code}`; done(); });
+    child.once("close", (code, signal) => { killTree(child); if (timer) clearTimeout(timer); if (quietTimer) clearInterval(quietTimer); proc.exitCode = code;
+      proc.status = proc.timedOut ? "Timed out and stopped"
+        : proc.quiet ? `Stopped after ${quiet} s without output: it may be waiting for input (its last output is below). Use its non-interactive option or arguments, or a longer quietSeconds if it's legitimately silent.`
+        : code === null ? `stopped (${signal})` : `exited with code ${code}`; done(); });
   });
   processes.set(id, proc); return id;
 }
@@ -86,7 +94,7 @@ async function api(action: string, body: any) {
       });
       return { free: true };
     }
-    case "start": return start(body.command, body.cwd, body.timeout);
+    case "start": return start(body.command, body.cwd, body.timeout, body.quiet);
     case "filesystem": return filesystem(body);
     case "file": return workspaceFile(body);
     case "result": { const proc = processes.get(body.id); if (!proc) throw new Error("Unknown process");
