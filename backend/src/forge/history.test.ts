@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+import { LatestCheckpointSaver } from "../agents/agents.js";
 import { loadForgeHistory } from "./history.js";
 import { checkpointMessages } from "./messages.js";
 import { timestampedSerializer } from "../agents/messageTimestamps.js";
 
-test("latest namespace histories preserve earlier turns, compaction, live results and document timing", async () => {
-  const saver = SqliteSaver.fromConnString(":memory:");
+test("latest checkpoints alone preserve earlier turns, compaction, live results and the timeline", async () => {
+  const saver = new LatestCheckpointSaver(SqliteSaver.fromConnString(":memory:").db);
   saver.serde = timestampedSerializer(saver.serde);
   const thread = "forge:test";
   const put = async (ns: string, n: number, values: Record<string, unknown>, versions: Record<string, string> = {}) =>
@@ -20,7 +21,8 @@ test("latest namespace histories preserve earlier turns, compaction, live result
   const submission = new ToolMessage({ name: "submit_implementation", tool_call_id: "submit", content: "{}" });
   const rawReceipt = 'Returning structured response: {"blockingQuestions":[]}';
   try {
-    await put("", 1, { plan: { summary: "Plan" } }, { plan: "1" });
+    const planned = { kind: "document", agent: "planner", t: new Date(1000).toISOString() };
+    await put("", 1, { plan: { summary: "Plan" }, timeline: [planned] });
     const old = await put("coder", 2, { messages: [original] });
     const receipt = new AIMessage({ content: rawReceipt });
     await saver.putWrites(old, [["messages", [submission, receipt]]], "old-task");
@@ -33,10 +35,12 @@ test("latest namespace histories preserve earlier turns, compaction, live result
     const live = await put("reviewer:second", 5, { messages: [new AIMessage({ id: "review-two", content: "Inspecting.",
       tool_calls: [{ id: "read", name: "read_file", args: { path: "/a" } }] })] });
     await saver.putWrites(live, [["messages", [new ToolMessage({ tool_call_id: "read", content: "Live result" })]]], "live-task");
-    await put("", 6, { plan: { summary: "Plan" }, implementation: {} }, { plan: "1", implementation: "2" });
+    await put("", 6, { plan: { summary: "Plan" }, implementation: {}, timeline: [planned,
+      { kind: "document", agent: "coder", t: new Date(3000).toISOString() }] });
     const { checkpoints } = await loadForgeHistory(saver, thread);
-    assert.equal(checkpoints.length, 5); // Two root versions and three agent namespaces.
-    assert.equal(checkpoints.filter((c) => c.config.configurable?.checkpoint_ns === "coder").length, 1);
+    assert.equal(checkpoints.length, 4); // The pipeline and three agent namespaces.
+    assert.deepEqual((saver.db.prepare("SELECT count(*) AS n FROM checkpoints GROUP BY checkpoint_ns").all() as { n: number }[]).map((row) => row.n), [1, 1, 1, 1]);
+    assert.equal((saver.db.prepare("SELECT count(*) AS n FROM writes WHERE checkpoint_id = ?").get(old.configurable?.checkpoint_id) as { n: number }).n, 0);
     const items = checkpointMessages(checkpoints, true);
     const messages = items.filter((item) => item.kind === "message");
     assert.equal(messages.filter((m) => m.message.role === "assistant" && m.message.content === "Document submitted.").length, 1);

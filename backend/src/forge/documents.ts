@@ -64,6 +64,10 @@ export const REVIEW_SCHEMA = z
     blockingQuestions: questions,
     runbookUpdates,
     noChecksReason: z.string().min(1).optional().describe("Source-backed reason no finite check applies; only when no run_check results exist"),
+    preexistingFailures: z.array(z.object({
+      command: z.string().min(1).describe("A failed run_check command, exactly as run (only that command is excused)"),
+      reason: z.string().min(1).describe("Evidence it already failed before this change, e.g. its failures are all in code the change doesn't touch"),
+    })).describe("Failed checks that already failed before this change: reported, but they don't block approval; empty if none"),
   })
   .meta({
     title: "submit_review",
@@ -75,7 +79,8 @@ export const QA_SCHEMA = z
   .object({
     coverage: z.array(z.object({
       criterionId: z.string(),
-      status: z.enum(["pass", "fail", "blocked"]).describe("blocked when you couldn't verify it here"),
+      status: z.enum(["pass", "fail", "blocked", "skipped"]).describe(
+        "blocked when the app or its environment stopped you verifying it; skipped only when your own tools can't verify it (no change to the software could make it testable here)"),
       evidence: z.string().min(1).describe("Concrete observation or tool result, or why this criterion could not be tested"),
     })).describe("One entry per acceptance criterion"),
     failures: z

@@ -29,6 +29,15 @@ type Session = {
   pending: ReturnType<typeof setTimeout> | null;
 };
 
+// The Chromium running in the issue's Docker workspace, started on first use and
+// reached through its gateway. Each connection's contexts are its own: closing it
+// leaves the others' (QA's, the preview's) open.
+export async function connectWorkspaceBrowser(issueId: string) {
+  const sandbox = await ensureSandbox(issueId);
+  await sandboxRequest(sandbox, "browser");
+  return chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
+}
+
 const sessions = new Map<string, Promise<Session>>();
 const sessionIds = new Map<string, string>();
 
@@ -36,11 +45,7 @@ async function launch(key: string): Promise<Session> {
   let browser: Browser;
   try {
     if (key.startsWith("project-lead:")) browser = await chromium.launch();
-    else {
-      const sandbox = await ensureSandbox(key);
-      await sandboxRequest(sandbox, "browser");
-      browser = await chromium.connect(`ws://127.0.0.1:${sandbox.port}/browser`, { headers: { "x-workspace-token": sandbox.token } });
-    }
+    else browser = await connectWorkspaceBrowser(key);
   } catch (err) {
     if (!key.startsWith("project-lead:")) throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
     throw new Error(

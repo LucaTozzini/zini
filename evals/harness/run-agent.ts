@@ -53,6 +53,7 @@ const emptyState: State = {
   redirectTarget: "planner",
   steeringFeedback: [],
   humanMessages: [],
+  timeline: [],
   plan: null,
   planApproved: true,
   implementation: null,

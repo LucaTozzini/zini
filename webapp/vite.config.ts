@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/preview': { target: 'http://localhost:3000', ws: true },
+      // ws: the live preview's WebSocket is under /api too.
+      '/api': { target: 'http://localhost:3000', ws: true },
     },
   },
 })

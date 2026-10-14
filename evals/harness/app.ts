@@ -3,12 +3,13 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { workspaceApps } from "../../backend/src/workspaces/workspaceAppSessions.js";
-import { availableAppPort, previewBase } from "../../backend/src/workspaces/workspaceAppRuntime.js";
+import { availableAppPort } from "../../backend/src/workspaces/workspaceAppRuntime.js";
 import { ensureSandbox, workspaceRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
 import type { RunningApp } from "./types.js";
 
 // Hidden check code stays trusted on the host. Only the repository app executes
-// inside Docker; a temporary loopback proxy makes it reachable by the check.
+// inside Docker; a temporary loopback proxy, through the workspace gateway's /app
+// pass-through, makes it reachable by the check.
 export async function startApp(issueId: string, { dataFile, protocol = "http" }: { dataFile?: string; protocol?: "http" | "https" } = {}): Promise<RunningApp> {
   const port = await availableAppPort(issueId);
   const file = `${createHash("sha256").update(dataFile ?? String(Date.now())).digest("hex")}.json`;
@@ -17,7 +18,7 @@ export async function startApp(issueId: string, { dataFile, protocol = "http" }:
   if (state.status !== "ready") throw new Error(`Hidden check app failed: ${state.error}\n${state.output}`);
   const sandbox = await ensureSandbox(issueId);
   const server = createServer((req, res) => {
-    const upstream = request({ hostname: "127.0.0.1", port: sandbox.port, path: `${previewBase(issueId)}${req.url}`, method: req.method,
+    const upstream = request({ hostname: "127.0.0.1", port: sandbox.port, path: `/app${req.url}`, method: req.method,
       headers: { ...req.headers, "x-workspace-token": sandbox.token } }, response => { res.writeHead(response.statusCode ?? 502, response.headers); response.pipe(res); });
     upstream.on("error", () => res.destroy()); req.pipe(upstream);
   });

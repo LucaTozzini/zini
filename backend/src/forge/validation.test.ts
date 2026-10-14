@@ -44,7 +44,7 @@ test("startup handoffs retain operational details and survive unrelated source e
 const report = { environmentFailures: [], failures: [], blockingQuestions: [], coverage: [] };
 const checks: ChecksDocument = { revision: "v1", complete: true, results: [] };
 const criteria = [{ id: "c1", requirement: "CLI returns the result", source: "Returns the result" }];
-test("a pass needs current, complete checks and evidence for every criterion", () => {
+test("a pass needs current, complete checks and evidence for every criterion that can be tested", () => {
   assert.equal(enforceCoverage(report, criteria, checks, "v1").verdict, "partial");
   const covered = { ...report, coverage: [{ criterionId: "c1", status: "pass" as const, evidence: "CLI returned 42, exit 0" }] };
   assert.equal(enforceCoverage(covered, criteria, checks, "v1").verdict, "pass");
@@ -54,6 +54,10 @@ test("a pass needs current, complete checks and evidence for every criterion", (
   assert.equal(enforceCoverage({ ...covered, failures: ["Crashes on empty input"] }, criteria, checks, "v1").verdict, "fail");
   const blocked = { ...report, coverage: [{ criterionId: "c1", status: "blocked" as const, evidence: "Needs a .env" }] };
   assert.deepEqual(enforceCoverage(blocked, criteria, checks, "v1").couldNotTest, ["c1: Needs a .env"]);
+  const skipped = { ...report, coverage: [{ criterionId: "c1", status: "skipped" as const, evidence: "The browser can't open downloads" }] };
+  assert.equal(enforceCoverage(skipped, criteria, checks, "v1").verdict, "pass");
+  assert.deepEqual(enforceCoverage(skipped, criteria, checks, "v1").couldNotTest, ["c1 (skipped): The browser can't open downloads"]);
+  assert.equal(enforceCoverage(skipped, criteria, checks, "v2").verdict, "partial");
   assert.equal(enforceCoverage({ ...covered, coverage: [...covered.coverage, ...covered.coverage] }, criteria, checks, "v1").verdict, "partial");
 });
 

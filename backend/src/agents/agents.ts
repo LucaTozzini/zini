@@ -11,10 +11,37 @@ import { timestampedSerializer } from "./messageTimestamps.js";
 
 // What the agents (project lead, forge) share.
 
+// Keeps only the latest checkpoint of each thread and namespace (the pipeline, an agent
+// conversation, a Project Lead chat): each holds the whole state, so a long run's
+// history would grow to gigabytes, and nothing resumes from or reads older ones.
+// Pending writes of older checkpoints go with them; the latest keeps its own.
+export class LatestCheckpointSaver extends SqliteSaver {
+  async put(...args: Parameters<SqliteSaver["put"]>) {
+    const saved = await super.put(...args);
+    const { thread_id, checkpoint_ns = "", checkpoint_id } = saved.configurable ?? {};
+    for (const table of ["checkpoints", "writes"]) {
+      this.db.prepare(`DELETE FROM ${table} WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id < ?`)
+        .run(thread_id, checkpoint_ns, checkpoint_id);
+    }
+    return saved;
+  }
+
+  // Returns a deleted thread's space to the disk; pruned checkpoints' space is reused
+  // by the next ones instead.
+  async deleteThread(threadId: string) {
+    await super.deleteThread(threadId);
+    this.db.pragma("incremental_vacuum");
+  }
+}
+
 // Conversations live here, keyed by thread id, so a run can pause for approval and
 // resume later, even after a restart. Its own file next to the main database, since
-// it uses a different SQLite driver (better-sqlite3) than Sequelize.
-export const checkpointer = SqliteSaver.fromConnString(join(dirname(storage), "checkpoints.sqlite"));
+// it uses a different SQLite driver (better-sqlite3) than Sequelize; fromConnString
+// opens it.
+const { db } = SqliteSaver.fromConnString(join(dirname(storage), "checkpoints.sqlite"));
+// Takes effect when the file is created, before any table.
+db.pragma("auto_vacuum = INCREMENTAL");
+export const checkpointer = new LatestCheckpointSaver(db);
 checkpointer.serde = timestampedSerializer(checkpointer.serde);
 
 export const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });

@@ -1,11 +1,18 @@
-import { existingSandbox, ensureSandbox, sandboxRequest, workspaceRequest, type Sandbox } from "./workspaceSandbox.js";
-import { previewBase, validateAppLaunchPlan, type AppLaunchPlan } from "./localAppRuntime.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { existingSandbox, ensureSandbox, sandboxPaused, sandboxRequest, workspaceRequest, type Sandbox } from "./workspaceSandbox.js";
+import { validateAppLaunchPlan, type AppLaunchPlan } from "./localAppRuntime.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
+import { closePreview } from "../browser/previewBrowser.js";
 import { workspaceRevision } from "./workspaceFiles.js";
-export { previewBase, validateAppLaunchPlan };
-export type { AppLaunchPlan, AppCommand, AppService, PreviewRoute } from "./localAppRuntime.js";
+export { validateAppLaunchPlan };
+export type { AppLaunchPlan, AppCommand, AppService } from "./localAppRuntime.js";
+// The webapp's page showing the ready app in the workspace's remote-controlled browser.
+export const previewPage = (issueId: string) => `/issues/${encodeURIComponent(issueId)}/preview`;
 export const availableAppPort = async (issueId: string) => workspaceRequest<number>(issueId, "port");
+// url is the app's address inside the workspace container, where its preview browser runs.
 type Status = { status: "stopped" | "starting" | "ready" | "failed"; url?: string | null; previewUrl?: string | null; error?: string | null; output?: string; plan?: AppLaunchPlan | null };
+const withPreview = (issueId: string, state: Status): Status =>
+  ({ ...state, previewUrl: state.status === "ready" ? previewPage(issueId) : null });
 export class WorkspaceAppRuntime {
   private sessions = new Map<string, { sandbox: Sandbox; state: Status }>();
   private refreshing = new Map<string, Promise<Status>>();
@@ -21,22 +28,25 @@ export class WorkspaceAppRuntime {
   }
   private async refreshSession(issueId: string) {
     try {
-      const sandbox = await existingSandbox(issueId);
+      // A container a Git operation paused still runs its app, so it isn't reported
+      // stopped (and is never unpaused here): its known gateway's answer waits until the
+      // operation resumes it, or without one, the pause is waited out.
+      let sandbox: Sandbox | null = null;
+      for (let n = 0; n < 40; n++) {
+        sandbox = await existingSandbox(issueId);
+        if (sandbox) break;
+        if (!await sandboxPaused(issueId)) { sandbox = await existingSandbox(issueId); break; }
+        sandbox = this.sessions.get(issueId)?.sandbox ?? null;
+        if (sandbox) break;
+        await delay(250);
+      }
       if (!sandbox) { this.sessions.delete(issueId); return this.status(issueId); }
-      const state = await sandboxRequest<Status>(sandbox, "appStatus");
+      const state = withPreview(issueId, await sandboxRequest<Status>(sandbox, "appStatus"));
       this.sessions.set(issueId, { sandbox, state }); return state;
     } catch (error) { this.sessions.delete(issueId); throw error; }
   }
-  previewTarget(issueId: string, path: string) {
-    const session = this.sessions.get(issueId); const plan = session?.state.plan;
-    if (!session || session.state.status !== "ready" || !plan) return null;
-    const pathname = path.split("?")[0]!;
-    const route = [...(plan.routes ?? [])].sort((a,b) => b.prefix.length-a.prefix.length).find(entry => pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`));
-    const service = plan.services.find(entry => entry.id === (route?.serviceId ?? plan.app.serviceId))!;
-    return { port: session.sandbox.port, servicePort: service.port, path, transportPath: `${previewBase(issueId)}${path}`,
-      token: session.sandbox.token, prefix: route?.prefix ?? "", stripPrefix: route?.stripPrefix ?? false };
-  }
   async stop(issueId: string) {
+    await closePreview(issueId);
     const sandbox = await existingSandbox(issueId);
     if (sandbox) await sandboxRequest(sandbox, "appStop");
     this.sessions.delete(issueId); return { status: "stopped" as const };
@@ -53,7 +63,7 @@ export class WorkspaceAppRuntime {
       const abort = () => { void sandboxRequest(sandbox, "appStop").catch(() => {}); };
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        const state = await sandboxRequest<Status>(sandbox, "appLaunch", { plan, timeout: readinessTimeoutMs }, signal);
+        const state = withPreview(issueId, await sandboxRequest<Status>(sandbox, "appLaunch", { plan, timeout: readinessTimeoutMs }, signal));
         this.sessions.set(issueId, { sandbox, state }); return state;
       } catch (error) { await this.stop(issueId); signal?.throwIfAborted(); throw error; }
       finally { signal?.removeEventListener("abort", abort); }

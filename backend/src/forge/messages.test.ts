@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { Annotation, Command, END, MemorySaver, START, StateGraph, interrupt } from "@langchain/langgraph";
+import { Annotation, Command, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { createAgent, tool, toolStrategy } from "langchain";
 import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
 import { z } from "zod";
@@ -10,7 +10,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
-import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
+import { LatestCheckpointSaver } from "../agents/agents.js";
+import { checkpointMessages, humanMessage, replyMessage, timelineEvents } from "./messages.js";
 import { stampMessages, timestampedSerializer } from "../agents/messageTimestamps.js";
 
 function saved(ns: string, n: number, values: Record<string, unknown>, versions: Record<string, string> = {}): CheckpointTuple {
@@ -52,33 +53,31 @@ test("compaction preserves original history without treating its summary as a hu
   assert.ok(!items.some((item) => item.kind === "message" && item.message.role === "user"));
 });
 
-test("pipeline transitions label compacted and repeated agent runs without opening messages", () => {
+test("the timeline labels each agent run, and the pending stage keeps its id when recorded", () => {
   const summary = new HumanMessage({ id: "summary", content: "Earlier review summarized",
     additional_kwargs: { lc_source: "summarization" } });
-  const items = checkpointMessages([
-    saved("", 1, { "branch:to:reviewer": null }, { "branch:to:reviewer": "1" }),
-    saved("", 2, { "branch:to:reviewer": null }, { "branch:to:reviewer": "1" }),
-    saved("", 3, { review: { environmentFailures: [{ command: "npm test", reason: "Missing fixture" }] },
-      "branch:to:coder": null }, { review: "1", "branch:to:coder": "1" }),
-    saved("", 4, { "branch:to:commit": null }),
-    saved("", 5, { "branch:to:reviewer": null }, { "branch:to:reviewer": "2" }),
-    saved("reviewer", 6, { compacted: [summary], messages: [new HumanMessage({ id: "second-input", content: "Review again" }),
-      new AIMessage({ id: "reply", content: "Reviewed" })] }),
-  ], false);
-  assert.deepEqual(items.filter(item => item.kind === "stage").map(item => [item.agent, item.t]),
-    [["reviewer", new Date(1000).toISOString()], ["coder", new Date(3000).toISOString()],
-      ["reviewer", new Date(5000).toISOString()]]);
-  assert.ok(items.findIndex(item => item.kind === "stage" && item.agent === "reviewer") <
-    items.findIndex(item => item.kind === "document" && item.agent === "reviewer"));
+  const at = (n: number) => new Date(n * 1000).toISOString();
+  const timeline = [{ kind: "stage", agent: "reviewer", t: at(1) }, { kind: "document", agent: "reviewer", t: at(2) },
+    { kind: "stage", agent: "coder", t: at(3) }];
+  const reviewer = saved("reviewer", 6, { compacted: [summary], messages: [new HumanMessage({ id: "second-input", content: "Review again" }),
+    new AIMessage({ id: "reply", content: "Reviewed" })] });
+  const running = checkpointMessages([saved("", 5, { timeline, "branch:to:reviewer": null }), reviewer], true);
+  assert.deepEqual(running.filter(item => item.kind === "stage").map(item => [item.id, item.agent, item.t]),
+    [["timeline:0", "reviewer", at(1)], ["timeline:2", "coder", at(3)], ["timeline:3", "reviewer", at(5)]]);
+  const recorded = checkpointMessages([saved("", 7, { timeline: [...timeline, { kind: "stage", agent: "reviewer", t: at(5) }] }), reviewer], false);
+  assert.deepEqual(recorded.filter(item => item.kind === "stage").map(item => item.id), ["timeline:0", "timeline:2", "timeline:3"]);
+  assert.equal(recorded.filter(item => item.kind === "document").length, 1);
+  assert.ok(recorded.findIndex(item => item.kind === "stage" && item.agent === "reviewer") <
+    recorded.findIndex(item => item.kind === "document" && item.agent === "reviewer"));
 });
 
-test("document versions create one event each and checks belong to reviewer", () => {
+test("a node's timeline events: its stage, and one per submitted document, with checks under the review", () => {
   const report = { results: [{ command: "npm test", cwd: ".", output: "passed", status: "passed" }] };
-  const items = checkpointMessages([saved("", 1, { plan: { summary: "Plan" } }, { plan: "1" }),
-    saved("", 2, { plan: { summary: "Plan" } }, { plan: "1" }),
-    saved("", 3, { checksReport: report, review: { requiredChanges: [], blockingQuestions: [], environmentFailures: [] } }, { checksReport: "2", review: "2" })], false);
-  assert.equal(items.filter((item) => item.kind === "document").length, 2);
-  assert.equal(items.find((item) => item.kind === "document" && item.agent === "reviewer")?.agent, "reviewer");
+  const review = timelineEvents("reviewer", "start", { checksReport: report, review: { requiredChanges: [] } });
+  assert.deepEqual(review.map(event => [event.kind, event.agent]), [["stage", "reviewer"], ["document", "reviewer"]]);
+  assert.equal(review[0]?.t, "start");
+  assert.deepEqual(timelineEvents(undefined, "start", { review: null, checksReport: null, qaReport: null }), []);
+  assert.deepEqual(timelineEvents(undefined, "start", { plan: { summary: "Plan" } }).map(event => event.agent), ["planner"]);
 });
 
 test("approval requests remain pending while live and interrupted calls are not marked successful", () => {
@@ -146,7 +145,8 @@ test("real nested agent checkpoints are readable across fresh invocations and hu
       return { generations: [{ text: "", message }] };
     }
   }
-  const saver = new MemorySaver();
+  // Only the latest checkpoints are kept: pausing and resuming still work from them.
+  const saver = new LatestCheckpointSaver(SqliteSaver.fromConnString(":memory:").db);
   saver.serde = timestampedSerializer(saver.serde);
   const state = Annotation.Root({ review: Annotation<unknown>(), humanMessages: Annotation<ReturnType<typeof humanMessage>[]>({ reducer: (a, b) => a.concat(b), default: () => [] }) });
   const graph = new StateGraph(state).addNode("reviewer", async () => {
@@ -165,10 +165,8 @@ test("real nested agent checkpoints are readable across fresh invocations and hu
   for await (const tuple of saver.list(config)) checkpoints.push(tuple);
   const items = checkpointMessages(checkpoints, false);
   assert.equal(items.filter((item) => item.kind === "tool").length, 2);
-  assert.equal(items.filter((item) => item.kind === "document").length, 2);
   assert.equal(items.filter((item) => item.kind === "message" && item.message.role === "user").length, 4);
   assert.equal(items.filter((item) => item.kind === "message" && item.message.role === "user" && item.message.username === "Forge").length, 2);
   assert.ok(JSON.stringify(items).includes("INTERNAL CONTEXT"));
   assert.ok(items.some((item) => item.kind === "tool" && item.result === "file contents"));
-  assert.deepEqual(items.filter(item => item.kind === "stage").map(item => item.agent), ["reviewer", "reviewer"]);
 });

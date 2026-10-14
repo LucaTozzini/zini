@@ -216,6 +216,9 @@ export type CheckResult = {
   status: "passed" | "failed" | "blocked";
   exitCode: number | null;
   output: string;
+  // A failed check that already failed before this change, and why the reviewer says so:
+  // reported, but it doesn't block approval or QA.
+  preexisting?: string;
 };
 export type ChecksDocument = {
   revision: string;
@@ -249,7 +252,7 @@ export type QaDocument = {
   failures: string[];
   couldNotTest: string[];
   blockingQuestions: string[];
-  coverage: { criterionId: string; status: "pass" | "fail" | "blocked"; evidence: string }[];
+  coverage: { criterionId: string; status: "pass" | "fail" | "blocked" | "skipped"; evidence: string }[];
 };
 
 // A question a subagent asked, and your answer. Kept for the whole pipeline and given
@@ -489,3 +492,38 @@ export type ConductorStatus = {
   lastRan: null | Date;
   running: boolean;
 }
+
+// The user's app in a workspace, as GET /api/workspaces/:issueId/app reports it.
+export type WorkspaceAppState = { status: "stopped" | "starting" | "ready" | "failed"; error?: string | null };
+
+// The live preview: the workspace's app in a browser inside its Docker container, which
+// the user controls over a WebSocket (/api/workspaces/:issueId/preview). The backend
+// sends the screen as JPEG frames in binary messages, and these as JSON text.
+export type PreviewMode = "desktop" | "mobile";
+export type PreviewServerMessage =
+  | { type: "state"; url: string; title: string; canGoBack: boolean; canGoForward: boolean;
+      mode: PreviewMode; width: number; height: number }
+  // The page asked for files: answer with "files", or nothing to cancel.
+  | { type: "fileChooser"; multiple: boolean }
+  | { type: "dialog"; kind: string; message: string; defaultValue: string }
+  // Saved by the backend: GET /api/workspaces/:issueId/preview/downloads/:id.
+  | { type: "download"; id: string; name: string }
+  | { type: "error"; message: string };
+// x and y are in the page's CSS pixels; modifiers is CDP's bit field (Alt 1, Ctrl 2,
+// Meta 4, Shift 8).
+export type PreviewClientMessage =
+  | { type: "mouse"; action: "down" | "up" | "move"; x: number; y: number;
+      button: "left" | "middle" | "right" | "none"; clickCount: number; modifiers: number }
+  | { type: "wheel"; x: number; y: number; deltaX: number; deltaY: number; modifiers: number }
+  // key is a KeyboardEvent.key.
+  | { type: "key"; action: "down" | "up"; key: string }
+  // Pasted or composed text, typed as is.
+  | { type: "text"; text: string }
+  | { type: "navigate"; url: string }
+  | { type: "back" } | { type: "forward" } | { type: "reload" }
+  // The viewer's size in CSS pixels, and its device pixel ratio (frames are sharper).
+  | { type: "resize"; width: number; height: number; scale: number }
+  | { type: "mode"; mode: PreviewMode }
+  // data is base64.
+  | { type: "files"; files: { name: string; mimeType: string; data: string }[] }
+  | { type: "dialog"; accept: boolean; text?: string };

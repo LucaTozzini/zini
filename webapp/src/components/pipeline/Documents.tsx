@@ -111,9 +111,10 @@ export function ChecksView({ checks, setup = false }: { checks: ChecksDocument; 
         : checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
     </Typography>}
     {checks.results.map((result, index) => <Alert key={index}
-      severity={result.status === "passed" ? "success" : result.status === "failed" ? "error" : "warning"}
+      severity={result.status === "passed" ? "success" : result.status === "failed" && !result.preexisting ? "error" : "warning"}
       variant="outlined">
       <Typography variant="body2">{result.command} ({result.cwd}): {result.status}</Typography>
+      {result.preexisting && <Typography variant="body2">Already failing before this change: {result.preexisting}</Typography>}
       <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}>{result.output}</Typography>
     </Alert>)}
   </Stack>;

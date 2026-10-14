@@ -88,7 +88,7 @@ test("nested launcher executes inside Docker without approval and recovers start
     const snapshot = await build().graph.getState(config("auto"));
     assert.equal(snapshot.tasks.flatMap(task => task.interrupts).length, 0);
     assert.equal(report(launched.messages).status, "ready");
-    assert.equal(report(launched.messages).previewUrl, `/preview/${issueId}/`);
+    assert.equal(report(launched.messages).previewUrl, `/issues/${issueId}/preview`);
     assert.equal(await workspaceRequest(issueId, "file", { operation: "readText", path: "prepared" }), "yes");
     await workspaceApps.stop(issueId); await workspaceRequest(issueId, "file", { operation: "delete", path: "prepared" });
     retry = true;

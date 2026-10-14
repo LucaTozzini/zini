@@ -38,7 +38,7 @@ export function runbookText(book: Runbook, report?: ChecksDocument | null) {
 export function checksText(report: ChecksDocument | null) {
   if (!report) return "No checks have run.";
   return [`Workspace version: ${report.revision}; complete: ${report.complete}`,
-    ...report.results.map((result) => `${result.status}: ${result.command} (cwd ${result.cwd}, exit ${result.exitCode})\n${result.output}`),
+    ...report.results.map((result) => `${result.status}${result.preexisting ? ` (already failing before this change: ${result.preexisting})` : ""}: ${result.command} (cwd ${result.cwd}, exit ${result.exitCode})\n${result.output}`),
     ...(report.noChecksReason ? [`No checks selected: ${report.noChecksReason}`] : [])].join("\n\n");
 }
 
@@ -48,19 +48,23 @@ export function enforceCoverage(report: Omit<QaDocument, "verdict" | "couldNotTe
   checks: ChecksDocument | null, revision: string): QaDocument {
   const failures = [...report.failures];
   const gaps: string[] = [];
+  // Criteria QA's own tools can't verify are listed as not tested, but can't be repaired,
+  // so they don't hold back the verdict.
+  const skipped: string[] = [];
   gaps.push(...report.environmentFailures.map(failure => `${failure.command}: ${failure.reason}`));
   for (const criterion of criteria) {
     const entries = report.coverage.filter((entry) => entry.criterionId === criterion.id);
     if (entries.length !== 1 || !entries[0]!.evidence.trim()) gaps.push(`No unambiguous evidence for ${criterion.id}: ${criterion.requirement}`);
     else if (entries[0]!.status === "blocked") gaps.push(`${criterion.id}: ${entries[0]!.evidence}`);
+    else if (entries[0]!.status === "skipped") skipped.push(`${criterion.id} (skipped): ${entries[0]!.evidence}`);
     else if (entries[0]!.status === "fail") failures.push(`${criterion.id}: ${entries[0]!.evidence}`);
   }
   for (const result of checks?.results ?? []) {
-    if (result.status === "failed") failures.push(`${result.command}: ${result.output}`);
+    if (result.status === "failed" && !result.preexisting) failures.push(`${result.command}: ${result.output}`);
     if (result.status === "blocked") gaps.push(`${result.command}: ${result.output}`);
   }
   if (!checks?.complete) gaps.push("Deterministic checks did not complete.");
   else if (checks.revision !== revision) gaps.push("Workspace source changed after deterministic checks; their results are no longer current.");
-  return { ...report, failures: [...new Set(failures)], couldNotTest: [...new Set(gaps)],
+  return { ...report, failures: [...new Set(failures)], couldNotTest: [...new Set([...gaps, ...skipped])],
     verdict: failures.length ? "fail" : gaps.length ? "partial" : "pass" };
 }

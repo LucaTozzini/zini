@@ -4,21 +4,29 @@ import type { ChecksDocument, ReviewDocument } from "shared";
 import { REPO_COMMAND } from "./documents.js";
 import { QUIET_SECONDS, quietSeconds, runCommandResult } from "./qaProcesses.js";
 
+// A failed check that already failed before the change under review.
+type Preexisting = { command: string; reason: string };
+
 export class ReviewEvidence {
   results: ChecksDocument["results"];
   private operations = 0;
   constructor(previous: ChecksDocument | null, readonly revision: string) {
     this.results = previous?.revision === revision ? [...previous.results] : [];
   }
-  validate(review: ReviewDocument & { noChecksReason?: string }) {
+  // A preexisting failure only excuses a recorded failed check of the same command. Others
+  // are ignored: recorded results are cleared when the environment changes.
+  validate(review: ReviewDocument & { noChecksReason?: string; preexistingFailures: Preexisting[] }) {
     if (review.blockingQuestions.length || review.requiredChanges.length) return;
     if (!this.results.length && !review.noChecksReason) return "Run relevant checks using run_check, or provide a source-backed noChecksReason before approving.";
     if (this.results.length && review.noChecksReason) return "Checks were executed; omit noChecksReason.";
-    const unresolved = this.results.find(result => result.status !== "passed");
+    const preexisting = new Set(review.preexistingFailures.map(({ command }) => command));
+    const unresolved = this.results.find(result => result.status !== "passed" && !(result.status === "failed" && preexisting.has(result.command)));
     if (unresolved) return `Cannot approve with an unexplained ${unresolved.status} check: ${unresolved.command}. Repair environment prerequisites and rerun, or report requiredChanges or blockingQuestions.`;
   }
-  report(noChecksReason?: string): ChecksDocument {
-    return { revision: this.revision, complete: true, results: this.results, ...(noChecksReason ? { noChecksReason } : {}) };
+  report(noChecksReason?: string, preexistingFailures: Preexisting[] = []): ChecksDocument {
+    const reasons = new Map(preexistingFailures.map(({ command, reason }) => [command, reason]));
+    const results = this.results.map(result => result.status === "failed" && reasons.has(result.command) ? { ...result, preexisting: reasons.get(result.command) } : result);
+    return { revision: this.revision, complete: true, results, ...(noChecksReason ? { noChecksReason } : {}) };
   }
   budget() {
     if (++this.operations > 32) throw new Error("Reviewer command budget exhausted. Submit concrete defects, environment failures or blockingQuestions with the recorded evidence.");

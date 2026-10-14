@@ -1,12 +1,13 @@
 import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
-import type { PullRequestStatus } from "shared";
+import type { PullRequestStatus, WorkspaceAppState } from "shared";
 import { findPullRequest } from "../integrations/github.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { previewDownload } from "../browser/previewBrowser.js";
 import { syncWorkspace } from "../repositories/git.js";
 import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
 import {
@@ -51,6 +52,23 @@ workspaces.get("/:issueId", async (req, res) => {
     console.error(`Reading the workspace for ${issueId} failed:`, err);
     res.status(500).json({ error: `Couldn't read the workspace: ${lastLine(err)}` });
   }
+});
+
+// The user's app in the workspace, for its preview page.
+workspaces.get("/:issueId/app", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  try {
+    const { status, error } = await workspaceApps.refresh(issueId);
+    res.json({ status, error: error ?? null } satisfies WorkspaceAppState);
+  } catch (error) { res.status(500).json({ error: `Couldn't read the app: ${lastLine(error)}` }); }
+});
+
+// A file the preview's page downloaded.
+workspaces.get("/:issueId/preview/downloads/:id", async (req, res) => {
+  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  const download = await previewDownload(issueId, req.params.id);
+  if (!download) { res.status(404).json({ error: "That download is no longer available" }); return; }
+  res.download(download.path, download.name);
 });
 
 // Expensive live Git reads are independent of the issue panel metadata request.

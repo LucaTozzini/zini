@@ -31,7 +31,7 @@ import { ReviewEvidence, reviewerTools } from "./reviewerTools.js";
 import { SetupEvidence, setupTools } from "./setupTools.js";
 import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
 import { workspaceServiceHealth } from "../workspaces/workspaceServices.js";
-import { checkpointMessages, humanMessage, replyMessage } from "./messages.js";
+import { checkpointMessages, humanMessage, replyMessage, timelineEvents } from "./messages.js";
 import { loadForgeHistory } from "./history.js";
 import { checksText, enforceCoverage, freshRunbook, runbookText, updateRunbook } from "./validation.js";
 import { redirectUpdate, steeringOptions } from "./steering.js";
@@ -211,6 +211,10 @@ export async function reviewerAgent(issueId: string, issue: LinearIssueDetails, 
   const revision = await workspaceRevision(issueId);
   const evidence = new ReviewEvidence(state.checksReport, revision);
   const preparation = new SetupEvidence(state.environmentReport, revision, () => { evidence.results = []; });
+  // QA failed on the code this reviewer approved: a commit would have cleared the review.
+  // Approving it again would only send the same code back to QA.
+  const qaFailedApproved = state.qaReport?.verdict === "fail" && Boolean(state.review) &&
+    !state.review!.requiredChanges.length && !state.review!.blockingQuestions.length;
   const agent: Subagent<typeof REVIEW_SCHEMA> = {
     role: "reviewer",
     tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence)],
@@ -237,11 +241,15 @@ ${inputText(issue, [
         state.qaReport && JSON.stringify(state.qaReport),
       ],
     ])}`,
-    input: "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks.",
+    input: qaFailedApproved
+      ? "QA failed on the code you approved, which hasn't changed since. Diagnose each failure in the previous QA report: request a concrete source repair, or, if you can't trace a failure to the source (e.g. behavior that varies between runs), ask the user in blockingQuestions."
+      : "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks.",
     remember: true,
     validate: async review => {
       const invalid = evidence.validate(review);
       if (invalid) return invalid;
+      if (qaFailedApproved && !review.requiredChanges.length && !review.blockingQuestions.length)
+        return "QA failed on this exact code, so it can't be approved again unchanged. Request a concrete source repair for each QA failure, or ask the user in blockingQuestions about failures you can't trace to the source";
       if (!review.requiredChanges.length && !review.blockingQuestions.length) {
         try { await workspaceServiceHealth(issueId); }
         catch (error) { return `Required workspace service is not healthy: ${String(error)}. Repair it or submit blockingQuestions.`; }
@@ -250,8 +258,8 @@ ${inputText(issue, [
     },
   };
   const finish = async (document: z.infer<typeof REVIEW_SCHEMA>) => {
-    const { runbookUpdates, noChecksReason, ...review } = document;
-    return { review, checksReport: evidence.report(noChecksReason),
+    const { runbookUpdates, noChecksReason, preexistingFailures, ...review } = document;
+    return { review, checksReport: evidence.report(noChecksReason, preexistingFailures),
       environmentReport: preparation.report(review),
       runbook: await updateRunbook(book, runbookUpdates, fingerprint) };
   };
@@ -354,7 +362,7 @@ function buildPipeline(run: Run | null) {
       // Runs after its questions are answered, after a review that requires changes,
       // or after feedback on the finished changes.
       input: changes.length > 0
-        ? "Implement the current Reviewer requested changes in your system context."
+        ? `Implement the Reviewer's requested changes:\n\n${listText(changes)}`
         : !previous
         ? "Implement the approved plan."
         : hasQuestions(previous)
@@ -363,6 +371,11 @@ function buildPipeline(run: Run | null) {
                 ? `The user's feedback on your changes:\n\n${state.implementationFeedback.at(-1)}`
                 : "Implement the current approved plan, including pending conflicts; preserve existing work.",
       remember: true,
+      // A repair that changes nothing would only send the same code back to review.
+      validate: async (submitted) => changes.length > 0 && !submitted.blockingQuestions.length &&
+        !submitted.replanReason && !(await hasUncommitted(issueId))
+        ? "The Reviewer requested changes, but you changed nothing. Make the requested changes, or explain in blockingQuestions why they can't be made"
+        : undefined,
     });
     return { implementation };
   }
@@ -498,10 +511,12 @@ function buildPipeline(run: Run | null) {
   const tracked = <T>(node: (state: State) => Promise<T>, role?: AgentRole) => (state: State) =>
     need().execution.track(async () => {
       need().signal?.throwIfAborted();
+      const started = new Date().toISOString();
       if (role) await emitForgeEvent(need().issueId, { type: "stage_started", role });
       const result = await node(state);
       need().signal?.throwIfAborted();
-      return result;
+      const timeline = timelineEvents(role, started, result as object);
+      return timeline.length ? { ...result, timeline } : result;
     });
 
   return new StateGraph(PipelineGraphState)

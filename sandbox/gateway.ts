@@ -113,7 +113,7 @@ async function api(action: string, body: any) {
       return `${response.statusCode} ${response.statusMessage}\nContent-Type: ${response.headers["content-type"]}\n${response.headers.location ? `Location: ${response.headers.location}\n` : ""}\n${text.slice(0,8000)}`; }
     case "appStatus": return { ...apps.status(issue), plan };
     case "appLaunch": {
-      if (launchTask) throw new Error("Preview launch is already in progress");
+      if (launchTask) throw new Error("An app launch is already in progress");
       plan = body.plan; launchAbort = new AbortController();
       launchTask = (async () => { await writeFile("/state/preview.json", JSON.stringify(plan)); return { ...await apps.launch(issue, plan!, launchAbort!.signal, body.timeout), plan }; })();
       try { return await launchTask; } finally { launchTask = null; launchAbort = null; }
@@ -131,15 +131,16 @@ async function api(action: string, body: any) {
     default: throw new Error("Unknown gateway operation");
   }
 }
+// Passes the backend's browser connection through to Chromium (head set, a WebSocket),
+// or an eval's hidden-check request through to the app (/app/...). The preview itself
+// runs in that browser, inside this container, so it reaches the app at localhost.
 async function proxy(req: any, client: any, head?: Buffer) {
-  const path = req.url.slice(`/preview/${encodeURIComponent(issue)}`.length) || "/";
-  const target = apps.previewTarget(issue, path);
+  const target = apps.appTarget(issue);
   let upstreamUrl: URL;
-  if (req.url === "/browser" && browser && head !== undefined) { upstreamUrl = new URL(browser.wsEndpoint()); upstreamUrl.protocol = "http:"; }
-  else if (target) upstreamUrl = new URL(`${target.protocol}//127.0.0.1:${target.port}${target.path}`);
-  else { client.end(head === undefined ? "Preview is not ready" : "HTTP/1.1 404 Not Found\r\n\r\n"); return; }
+  if (head !== undefined && browser) { upstreamUrl = new URL(browser.wsEndpoint()); upstreamUrl.protocol = "http:"; }
+  else if (head === undefined && target) upstreamUrl = new URL(`${target.protocol}//127.0.0.1:${target.port}${req.url.slice("/app".length) || "/"}`);
+  else { client.end(head === undefined ? "The app is not ready" : "HTTP/1.1 404 Not Found\r\n\r\n"); return; }
   const headers = { ...req.headers, host: upstreamUrl.host }; delete headers["x-workspace-token"];
-  if (headers.origin) headers.origin = `${upstreamUrl.protocol}//${upstreamUrl.host}`;
   const upstream = await localRequest(upstreamUrl, { method: req.method, headers }, response => {
     if (head !== undefined) { response.resume(); client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); }
     else { client.writeHead(response.statusCode, response.headers); response.pipe(client); }
@@ -156,7 +157,7 @@ async function proxy(req: any, client: any, head?: Buffer) {
 }
 const server = createServer(async (req, res) => {
   if (req.headers["x-workspace-token"] !== token) { res.writeHead(401).end(); return; }
-  if (req.url?.startsWith(`/preview/${encodeURIComponent(issue)}/`)) { void proxy(req, res).catch(() => res.destroy()); return; }
+  if (req.url === "/app" || req.url?.startsWith("/app/") || req.url?.startsWith("/app?")) { void proxy(req, res).catch(() => res.destroy()); return; }
   try {
     if (req.method !== "POST") throw new Error("Use POST");
     let content = ""; for await (const chunk of req) { content += chunk; if (content.length > 1000000) throw new Error("Request too large"); }
@@ -165,7 +166,7 @@ const server = createServer(async (req, res) => {
   } catch (error) { res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(error) })); }
 });
 server.on("upgrade", (req, socket, head) => {
-  if (req.headers["x-workspace-token"] !== token || !(req.url === "/browser" || req.url?.startsWith(`/preview/${encodeURIComponent(issue)}/`))) { socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n"); return; }
+  if (req.headers["x-workspace-token"] !== token || req.url !== "/browser") { socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n"); return; }
   void proxy(req, socket, head).catch(() => socket.destroy());
 });
 server.listen(7777, "0.0.0.0");

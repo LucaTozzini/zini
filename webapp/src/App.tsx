@@ -89,6 +89,7 @@ function SignedInApp() {
             <Route path="/project-lead" element={projectLead} />
             <Route path="/project-lead/:threadId" element={projectLead} />
             <Route path="/issues/:issueId" element={<IssuePage />} />
+            <Route path="/issues/:issueId/preview" element={<IssuePage view="preview" />} />
             <Route path="/mission-control" element={<MissionControlPage />} />
           </Routes>
         </Box>

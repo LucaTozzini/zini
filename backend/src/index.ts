@@ -2,11 +2,8 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { createServer } from "node:http";
-import {
-  workspacePreview,
-  workspacePreviewUpgrades,
-} from "./workspaces/workspacePreview.js";
 import { workspaceApps } from "./workspaces/workspaceAppSessions.js";
+import { previewSockets } from "./browser/previewBrowser.js";
 import { initDb } from "./db.js";
 import { subscribe } from "./core/events.js";
 import { forge } from "./routes/forge.js";
@@ -27,7 +24,6 @@ import conductorRouter from "./routes/conductor.js";
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
-app.use(workspacePreview(workspaceApps));
 app.use("/api/project-lead", express.json({ limit: "30mb" }));
 app.use(express.json());
 app.use(cookieParser());
@@ -70,7 +66,10 @@ startProjectLeadMessageWorker();
 await startConductor();
 
 const server = createServer(app);
-workspacePreviewUpgrades(server, workspaceApps);
+previewSockets(server, async (issueId) => {
+  const app = await workspaceApps.refresh(issueId);
+  return app.status === "ready" ? app.url ?? null : null;
+});
 server.listen(port, () => {
   console.log(`backend listening on http://localhost:${port}`);
 });

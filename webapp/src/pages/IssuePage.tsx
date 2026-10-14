@@ -6,25 +6,33 @@ import {
   Dialog,
   Divider,
   IconButton,
+  Tooltip,
   Typography,
 } from "@mui/material";
-import { useParams } from "react-router";
+import ConstructionOutlinedIcon from "@mui/icons-material/ConstructionOutlined";
+import OpenInBrowserIcon from "@mui/icons-material/OpenInBrowser";
+import PreviewView from "../components/preview/PreviewView.tsx";
+import { Link as RouterLink, useParams } from "react-router";
+import { useWorkspace } from "../api/workspaces.ts";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
 import ForgeView from "../components/ForgeView.tsx";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import IssuePanel from "../components/IssuePanel.tsx";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 const Header = ({
   title,
   identifier,
   linearUrl,
+  link,
   handleShowDetails,
 }: {
   title: string;
   identifier?: string;
   linearUrl?: string;
+  // The issue's other view: its Forge, or its app's preview.
+  link?: { to: string; label: string; icon: ReactNode };
   handleShowDetails?: () => void;
 }) => (
   <Box
@@ -66,24 +74,35 @@ const Header = ({
           {title}
         </Typography>
       </ButtonBase>
-      {linearUrl && (
-        <IconButton
-          size="small"
-          href={linearUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Open in Linear"
-        >
-          <LinearIcon sx={{ color: "text.primary", fontSize: 17 }} />
-        </IconButton>
-      )}
+      <Box sx={{ display: "flex", alignItems: "center" }}>
+        {link && (
+          <Tooltip title={link.label}>
+            <IconButton size="small" component={RouterLink} to={link.to} aria-label={link.label}>
+              {link.icon}
+            </IconButton>
+          </Tooltip>
+        )}
+        {linearUrl && (
+          <IconButton
+            size="small"
+            href={linearUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open in Linear"
+          >
+            <LinearIcon sx={{ color: "text.primary", fontSize: 17 }} />
+          </IconButton>
+        )}
+      </Box>
     </Box>
     <Divider />
   </Box>
 );
 
-function IssueDetails({ issueId }: { issueId: string }) {
+// The issue's page: its Forge, or (view "preview") its workspace app's preview.
+function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "preview" }) {
   const issue = useLinearIssue(issueId);
+  const workspace = useWorkspace(issueId);
   const [showDetails, setShowDetails] = useState(false);
 
   if (issue.isPending) return <Header title="Loading..." />;
@@ -105,9 +124,14 @@ function IssueDetails({ issueId }: { issueId: string }) {
         identifier={issue.data.identifier}
         title={issue.data.title}
         linearUrl={issue.data.url}
+        link={view === "preview"
+          ? { to: `/issues/${issue.data.id}`, label: "Open the Forge", icon: <ConstructionOutlinedIcon sx={{ fontSize: 19 }} /> }
+          : workspace.data ? { to: `/issues/${issue.data.id}/preview`, label: "Open the app's preview", icon: <OpenInBrowserIcon sx={{ fontSize: 19 }} /> }
+          : undefined}
         handleShowDetails={() => setShowDetails(true)}
       />
-      <ForgeView key={issue.data.id} issueId={issue.data.id} />
+      {view === "preview" ? <PreviewView key={issue.data.id} issueId={issue.data.id} />
+        : <ForgeView key={issue.data.id} issueId={issue.data.id} />}
       <Dialog
         open={showDetails}
         onClose={() => setShowDetails(false)}
@@ -127,10 +151,10 @@ function IssueDetails({ issueId }: { issueId: string }) {
   );
 }
 
-const IssuePage = () => {
+const IssuePage = ({ view = "forge" }: { view?: "forge" | "preview" }) => {
   const { issueId } = useParams();
   if (!issueId) return <Alert severity="error">No issue selected.</Alert>;
-  return <IssueDetails key={issueId} issueId={issueId} />;
+  return <IssueDetails key={issueId} issueId={issueId} view={view} />;
 };
 
 export default IssuePage;

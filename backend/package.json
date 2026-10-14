@@ -27,6 +27,7 @@
     "shared": "*",
     "sqlite3": "^6.0.1",
     "tar": "^7.5.22",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -34,6 +35,7 @@
     "@types/express": "^5.0.6",
     "@types/micromatch": "^4.0.10",
     "@types/node": "^24.13.6",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2"
   }

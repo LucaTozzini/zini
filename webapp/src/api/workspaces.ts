@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PullRequest, PullRequestStatus, Workspace, WorkspaceDiff, WorkspaceSelection, WorkspaceGitStatus } from 'shared'
+import type { PullRequest, PullRequestStatus, Workspace, WorkspaceDiff, WorkspaceSelection, WorkspaceGitStatus, WorkspaceAppState } from 'shared'
 import { api } from './client.ts'
 import { forgeKey } from './forge.ts'
 
@@ -85,5 +85,15 @@ export function useOpenPullRequest(issueId: string) {
       api.post(`workspaces/${issueId}/pull-request`, { json: pull, timeout: false }).json<PullRequest>(),
     onSuccess: (pullRequest) =>
       queryClient.setQueryData<PullRequestStatus>(pullRequestKey(issueId), { pushed: true, pullRequest }),
+  })
+}
+
+// The user's app in the workspace, for its preview page. Polled while it isn't ready,
+// since the Project Lead starts and stops it.
+export function useWorkspaceApp(issueId: string) {
+  return useQuery({
+    queryKey: [...workspaceKey(issueId), 'app'],
+    queryFn: () => api.get(`workspaces/${issueId}/app`).json<WorkspaceAppState>(),
+    refetchInterval: (query) => query.state.data?.status === 'ready' ? 15000 : 3000,
   })
 }

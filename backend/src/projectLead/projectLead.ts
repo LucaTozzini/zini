@@ -169,16 +169,15 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   app and any user answers. The launcher inspects and executes its setup/start plan
   inside the Docker workspace, diagnoses failures and retries there automatically.
   Do not construct or relay launch plans yourself.
-  It returns ready with the preview URL, not_webapp, needs_input with questions, or
+  It returns ready with the preview link, not_webapp, needs_input with questions, or
   failed with diagnostics. Ask the user its questions and pass their answers in a new
   launch request. Never invent credentials. Workspace commands require no approval;
   plan approvals, issue mutations and explicit commit/push remain separate actions.
   The servers stay up after this chat turn; use stop_workspace_app on request.
   Acceptance such as "Looks good" does not request stopping the preview server.
-  Share previewUrl only when status is ready: it is a relative link served by Zini,
-  usable from any device that can reach Zini. The url field is for host-local diagnostics.
-  Apps requiring code changes for preview routing are reported by the launcher; request
-  those changes through the Forge rather than inventing a working preview.`;
+  Share previewUrl only when status is ready: it is a relative link to Zini's preview page,
+  which shows the app in a browser inside the workspace that the user controls, from any
+  device that can reach Zini. The url field is the app's address inside the workspace.`;
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
@@ -261,11 +260,11 @@ function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
     tool(async ({ issueId, request }, config) => JSON.stringify(await launchWorkspaceApp(model,
       await toIssueId(linear, issueId), request, config.signal)), {
       name: "launch_workspace_app",
-      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, runs setup/server commands inside Docker, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (relative to Zini), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle Forge. Servers stay running until stopped.",
+      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, runs setup/server commands inside Docker, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (Zini's preview page), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle Forge. Servers stay running until stopped.",
       schema: z.object({ issueId: ISSUE_ID, request: z.string().min(1).describe("Which app to run and any user answers or constraints. The launcher handles command discovery and sandbox startup; do not supply a guessed launch plan.") }),
     }),
     tool(async ({ issueId }) => JSON.stringify(await workspaceApps.refresh(await toIssueId(linear, issueId))), {
-      name: "workspace_app_status", description: "Read the user app session's status, previewUrl (relative to Zini), diagnostic local URL, startup errors and recent server output.",
+      name: "workspace_app_status", description: "Read the user app session's status, previewUrl (Zini's preview page), its address inside the workspace, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
     tool(async ({ issueId }) => JSON.stringify(await workspaceApps.stop(await toIssueId(linear, issueId))), {

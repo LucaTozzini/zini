@@ -1,0 +1,10 @@
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -40,6 +40,7 @@
+         onToggle={(todo) => change(() => setDone(todo.id, !todo.done))}
+         onDelete={(todo) => change(() => deleteTodo(todo.id))}
+       />
++      {todos.length > 0 && <p>{todos.filter(todo => !todo.done).length} {todos.filter(todo => !todo.done).length === 1 ? "to-do" : "to-dos"} left</p>}
+     </main>
+   );
+ }

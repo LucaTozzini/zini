@@ -10,8 +10,12 @@ import type {
   ForgeHumanMessage,
   EnvironmentSetupDocument,
   IntegrationState,
+  AgentRole,
 } from "shared";
 import type { Runbook } from "./validation.js";
+
+// When an agent's stage started, or it submitted its document, for the activity feed.
+export type TimelineEvent = { kind: "stage" | "document"; agent: AgentRole; t: string };
 
 const latest = <T>(initial: T) =>
   Annotation<T>({ reducer: (_old, next) => next, default: () => initial });
@@ -27,6 +31,8 @@ export const PipelineGraphState = Annotation.Root({
   redirectTarget: latest<SteeringTarget>("planner"),
   steeringFeedback: appended<string>(),
   humanMessages: appended<ForgeHumanMessage>(),
+  // Only the latest checkpoint is kept, so the feed's stages and documents are recorded here.
+  timeline: appended<TimelineEvent>(),
   plan: latest<PlanDocument | null>(null),
   planApproved: latest(false),
   implementation: latest<ImplementationDocument | null>(null),

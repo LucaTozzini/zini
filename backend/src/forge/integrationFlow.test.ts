@@ -65,6 +65,7 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
       // Reviewer and QA documents also take runbookUpdates.
       const common = { blockingQuestions: [] };
       const validation = { ...common, runbookUpdates: [] };
+      const reviewed = { ...validation, preexistingFailures: [] };
       let name = submit;
       let args: unknown;
       if (submit === "submit_plan") args = { ...common, summary: "Preserve issue and upstream behavior", existingImplementation: "Inherited issue behavior in file.txt; validate it too",
@@ -72,11 +73,17 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         acceptanceCriteria: [{ id: "both", requirement: "Preserve both behaviors", source: "Preserve both behaviors" }] };
       else if (submit === "submit_implementation") {
         coderCalls++;
-        if (coderCalls === 4) assert.match(JSON.stringify(body.messages.filter((m: { role: string }) => m.role === "system")),
-          /Current Reviewer requested changes[\s\S]*Observed startup code defect/, "Repair requests are in Coder system context");
+        if (coderCalls === 4) {
+          assert.match(JSON.stringify(body.messages.filter((m: { role: string }) => m.role === "system")),
+            /Current Reviewer requested changes[\s\S]*Observed startup code defect/, "Repair requests are in Coder system context");
+          assert.match(JSON.stringify(body.messages.filter((m: { role: string }) => m.role === "user").at(-1)),
+            /Observed startup code defect/, "Repair requests are in the Coder's input too");
+        }
         if (coderCalls === 1) { name = "write_file"; args = { file_path: "/file.txt", content: "issue behavior\nupstream behavior\n" }; }
         else if (coderCalls === 2) { name = "resolve_conflict"; args = { path: "file.txt" }; }
-        else if (coderCalls === 5) {
+        // A repair has to change something (an empty one is sent back).
+        else if (coderCalls === 4) { name = "write_file"; args = { file_path: "/startup_fix.txt", content: "Startup defect repaired\n" }; }
+        else if (coderCalls === 6) {
           assert.match(JSON.stringify(body.messages.filter((m: { role: string }) => m.role === "system")), /QA reproduced source bug/,
             "Coder receives Reviewer repairs in system context after QA failure");
           name = "write_file"; args = { file_path: "/qa_fix.txt", content: "QA reproduced behavior repaired\n" };
@@ -89,9 +96,13 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         if (reviewCalls === 9) assert.ok(body.messages.some((message: { role: string; content: unknown }) =>
           message.role === "tool" && JSON.stringify(message.content).includes("test -f file.txt")),
           "Reviewer retains diagnostics across QA repair rounds");
-        if (reviewCalls === 1) args = { ...validation, requiredChanges: ["Observed startup code defect requires a coder repair"] };
-        else if (reviewCalls === 2) args = { ...validation, requiredChanges: [], blockingQuestions: ["Add DEV_TOKEN in Settings /settings"] };
-        else if (reviewCalls === 12) args = { ...validation, requiredChanges: ["QA reproduced source bug: create qa_fix.txt with the repaired product behavior"] };
+        if (reviewCalls === 1) args = { ...reviewed, requiredChanges: ["Observed startup code defect requires a coder repair"] };
+        else if (reviewCalls === 2) args = { ...reviewed, requiredChanges: [], blockingQuestions: ["Add DEV_TOKEN in Settings /settings"] };
+        else if (reviewCalls === 12) {
+          assert.match(JSON.stringify(body.messages.filter((m: { role: string }) => m.role === "user").at(-1)),
+            /QA failed on the code you approved/, "After QA fails approved code, Reviewer is told it can't just approve again");
+          args = { ...reviewed, requiredChanges: ["QA reproduced source bug: create qa_fix.txt with the repaired product behavior"] };
+        }
         else if ([3, 6, 9, 13, 16].includes(reviewCalls)) {
           name = "run_setup";
           const command = setupEntry.command + (reviewCalls === 6 ? " && touch /state/reviewer-ready" : reviewCalls === 9 ? " && touch /state/reviewer-ready /state/qa-ready" : "");
@@ -99,7 +110,7 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
         } else if ([4, 5, 7, 10, 14, 17].includes(reviewCalls)) {
           name = "run_check";
           args = { entry: { id: "fixture-check", kind: "check", command: reviewCalls === 5 ? "test -f file.txt" : reviewCalls >= 14 ? "test -f qa_fix.txt && test -f file.txt" : "test -f /state/reviewer-ready", cwd: ".", purpose: "Verify runtime prerequisite", sources: ["file.txt"] } };
-        } else args = { ...validation, requiredChanges: [] };
+        } else args = { ...reviewed, requiredChanges: [] };
       }
       else if (submit === "submit_qa_report") {
         qaCalls++;
@@ -163,7 +174,7 @@ test("Forge resumes conflicts through planner/coder, commits, and revalidates af
     assert.ok(prompts.every(prompt => !prompt.includes(credential)), "Credential values never enter model prompts");
     assert.ok(!JSON.stringify(pipeline).includes(credential), "Pipeline documents contain no credential value");
     assert.equal(pipeline.checks?.revision, await workspaceRevision(id));
-    assert.equal(coderCalls, 6, "Coder resolves conflicts and concrete Reviewer/QA source defects");
+    assert.equal(coderCalls, 7, "Coder resolves conflicts and concrete Reviewer/QA source defects");
     assert.ok(prompts.some(prompt => prompt.includes("test -f file.txt") && prompt.includes("passed")), "Reviewer receives the missing check's actual result");
     assert.equal(stages.filter(s => s === "submit_qa_report").length, 8, "QA collects fresh reproduction evidence after environment repair, source repair and upstream movement");
     assert.ok(stages.indexOf("submit_plan") < stages.indexOf("submit_implementation"));

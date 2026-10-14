@@ -1,5 +1,6 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage } from "@langchain/core/messages";
+import { ReducedValue, StateSchema } from "@langchain/langgraph";
 import { createMiddleware, summarizationMiddleware } from "langchain";
 import { z } from "zod";
 
@@ -18,13 +19,21 @@ export const isSummary = (message: BaseMessage) =>
 export const summaryText = (message: BaseMessage) =>
   message.text.replace(SUMMARY_PREFIX, "").trim();
 
+// The archive merges by message ID: each run of the agent writes the saved archive back,
+// or an empty default at its start, and neither may double or wipe it.
+const archive = (current: BaseMessage[], next: BaseMessage[]) => {
+  const ids = new Set(current.map((message) => message.id));
+  return [...current, ...next.filter((message) => !ids.has(message.id))];
+};
+
 // Runs LangChain's compaction, and archives the messages it drops in `compacted`, so
 // the chat can still show the whole conversation. The model only ever reads `messages`.
-export function compactionMiddleware(model: BaseChatModel) {
+// Tests compact smaller conversations.
+export function compactionMiddleware(model: BaseChatModel, { compactAt = COMPACT_AT, keepMessages = KEEP_MESSAGES } = {}) {
   const summarization = summarizationMiddleware({
     model,
-    trigger: { tokens: COMPACT_AT },
-    keep: { messages: KEEP_MESSAGES },
+    trigger: { tokens: compactAt },
+    keep: { messages: keepMessages },
     summaryPrefix: SUMMARY_PREFIX,
   });
   // Its hook is typed loosely (a function or { hook }) but is a function: nothing when
@@ -36,9 +45,9 @@ export function compactionMiddleware(model: BaseChatModel) {
 
   return createMiddleware({
     name: "Compaction",
-    // Replaced on every write, not appended to: each run of the agent writes every
-    // state field back with its saved value, which an appending reducer would double.
-    stateSchema: z.object({ compacted: z.array(z.custom<BaseMessage>()).default([]) }),
+    stateSchema: new StateSchema({
+      compacted: new ReducedValue(z.array(z.custom<BaseMessage>()).default([]), { reducer: archive }),
+    }),
     beforeModel: async (state, runtime) => {
       const update = await summarize(state, runtime);
       if (!update) return; // Under the threshold: nothing changes.
@@ -47,7 +56,7 @@ export function compactionMiddleware(model: BaseChatModel) {
       // first dropped message's ID, so only what follows it counts as kept.
       const keptIds = new Set(update.messages.slice(2).map((message) => message.id));
       const dropped = state.messages.filter((message) => !keptIds.has(message.id));
-      return { ...update, compacted: [...state.compacted, ...dropped] };
+      return { ...update, compacted: dropped };
     },
   });
 }

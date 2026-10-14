@@ -47,6 +47,19 @@ export async function volumeHelper(issueId: string, request: unknown, source?: s
 }
 export const gitHelperName = (issueId: string) => `${sandboxName(issueId)}-git`;
 
+// The sandbox image's current build. Containers keep the build they were created from,
+// so one made from an older build is recreated: its gateway and Git helper code are
+// baked into the image. Checked once per container until the image is built again (or
+// the backend restarts), as every gateway request ensures its sandbox.
+export const sandboxImageId = async () => (await docker(["image", "inspect", "--format", "{{.Id}}", sandboxImage])).trim();
+const checkedImages = new Set<string>();
+export const forgetImageChecks = () => checkedImages.clear();
+export async function outdatedImage(name: string, image: string) {
+  if (checkedImages.has(name)) return false;
+  checkedImages.add(name);
+  return image !== await sandboxImageId();
+}
+
 async function inspectGitHelper(issueId: string, expectedIdentity = workspaceIdentity) {
   let info;
   try { info = JSON.parse(await docker(["inspect", gitHelperName(issueId)]))[0]; }
@@ -57,7 +70,12 @@ async function inspectGitHelper(issueId: string, expectedIdentity = workspaceIde
 }
 
 async function gitHelper(issueId: string, request: unknown) {
-  const info = await inspectGitHelper(issueId);
+  let info = await inspectGitHelper(issueId);
+  // It holds no state of its own: only the workspace volume is mounted.
+  if (info && await outdatedImage(gitHelperName(issueId), info.Image)) {
+    await docker(["rm", "-f", gitHelperName(issueId)]);
+    info = null;
+  }
   if (!info) {
     await docker(["run", "-d", "--name", gitHelperName(issueId), "--user", "1000:1000", "--cpus", "2", "--memory", "4g", "--pids-limit", "128", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=64m", "--network", "bridge",
       "--label", `zini.owner=${sandboxOwner}`, "--label", `zini.workspace=${issueId}`, "--label", `zini.storage=${workspaceIdentity}`, "--label", "zini.role=trusted-git",

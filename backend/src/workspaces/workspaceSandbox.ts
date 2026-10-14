@@ -4,18 +4,24 @@ import { workspacePath } from "../repositories/git.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
 import { registerGitSandbox, forgetGitSandbox, trustedGit } from "./trustedGit.js";
 import { docker } from "./docker.js";
-import { sandboxImage, sandboxRoot, sandboxOwner as owner, sandboxName, workspaceIdentity, identityForStorage, workspaceVolume, ensureWorkspaceVolume, ownedResource, removeOwnedResource, removeWorkspaceVolume, resource } from "./workspaceVolumes.js";
+import { sandboxImage, sandboxRoot, sandboxOwner as owner, sandboxName, workspaceIdentity, identityForStorage, workspaceVolume, ensureWorkspaceVolume, forgetImageChecks, outdatedImage, ownedResource, removeOwnedResource, removeWorkspaceVolume, resource } from "./workspaceVolumes.js";
 export { docker } from "./docker.js";
 export { sandboxImage, sandboxName } from "./workspaceVolumes.js";
 
 const root = sandboxRoot;
 const pending = new Map<string, Promise<Sandbox>>();
 export type Sandbox = { name: string; port: number; token: string; generation?: string };
-export async function buildSandboxImage() { await docker(["build", "-f", resolve(root, "sandbox/Dockerfile"), "-t", sandboxImage, root]); }
+export async function buildSandboxImage() { await docker(["build", "-f", resolve(root, "sandbox/Dockerfile"), "-t", sandboxImage, root]); forgetImageChecks(); }
 async function inspect(name: string) {
   try { return JSON.parse(await docker(["inspect", name]))[0]; }
   catch (error) { if (/No such (object|container)/i.test(String((error as { stderr?: string }).stderr))) return null; throw error; }
 }
+// Whether the issue's container is paused: Git operations pause it for a moment (see
+// trustedGit), and Docker doesn't report its published port meanwhile.
+export async function sandboxPaused(issueId: string) {
+  return Boolean((await inspect(sandboxName(issueId)))?.State?.Paused);
+}
+
 export async function existingSandbox(issueId: string): Promise<Sandbox | null> {
   const name = sandboxName(issueId); const info = await inspect(name);
   if (!info) return null;
@@ -52,6 +58,13 @@ async function create(issueId: string) {
   const name = sandboxName(issueId);
   try {
     await ensureWorkspaceVolume(issueId);
+    // A container from an older image build is replaced; its volumes, network and
+    // services are kept and reattached (see workspaceVolumes' outdatedImage).
+    const current = await inspect(name);
+    if (current && current.Config.Labels?.["zini.owner"] === owner && current.Config.Labels?.["zini.workspace"] === issueId &&
+        await outdatedImage(name, current.Image)) {
+      await trustedGit(workspacePath(issueId), async () => { await docker(["rm", "-f", name]); forgetGitSandbox(workspacePath(issueId)); });
+    }
     let sandbox = await existingSandbox(issueId);
     // Storage is initialized or verified before a gateway starts using it.
     if (!sandbox) {
