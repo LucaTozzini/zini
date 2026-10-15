@@ -4,6 +4,7 @@ import type { ServerEvent } from 'shared'
 import { approvalsKey, forgeKey, forgeMessagesKey } from './forge.ts'
 import { chatGptKey } from './chatgpt.ts'
 import { evalsKey } from './evals.ts'
+import { openwikiKey } from './openwiki.ts'
 import { subscriptionsKey, threadKey, threadsKey } from './projectLead.ts'
 import { workspaceKey, workspacesKey } from './workspaces.ts'
 
@@ -36,6 +37,10 @@ export function useServerEvents() {
       } else if (event.type === 'eval.updated') {
         // The status and its output, and the results, which change as runs end.
         queryClient.invalidateQueries({ queryKey: evalsKey })
+      } else if (event.type === 'openwiki.updated') {
+        // The docs scan started, finished or failed: its status, and the wiki
+        // pages once they exist.
+        queryClient.invalidateQueries({ queryKey: openwikiKey })
       } else if (event.type === 'forge.updated') {
         // The pipeline and chat both come from saved checkpoints.
         queryClient.invalidateQueries({ queryKey: forgeKey(event.issueId), exact: true })

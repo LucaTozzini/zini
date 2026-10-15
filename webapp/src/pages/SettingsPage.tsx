@@ -443,6 +443,18 @@ function SettingsPage() {
           model="forgeModel"
           helperText="An OpenRouter model ID for the Forge, which guides implementing an issue in its workspace."
         />
+        <SettingCard
+          title="OpenWiki"
+          fields={[
+            {
+              setting: "openwikiModel",
+              label: "Model",
+              placeholder: "openai/gpt-5-mini",
+              helperText:
+                "An OpenRouter model ID used to generate the repo's wiki docs.",
+            },
+          ]}
+        />
         <AppearanceCard />
         <ConductorCard />
       </Stack>

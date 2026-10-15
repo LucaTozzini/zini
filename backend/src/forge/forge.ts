@@ -17,6 +17,7 @@ import { createMiddleware } from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
 import { checkpointer, modelRetry, streamConfig, threadConfig, toolErrors } from "../agents/agents.js";
 import { compactionMiddleware } from "../agents/compaction.js";
+import { wikiTools } from "../openwiki/wikiTools.js";
 import {
   IMPLEMENTATION_SCHEMA,
   PLAN_SCHEMA,
@@ -217,7 +218,7 @@ export async function reviewerAgent(issueId: string, issue: LinearIssueDetails, 
     !state.review!.requiredChanges.length && !state.review!.blockingQuestions.length;
   const agent: Subagent<typeof REVIEW_SCHEMA> = {
     role: "reviewer",
-    tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence)],
+    tools: [diffTool(issueId), ...npmTools, ...setupTools(issueId, preparation), ...reviewerTools(issueId, evidence), ...wikiTools],
     schema: REVIEW_SCHEMA,
     prompt: `${REVIEWER_PROMPT}
 
@@ -311,7 +312,7 @@ function buildPipeline(run: Run | null) {
           state.planFeedback.length > 0 && listText(state.planFeedback),
         ],
       ])}`,
-      tools: [diffTool(need().issueId), ...conflictTools(need().issueId), ...npmTools],
+      tools: [diffTool(need().issueId), ...conflictTools(need().issueId), ...npmTools, ...wikiTools],
       schema: PLAN_SCHEMA,
       // Runs after its questions are answered, or after feedback on its plan.
       input: !previous
@@ -357,6 +358,7 @@ function buildPipeline(run: Run | null) {
         diffTool(issueId),
         ...conflictTools(issueId, true),
         ...npmTools,
+        ...wikiTools,
       ],
       schema: IMPLEMENTATION_SCHEMA,
       // Runs after its questions are answered, after a review that requires changes,

@@ -47,6 +47,7 @@ import {
   startPipeline,
 } from "../forge/forge.js";
 import { codeTools, fetchRepoMiddleware } from "../agents/codeTools.js";
+import { wikiTools } from "../openwiki/wikiTools.js";
 import { exploreCode } from "../agents/codeExplorer.js";
 import { notesMiddleware, readNotes } from "./notes.js";
 import { userMessage, withSenderName } from "./messageInput.js";
@@ -102,6 +103,9 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   each question complete on its own: name the feature, file, term or package@version you
   mean. Ask several at once when they're independent. Use list_files, read_file and
   search_code directly for quick look-ups, when you already know where to look.
+- If the repo has an OpenWiki (generated architecture docs), use openwiki_search and
+  openwiki_read to orient yourself in unfamiliar areas; verify in the actual code
+  before making claims about what it does.
 - Mention the relevant files in issue descriptions when it helps whoever picks it up.
 - The repo's files don't include its dependencies. The npm_ tools read packages
   directly, for quick look-ups: use the version in the repo's package.json or lockfile.
@@ -596,6 +600,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       ...forgeTools(linear),
       ...workspaceAppTools(linear, chatModel),
       ...codeTools,
+      ...wikiTools,
       exploreCodeTool,
       ...npmTools,
       ...browserTools(`project-lead:${threadId}`, () => sendEvent({ type: "thread.updated", threadId }), { external: true }),

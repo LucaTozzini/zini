@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useServerEvents } from "./api/events.ts";
 import { useSetup } from "./hooks/useSetup.ts";
 import SettingsPage from "./pages/SettingsPage.tsx";
+import DocsPage from "./pages/DocsPage.tsx";
 import EvalsPage from "./pages/EvalsPage.tsx";
 import ProjectLeadPage from "./pages/ProjectLeadPage.tsx";
 import IssuePage from "./pages/IssuePage.tsx";
@@ -85,6 +86,7 @@ function SignedInApp() {
           <Routes>
             <Route path="/" element={<Navigate to="/project-lead" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/docs" element={<DocsPage />} />
             <Route path="/evals" element={<EvalsPage />} />
             <Route path="/project-lead" element={projectLead} />
             <Route path="/project-lead/:threadId" element={projectLead} />
