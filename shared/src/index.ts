@@ -40,7 +40,11 @@ export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
   team: { key: string; name: string };
   // Oldest first.
   comments: LinearComment[];
+  // Links on the issue, such as its pull requests.
+  attachments: LinearAttachment[];
 };
+
+export type LinearAttachment = { title: string; url: string };
 
 // A comment on a Linear issue. user is null for comments by integrations and bots.
 export type LinearComment = { body: string; createdAt: string; user: { name: string } | null };

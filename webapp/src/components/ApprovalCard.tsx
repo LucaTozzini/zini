@@ -66,10 +66,26 @@ function CommitDetails({ action }: { action: PendingAction }) {
   );
 }
 
+// One pull_request_create, pull_request_comment or pull_request_resolve_thread call.
+function PullRequestDetails({ action }: { action: PendingAction }) {
+  const args = action.args as { issueId?: string; number?: number; title?: string; body?: string; replyTo?: number; threadId?: string; resolved?: boolean };
+  const heading = action.name === "pull_request_create" ? `Open a pull request for ${args.issueId}`
+    : action.name === "pull_request_comment" ? (args.replyTo ? `Reply to review comment ${args.replyTo} on #${args.number}` : `Comment on #${args.number}`)
+    : `${args.resolved === false ? "Reopen" : "Resolve"} review thread ${args.threadId} on #${args.number}`;
+  return (
+    <Stack spacing={0.5}>
+      <Typography variant="subtitle2">{heading}</Typography>
+      {args.title && <Typography>{args.title}</Typography>}
+      {args.body && <MarkdownText color="text.secondary">{args.body}</MarkdownText>}
+    </Stack>
+  );
+}
+
 // One create_issue or update_issue call, shown field by field.
 function ActionDetails({ action }: { action: PendingAction }) {
   if (action.name === "reply_to_pipeline") return <PipelineReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
+  if (action.name.startsWith("pull_request_")) return <PullRequestDetails action={action} />;
   if (action.name === "stop_workspace_app") return (
     <Typography variant="subtitle2">Stop the user app for {String(action.args.issueId)}</Typography>
   );

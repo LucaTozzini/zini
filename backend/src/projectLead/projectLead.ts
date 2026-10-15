@@ -61,6 +61,7 @@ import type { QueuedMessage } from "../models/ProjectLeadQueueMessage.js";
 import { freshQueuedMessages } from "./queuedMessages.js";
 import { getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
+import { commentOnPullRequest, readPullRequestThread, resolveReviewThread } from "../integrations/github.js";
 import { getSetting } from "../core/settings.js";
 import { loadConnection } from "../providers/modelProvider.js";
 import { listForges } from "../forge/listForges.js";
@@ -125,7 +126,7 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   progress; never call start_forge just to check. Use git_diff to see the code
   changes in the issue's workspace. When the user asks you to commit them, use
   commit_and_push, with a message you write from the diff (and the plan). When asked to
-  open a PR, use open_pull_request with an accurate title and body from the diff and plan.
+  open a PR, use pull_request_create with an accurate title and body from the diff and plan.
   The user approves the call. If it reports uncommitted or unpushed changes, propose
   commit_and_push first, then retry the PR after that approved call succeeds.
   Never silently commit or push as part of opening a PR. Share the returned PR link. Use
@@ -204,7 +205,7 @@ function buildTools(linear: LinearClient) {
     }),
     tool(async ({ id }) => JSON.stringify(await fetchLinearIssue(linear, id)), {
       name: "get_issue",
-      description: "Get one issue with its description, by identifier (e.g. ENG-123) or id.",
+      description: "Get one issue with its description, comments and attachments (links such as its pull requests), by identifier (e.g. ENG-123) or id.",
       schema: z.object({ id: z.string() }),
     }),
     tool(async () => JSON.stringify(await fetchLinearTeams(linear)), {
@@ -464,7 +465,7 @@ function forgeTools(linear: LinearClient) {
       if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
       return JSON.stringify({ status: "opened", pullRequest: result.pullRequest });
     }, {
-      name: "open_pull_request",
+      name: "pull_request_create",
       description: "Open a pull request for an issue's workspace into the configured default branch. " +
         "All changes must be committed and pushed first; errors tell you to use commit_and_push before retrying. " +
         "The user approves this call. Returns the PR number, URL and state. The Linear identifier is added to the title automatically.",
@@ -589,6 +590,47 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       schema: z.object({ question: z.string().min(1) }),
     },
   );
+  // The GitHub token is read per call, like the setup, so a new one applies straight away.
+  const github = async () => {
+    const token = await getKey("github");
+    if (!token) throw new Error("GitHub isn't connected");
+    return token;
+  };
+  const NUMBER = z.number().int().positive().describe("The pull request's number");
+  const pullRequestTools = [
+    tool(async ({ number }) => JSON.stringify(await readPullRequestThread(await github(), repo, number)), {
+      name: "pull_request_read",
+      description:
+        "Read a pull request of the repo with its whole thread, oldest first: comments on " +
+        "its conversation, reviews with their verdicts, and review comments on lines of the " +
+        "diff, with their thread's id and whether it's resolved. An issue's pull requests " +
+        "are among its attachments (get_issue).",
+      schema: z.object({ number: NUMBER }),
+    }),
+    tool(async ({ number, body, replyTo }) => JSON.stringify({ url: await commentOnPullRequest(await github(), repo, number, body, replyTo) }), {
+      name: "pull_request_comment",
+      description:
+        "Comment on a pull request's conversation, or with replyTo, reply in a review " +
+        "comment's thread. Only review comments (on lines of the diff) have threads. " +
+        "Posted as the owner of Zini's GitHub token. The user approves the call before it runs.",
+      schema: z.object({
+        number: NUMBER,
+        body: z.string().trim().min(1).describe("Markdown"),
+        replyTo: z.number().int().positive().optional().describe("The id of a review comment (from pull_request_read) to reply to"),
+      }),
+    }),
+    tool(async ({ threadId, resolved }) => JSON.stringify({ resolved: await resolveReviewThread(await github(), threadId, resolved ?? true) }), {
+      name: "pull_request_resolve_thread",
+      description:
+        "Resolve a review thread, or with resolved=false, reopen it. The user approves the " +
+        "call before it runs.",
+      schema: z.object({
+        number: NUMBER.describe("The pull request's number, shown on the approval"),
+        threadId: z.string().min(1).describe("A review comment's threadId, from pull_request_read"),
+        resolved: z.boolean().optional(),
+      }),
+    }),
+  ];
   return createAgent({
     model: chatModel,
     tools: [
@@ -597,6 +639,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       ...workspaceAppTools(linear, chatModel),
       ...codeTools,
       exploreCodeTool,
+      ...pullRequestTools,
       ...npmTools,
       ...browserTools(`project-lead:${threadId}`, () => sendEvent({ type: "thread.updated", threadId }), { external: true }),
     ],
@@ -617,7 +660,9 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           update_issue: { allowedDecisions: ["approve", "reject"] },
           reply_to_pipeline: { allowedDecisions: ["approve", "reject"] },
           commit_and_push: { allowedDecisions: ["approve", "reject"] },
-          open_pull_request: { allowedDecisions: ["approve", "reject"] },
+          pull_request_create: { allowedDecisions: ["approve", "reject"] },
+          pull_request_comment: { allowedDecisions: ["approve", "reject"] },
+          pull_request_resolve_thread: { allowedDecisions: ["approve", "reject"] },
           stop_workspace_app: { allowedDecisions: ["approve", "reject"] },
         },
       }),
