@@ -263,8 +263,8 @@ function ChatGptCard() {
 // models. Both are saved together.
 function ModelCard({ title, provider: providerSetting, model: modelSetting, helperText }: {
   title: string;
-  provider: "projectLeadProvider" | "forgeProvider";
-  model: "projectLeadModel" | "forgeModel";
+  provider: "projectLeadProvider" | "forgeProvider" | "openwikiProvider";
+  model: "projectLeadModel" | "forgeModel" | "openwikiModel";
   helperText: string;
 }) {
   const settings = useSettings();
@@ -443,17 +443,11 @@ function SettingsPage() {
           model="forgeModel"
           helperText="An OpenRouter model ID for the Forge, which guides implementing an issue in its workspace."
         />
-        <SettingCard
+        <ModelCard
           title="OpenWiki"
-          fields={[
-            {
-              setting: "openwikiModel",
-              label: "Model",
-              placeholder: "openai/gpt-5-mini",
-              helperText:
-                "An OpenRouter model ID used to generate the repo's wiki docs.",
-            },
-          ]}
+          provider="openwikiProvider"
+          model="openwikiModel"
+          helperText="An OpenRouter model ID used to generate the repo's wiki docs."
         />
         <AppearanceCard />
         <ConductorCard />

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getScanStatus, startScan } from "./generation.js";
+import { readLatestScanLog } from "./scanLog.js";
 import { REPO_DIR, git } from "../repositories/git.js";
 
 export const openwiki = Router();
@@ -16,6 +17,16 @@ openwiki.post("/scan", async (_req, res) => {
 
 openwiki.get("/status", (_req, res) => {
   res.json(getScanStatus());
+});
+
+// The latest scan's log, oldest first (see scanLog.ts).
+openwiki.get("/log", async (_req, res) => {
+  const log = await readLatestScanLog();
+  if (!log) {
+    res.status(404).json({ error: "No scan has run yet" });
+    return;
+  }
+  res.json(log);
 });
 
 async function hasWiki() {
@@ -47,9 +58,9 @@ const pagePath = z
   .min(1)
   .refine((p) => !p.includes("..") && !p.startsWith("/") && !p.includes("\\"), "Invalid page path");
 
-// Raw markdown of one wiki page.
+// Raw markdown of one wiki page. Express 5 passes the splat as its path segments.
 openwiki.get("/pages/*splat", async (req, res) => {
-  const parsed = pagePath.safeParse(req.params.splat);
+  const parsed = pagePath.safeParse([req.params.splat].flat().join("/"));
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid page path" });
     return;

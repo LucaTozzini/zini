@@ -144,6 +144,7 @@ export type Settings = {
   projectLeadModel: string | null;
   forgeProvider: string | null;
   forgeModel: string | null;
+  openwikiProvider: string | null;
   openwikiModel: string | null;
   githubRepo: string | null;
   // Stored as "true" or "false"; null preserves the default enabled behavior.
@@ -154,6 +155,7 @@ export type Settings = {
 export const OPTIONAL_SETTINGS = [
   "projectLeadProvider",
   "forgeProvider",
+  "openwikiProvider",
 ] as const;
 
 // Where a model runs: on OpenRouter, with its key, or on the user's ChatGPT plan, through

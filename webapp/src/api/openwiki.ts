@@ -11,6 +11,16 @@ export type OpenWikiStatus = {
   ignoreUsed: 'repo' | 'default' | null
   branch: string | null
   pullRequestUrl: string | null
+  progress: OpenWikiProgress | null
+}
+
+// The scan's latest step: openwiki's stages (planning, generating, finalizing),
+// then zini's publishing. page and its index are set while generating.
+export type OpenWikiProgress = {
+  stage: string
+  page: string | null
+  pageIndex: number | null
+  pageCount: number | null
 }
 
 export type OpenWikiServeStatus = {
@@ -81,13 +91,10 @@ export function searchWiki(query: string, limit?: number) {
 }
 
 export function useOpenWikiStatus() {
+  // Refetched on openwiki.updated, which the backend sends on every change.
   return useQuery({
     queryKey: statusKey,
     queryFn: getScanStatus,
-    // While a scan runs, poll for progress. (The backend also emits
-    // openwiki.updated events; polling covers the gap if one is missed.)
-    refetchInterval: (query) =>
-      query.state.data?.state === "running" ? 5000 : false,
   })
 }
 

@@ -1,24 +1,21 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { storage } from "../db.js";
 import { sendEvent } from "../core/events.js";
 import { getSetting } from "../core/settings.js";
 import { createPullRequest, findPullRequest } from "../integrations/github.js";
 import { getKey } from "../models/Integration.js";
+import { type ModelConnection, chatModel, loadConnection } from "../providers/modelProvider.js";
 import { REPO_DIR, defaultBranch, fetchRepo, git } from "../repositories/git.js";
 import { DEFAULT_OPENWIKIIGNORE } from "./ignoreDefaults.js";
+import { loadOpenwiki } from "./openwiki.js";
+import { type ScanLog, openScanLog } from "./scanLog.js";
 
 // The docs branch the wiki update is pushed to.
 const DOCS_BRANCH = "docs/openwiki-update";
-// Cap for the CLI's captured output; failures report only the tail.
-const MAX_LOG_CHARS = 200_000;
-const ERROR_TAIL_CHARS = 4000;
 
 const GEN_DIR = resolve(dirname(storage), "openwiki-gen");
-const CONFIG_DIR = resolve(dirname(storage), "openwiki-config");
 
 export type ScanState = "idle" | "running" | "failed" | "done";
 
@@ -29,7 +26,12 @@ export type ScanStatus = {
   ignoreUsed: "repo" | "default" | null;
   branch: string | null;
   pullRequestUrl: string | null;
+  // The scan's latest step: openwiki's stages (planning, generating, finalizing),
+  // then publishing. page and its index are set while generating.
+  progress: ScanProgress | null;
 };
+
+export type ScanProgress = { stage: string; page: string | null; pageIndex: number | null; pageCount: number | null };
 
 // One scan at a time: generation is expensive and two runs would fight over the worktree.
 let running = false;
@@ -40,13 +42,19 @@ let status: ScanStatus = {
   ignoreUsed: null,
   branch: null,
   pullRequestUrl: null,
+  progress: null,
 };
+// The latest scan's log (see scanLog.ts).
+let log: ScanLog | null = null;
+
+function setProgress(progress: ScanProgress) {
+  status = { ...status, progress };
+  sendEvent({ type: "openwiki.updated" });
+}
 
 export function getScanStatus(): ScanStatus {
   return { ...status };
 }
-
-const tail = (s: string) => (s.length > ERROR_TAIL_CHARS ? `...${s.slice(-ERROR_TAIL_CHARS)}` : s);
 
 // Forgets the worktree registration and deletes its directory. Never throws.
 async function removeWorktree() {
@@ -66,14 +74,8 @@ async function prepareWorktree(): Promise<"repo" | "default"> {
   return "default";
 }
 
-function openwikiBin() {
-  // <repo-root>/node_modules/.bin/openwiki: npm workspaces hoist dependencies to
-  // the root. Three levels up works from both src/ and dist/.
-  return join(dirname(fileURLToPath(import.meta.url)), "../../../node_modules/.bin/openwiki");
-}
-
-// Starts a scan if none is running. Returns once the CLI is spawned; the rest of the
-// flow continues in the background and reports through getScanStatus() and events.
+// Starts a scan if none is running. Returns once generation has started; the rest of
+// the flow continues in the background and reports through getScanStatus() and events.
 export async function startScan(): Promise<{ started: boolean; error?: string }> {
   if (running) return { started: false, error: "A documentation scan is already running" };
   running = true;
@@ -82,37 +84,43 @@ export async function startScan(): Promise<{ started: boolean; error?: string }>
     return { started: false, error };
   };
   try {
-    const [repo, githubToken, openrouterKey, model] = await Promise.all([
+    const [repo, githubToken, provider, model] = await Promise.all([
       getSetting("githubRepo"),
       getKey("github"),
-      getKey("openrouter"),
+      getSetting("openwikiProvider"),
       getSetting("openwikiModel"),
     ]);
     if (!repo) return notStarted("Set a GitHub repository first");
     if (!githubToken) return notStarted("GitHub isn't connected");
-    if (!openrouterKey) return notStarted("OpenRouter isn't connected");
     if (!model) return notStarted("Set an OpenWiki model in settings first");
-    if (!existsSync(openwikiBin())) return notStarted("The openwiki package isn't installed yet");
+    const connection = await loadConnection(provider);
+    if (typeof connection === "string") return notStarted(connection);
 
+    const startedAt = new Date().toISOString();
     status = {
       state: "running",
-      startedAt: new Date().toISOString(),
+      startedAt,
       error: null,
       ignoreUsed: null,
       branch: null,
       pullRequestUrl: null,
+      progress: null,
     };
     sendEvent({ type: "openwiki.updated" });
+    log = await openScanLog(startedAt);
+    void log.write({ type: "scan", stage: "started", repo, provider: connection.provider, model });
 
     await fetchRepo();
     status.ignoreUsed = await prepareWorktree();
+    void log.write({ type: "scan", stage: "worktree", ignoreUsed: status.ignoreUsed });
     sendEvent({ type: "openwiki.updated" });
 
-    spawnCli({ repo, githubToken, openrouterKey, model });
+    void runScan({ repo, githubToken, model, connection }).catch((e) => console.error("openwiki scan failed:", e));
     return { started: true };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     status = { ...status, state: "failed", error };
+    void log?.write({ type: "scan", stage: "failed", error });
     running = false;
     sendEvent({ type: "openwiki.updated" });
     await removeWorktree();
@@ -120,53 +128,46 @@ export async function startScan(): Promise<{ started: boolean; error?: string }>
   }
 }
 
-type ScanContext = { repo: string; githubToken: string; openrouterKey: string; model: string };
+type ScanContext = { repo: string; githubToken: string; model: string; connection: ModelConnection };
 
-// Runs the CLI without awaiting it; the exit handler finishes the scan.
-function spawnCli(ctx: ScanContext) {
-  let log = "";
-  const append = (data: Buffer) => {
-    log += data.toString();
-    if (log.length > MAX_LOG_CHARS) log = log.slice(-MAX_LOG_CHARS);
-  };
-  const child = spawn(openwikiBin(), ["--init"], {
-    cwd: GEN_DIR,
-    env: {
-      ...process.env,
-      OPENWIKI_PROVIDER: "openrouter",
-      OPENROUTER_API_KEY: ctx.openrouterKey,
-      OPENWIKI_MODEL_ID: ctx.model,
-      OPENWIKI_CONFIG_DIR: CONFIG_DIR,
-      OPENWIKI_TELEMETRY_DISABLED: "1",
-      // Without a cap, OpenRouter's credit pre-check budgets for the model's full
-      // output ceiling and every request can fail with a 402 on a low balance.
-      OPENWIKI_OPENROUTER_MAX_TOKENS: "8192",
-    },
-  });
-  child.stdout?.on("data", append);
-  child.stderr?.on("data", append);
-  let settled = false;
-  const finish = (err: Error | null) => {
-    if (settled) return;
-    settled = true;
-    void finishScan(err, ctx).catch((e) => console.error("openwiki finish failed:", e));
-  };
-  child.on("error", finish);
-  child.on("exit", (code, signal) =>
-    finish(code === 0 ? null : new Error(`openwiki --init exited with ${code ?? signal}: ${tail(log)}`)),
-  );
-}
-
-// Verifies, commits, pushes, and opens the PR after a successful CLI run. Always
-// removes the worktree and releases the mutex, whatever happens.
-async function finishScan(spawnError: Error | null, ctx: ScanContext) {
+// Generates the wiki in the worktree with zini's own model for the provider, then
+// verifies, commits, pushes, and opens the PR. Always removes the worktree and
+// releases the mutex, whatever happens.
+async function runScan(ctx: ScanContext) {
   try {
-    if (spawnError) throw spawnError;
-    const pullRequestUrl = await verifyAndPublish(ctx);
+    const openwiki = await loadOpenwiki();
+    await openwiki.syncBundledSkills();
+    const model = chatModel(ctx.connection, ctx.model, { maxRetries: 3 });
+    // openwiki keeps a page worker's error to itself, so model errors are logged here.
+    model.callbacks = [{ handleLLMError: (err) => void log?.write({ type: "model_error", error: String(err) }) }];
+    await openwiki.runNativeRepositoryGeneration({
+      root: GEN_DIR,
+      mode: "init",
+      modelId: ctx.model,
+      model,
+      onEvent: (event) => {
+        void log?.write(event);
+        if (event.type !== "repository_progress") return;
+        // When a page's worker gives up, openwiki deletes the page, which fails, and
+        // ends the scan, if the page's folder doesn't exist yet. So it exists up front.
+        if (event.page) mkdirSync(dirname(join(GEN_DIR, event.page)), { recursive: true });
+        setProgress({
+          stage: event.stage,
+          page: event.page ?? null,
+          pageIndex: event.pageIndex ?? null,
+          pageCount: event.pageCount ?? null,
+        });
+      },
+    });
+    void log?.write({ type: "scan", stage: "publishing" });
+    setProgress({ stage: "publishing", page: null, pageIndex: null, pageCount: null });
+    const pullRequestUrl = await publish(ctx);
     status = { ...status, state: "done", error: null, pullRequestUrl };
+    void log?.write({ type: "scan", stage: "done", pullRequestUrl });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     status = { ...status, state: "failed", error };
+    void log?.write({ type: "scan", stage: "failed", error, stack: err instanceof Error ? err.stack : undefined });
     console.error(`openwiki scan failed: ${error}`);
   } finally {
     await removeWorktree();
@@ -175,25 +176,11 @@ async function finishScan(spawnError: Error | null, ctx: ScanContext) {
   }
 }
 
-// The agent may only have touched openwiki/ (plus our untracked ignore file).
-// Commits the wiki, pushes it, and opens (or reuses) the docs PR. Returns the PR
-// URL, or null when the wiki is unchanged and there is nothing to publish.
-async function verifyAndPublish(ctx: ScanContext): Promise<string | null> {
-  const porcelain = await git(["-C", GEN_DIR, "status", "--porcelain"]);
-  for (const line of porcelain.split("\n")) {
-    if (!line.trim()) continue;
-    const xy = line.slice(0, 2);
-    let path = line.slice(3).trim();
-    if (path.includes(" -> ")) path = path.split(" -> ")[1] ?? path;
-    if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
-    const underWiki = path === "openwiki" || path === "openwiki/" || path.startsWith("openwiki/");
-    if (xy === "??") {
-      if (underWiki || path === ".openwikiignore") continue;
-      throw new Error(`openwiki created unexpected untracked path: ${path}`);
-    }
-    if (!underWiki) throw new Error(`openwiki modified files outside openwiki/: ${path}`);
-  }
-
+// Commits only openwiki/, pushes it, and opens (or reuses) the docs PR. Anything else
+// in the worktree is dropped with it: openwiki also writes an update workflow and an
+// AGENTS.md/CLAUDE.md snippet, and our ignore file. Returns the PR URL, or null when
+// the wiki is unchanged and there is nothing to publish.
+async function publish(ctx: ScanContext): Promise<string | null> {
   await git(["-C", GEN_DIR, "branch", "-D", DOCS_BRANCH]).catch(() => {});
   await git(["-C", GEN_DIR, "checkout", "-b", DOCS_BRANCH]);
   await git(["-C", GEN_DIR, "add", "openwiki"]);
@@ -207,7 +194,8 @@ async function verifyAndPublish(ctx: ScanContext): Promise<string | null> {
   if (!staged) return null;
   // user.name/user.email come from the git helper's safe config.
   await git(["-C", GEN_DIR, "commit", "-m", "Docs: update OpenWiki"]);
-  await git(["-C", GEN_DIR, "push", "--quiet", "origin", `HEAD:refs/heads/${DOCS_BRANCH}`], ctx.githubToken);
+  // Forced: each scan rebuilds the docs branch from the latest default branch.
+  await git(["-C", GEN_DIR, "push", "--quiet", "--force", "origin", `HEAD:refs/heads/${DOCS_BRANCH}`], ctx.githubToken);
 
   const base = await defaultBranch();
   const existing = await findPullRequest(ctx.githubToken, ctx.repo, DOCS_BRANCH).catch(() => null);

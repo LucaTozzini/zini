@@ -1,9 +1,9 @@
 import { tool } from "langchain";
 import { z } from "zod";
-import { readWikiPage, searchWiki } from "./mcp.js";
+import { readWikiPage, searchWiki } from "./serving.js";
 
-// Read tools over the repo's generated OpenWiki (architecture docs), served by the
-// central MCP server from a checkout of the default branch. Model-free lookups:
+// Read tools over the repo's generated OpenWiki (architecture docs), served from a
+// checkout of the default branch (see serving.ts). Model-free lookups:
 // search builds an in-memory index per call. Orientation only: agents must verify
 // everything in the actual code before acting.
 export const searchWikiTool = tool(

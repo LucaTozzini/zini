@@ -15,6 +15,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { errorMessage } from "../api/client.ts";
 import {
+  type OpenWikiProgress,
   useOpenWikiStatus,
   useRefreshServing,
   useSearchWiki,
@@ -40,6 +41,7 @@ function EmptyDocs({
   scanning: boolean;
   scanError: string | null;
 }) {
+  const refresh = useRefreshServing();
   return (
     <Container maxWidth="md" sx={{ my: 5 }}>
       <Typography variant="h4" component="h1" gutterBottom>
@@ -70,18 +72,52 @@ function EmptyDocs({
           The scan runs in the background and can take a while on a big repo.
           Docs are generated with the OpenWiki model from Settings.
         </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Merged the docs PR? Pull the latest main to see them here.
+        </Typography>
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <Button
+            variant="outlined"
+            size="small"
+            loading={refresh.isPending}
+            disabled={refresh.isPending}
+            onClick={() => refresh.mutate()}
+          >
+            Pull latest main
+          </Button>
+          {refresh.isError && (
+            <Typography variant="body2" color="error">
+              {errorMessage(refresh.error)}
+            </Typography>
+          )}
+        </Stack>
       </Stack>
     </Container>
   );
+}
+
+// The scan's latest step, as one line.
+function progressText(progress: OpenWikiProgress | null) {
+  if (!progress) return null;
+  if (progress.stage === "planning") return "Planning pages…";
+  if (progress.stage === "generating") {
+    const page = progress.page?.replace(/^\/openwiki\//, "") ?? "";
+    return `Writing page ${progress.pageIndex} of ${progress.pageCount}: ${page}`;
+  }
+  if (progress.stage === "finalizing") return "Finalizing the wiki…";
+  if (progress.stage === "publishing") return "Committing and opening the docs PR…";
+  return progress.stage;
 }
 
 // A scan is going and there's no wiki to show yet.
 function GeneratingDocs({
   startedAt,
   ignoreUsed,
+  progress,
 }: {
   startedAt: string | null;
   ignoreUsed: "repo" | "default" | null;
+  progress: OpenWikiProgress | null;
 }) {
   return (
     <Container maxWidth="md" sx={{ my: 5 }}>
@@ -93,6 +129,7 @@ function GeneratingDocs({
           <CircularProgress size={24} />
           <Typography>Generating docs…</Typography>
         </Stack>
+        {progress && <Typography>{progressText(progress)}</Typography>}
         {startedAt && (
           <Typography variant="body2" color="text.secondary">
             Started {new Date(startedAt).toLocaleString()}
@@ -127,17 +164,18 @@ function ServeStatusRow() {
       sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}
     >
       <Typography variant="body2" color="text.secondary">
-        Served {shortHash(commit)} · main {shortHash(mainCommit)}
-        {upToDate ? " · up to date" : " · behind main"}
+        Showing docs from main at {shortHash(commit)}
+        {upToDate ? " · up to date" : ` · main is at ${shortHash(mainCommit)}`}
       </Typography>
       <Button
         size="small"
         variant="outlined"
         loading={refresh.isPending}
-        disabled={upToDate || refresh.isPending || !mainCommit}
+        // Not disabled when up to date: main is as of zini's last fetch, and this fetches.
+        disabled={refresh.isPending}
         onClick={() => refresh.mutate()}
       >
-        Refresh served docs
+        Pull latest main
       </Button>
       {refresh.isError && (
         <Typography variant="body2" color="error">
@@ -237,6 +275,7 @@ function ReadyDocs({
   pageList,
   pullRequestUrl,
   running,
+  progress,
   onScan,
   scanning,
   scanError,
@@ -244,6 +283,7 @@ function ReadyDocs({
   pageList: string[];
   pullRequestUrl: string | null;
   running: boolean;
+  progress: OpenWikiProgress | null;
   onScan: () => void;
   scanning: boolean;
   scanError: string | null;
@@ -265,7 +305,7 @@ function ReadyDocs({
           </Typography>
           {pullRequestUrl && (
             <Link href={pullRequestUrl} target="_blank" rel="noreferrer">
-              View docs PR
+              Last docs PR
             </Link>
           )}
           <Button
@@ -275,13 +315,14 @@ function ReadyDocs({
             disabled={running || scanning}
             onClick={onScan}
           >
-            Regenerate
+            Regenerate docs (opens a PR)
           </Button>
         </Stack>
         {running && (
           <Alert severity="info">
             Regenerating docs in the background — this page keeps showing the
             current version until the new one lands.
+            {progress && <div>{progressText(progress)}</div>}
           </Alert>
         )}
         {scanError && <Alert severity="error">{scanError}</Alert>}
@@ -375,6 +416,7 @@ function DocsPage() {
         <GeneratingDocs
           startedAt={status.data?.startedAt ?? null}
           ignoreUsed={status.data?.ignoreUsed ?? null}
+          progress={status.data?.progress ?? null}
         />
       );
     }
@@ -397,6 +439,7 @@ function DocsPage() {
       pageList={pageList}
       pullRequestUrl={status.data?.pullRequestUrl ?? null}
       running={running}
+      progress={status.data?.progress ?? null}
       onScan={handleScan}
       scanning={scanning}
       scanError={scanError}

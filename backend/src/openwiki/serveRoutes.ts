@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { sendEvent } from "../core/events.js";
-import { getServingStatus, hasServedWiki, refreshServingWorktree, searchWiki } from "./mcp.js";
+import { getServingStatus, hasServedWiki, refreshServingWorktree, searchWiki } from "./serving.js";
 
 // Serving/search routes for the repo's OpenWiki. Mounted at /api/openwiki alongside
 // the generation routes (which live in routes.ts, owned separately).
@@ -18,7 +18,7 @@ openwikiServe.post("/refresh", async (_req, res) => {
   }
 });
 
-// What the MCP server reads vs. what the bare clone has: the UI compares them to
+// What the wiki is served from vs. what the bare clone has: the UI compares them to
 // show whether the served wiki is stale.
 openwikiServe.get("/serve-status", async (_req, res) => {
   res.json(await getServingStatus());
