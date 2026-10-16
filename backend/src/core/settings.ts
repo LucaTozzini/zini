@@ -16,6 +16,8 @@ export const SETTING_KEYS: SettingKey[] = [
   "projectLeadModel",
   "forgeProvider",
   "forgeModel",
+  "openwikiProvider",
+  "openwikiModel",
   "githubRepo",
   "conductorEnabled",
 ];

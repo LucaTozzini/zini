@@ -148,6 +148,8 @@ export type Settings = {
   projectLeadModel: string | null;
   forgeProvider: string | null;
   forgeModel: string | null;
+  openwikiProvider: string | null;
+  openwikiModel: string | null;
   githubRepo: string | null;
   // Stored as "true" or "false"; null preserves the default enabled behavior.
   conductorEnabled: string | null;
@@ -157,6 +159,7 @@ export type Settings = {
 export const OPTIONAL_SETTINGS = [
   "projectLeadProvider",
   "forgeProvider",
+  "openwikiProvider",
 ] as const;
 
 // Where a model runs: on OpenRouter, with its key, or on the user's ChatGPT plan, through
@@ -184,8 +187,11 @@ export type ForgeLogEvent = { type: "forge.log"; issueId: string; runId: string 
 // results).
 export type EvalEvent = { type: "eval.updated" };
 
+// The docs generation scan started, finished, or failed: refetch its status.
+export type OpenWikiEvent = { type: "openwiki.updated" };
+
 // Everything sent on GET /api/events.
-export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEvent | EvalEvent | ChatGptEvent;
+export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEvent | EvalEvent | ChatGptEvent | OpenWikiEvent;
 
 // The forge's pipeline for an issue: the planner plans (you answer its questions
 // and approve the plan), then the coder and reviewer loop until the review requires no

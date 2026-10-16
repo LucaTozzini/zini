@@ -61,6 +61,8 @@ package (npm_ tools, at the version in the workspace's package.json or lockfile)
 your approach depends on what it offers, e.g. whether a component or option exists, and
 then only its types or docs, never its implementation. How exactly to call it is the
 coder's to look up.
+If this repo has an OpenWiki, use openwiki_search/openwiki_read for architecture
+orientation, but verify everything in the actual code before acting.
 ${RULES}
 When you're done, call submit_plan: that hands in your work and ends your turn. Don't
 reply with text instead.`;
@@ -92,6 +94,8 @@ submit_implementation with your questions, if any.
 The workspace's files don't include its dependencies: to check a
 package's API or types, read it with the npm_ tools, at the version in the workspace's
 package.json or lockfile, rather than guessing.
+If this repo has an OpenWiki, you may use openwiki_search/openwiki_read to orient
+yourself in unfamiliar code, but the plan and the actual code are authoritative.
 ${RULES}
 When you're done, call submit_implementation: that hands in your work and ends your turn. Don't
 reply with text instead.`;
@@ -152,6 +156,8 @@ and it hasn't changed since, don't approve it again: request a concrete repair, 
 the user in blockingQuestions about a failure you can't trace to the source. Save reusable commands in
 runbookUpdates. Empty requiredChanges and
 blockingQuestions means validation is complete and QA can proceed.
+If this repo has an OpenWiki, you may consult openwiki_search/openwiki_read for
+architecture context, but judge the changes against the actual code.
 ${RULES}
 ${EXECUTION_RULES}
 When you're done, call submit_review: that hands in your work and ends your turn.

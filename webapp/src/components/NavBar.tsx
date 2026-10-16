@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ScienceIcon from "@mui/icons-material/Science";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useLinearIssues } from "../api/integrations.ts";
 import IssueItems from "./navbar/IssueItems.tsx";
@@ -222,6 +223,11 @@ const NavBar = () => {
           Icon={ScienceIcon}
           title="Evals"
           handleClick={() => navigate("/evals")}
+        />
+        <NavBarItem
+          Icon={DescriptionIcon}
+          title="Docs"
+          handleClick={() => navigate("/docs")}
         />
         <NavBarItem
           Icon={SettingsIcon}

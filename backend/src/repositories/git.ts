@@ -15,7 +15,8 @@ const execFileAsync = promisify(execFile);
 // A bare clone of the githubRepo setting: git's history only, no checked-out files.
 // Code is read from REF, which fetches keep in line with GitHub's default branch.
 // Absolute, since git runs with -C REPO_DIR and would read a relative path from there.
-const REPO_DIR = resolve(dirname(storage), "repo.git");
+// Exported for the OpenWiki module, whose worktrees live next to the bare clone.
+export const REPO_DIR = resolve(dirname(storage), "repo.git");
 const REF = "origin/HEAD";
 
 // Each workspace is an independent clone with its own history and metadata.
