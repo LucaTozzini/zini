@@ -5,9 +5,12 @@ import { listForges } from "./listForges.js";
 
 const pipeline: PipelineState = {
   started: true, running: "coder", waiting: null, plan: null, planApproved: true,
-  implementation: null, review: null, qa: null, clarifications: [], browserUrl: null,
-  finished: false, error: null,
+  browserUrl: null, finished: false, error: null,
 };
+const plan = { steps: [], qaChecklist: [
+  { id: "Q1", condition: "Loads", status: "passed" as const, note: "" },
+  { id: "Q2", condition: "Saves", status: "todo" as const, note: "" },
+] };
 
 test("discovers workspaces and subscriptions without workspaces, preserving status and avoiding duplicates", async () => {
   const rows = await listForges([
@@ -30,13 +33,12 @@ test("subscribedOnly excludes other workspaces and retains approvals and complet
     { issueId: "watched" },
   ], ["watched", "done"], async (id) => {
     read.push(id);
-    return id === "watched" ? { ...pipeline, running: null, waiting: { kind: "approve_plan" } }
-      : { ...pipeline, running: null, finished: true, qa: { verdict: "partial", failures: [], environmentFailures: [], couldNotTest: [],
-        blockingQuestions: [], coverage: [] } };
+    return id === "watched" ? { ...pipeline, running: null, waiting: { kind: "approve_plan", plan } }
+      : { ...pipeline, running: null, finished: true, plan };
   }, true);
   assert.deepEqual(read, ["watched", "done"]);
   assert.ok(rows.every((row) => row.subscribed));
-  assert.deepEqual(rows[0]?.waiting, { kind: "approve_plan" });
+  assert.deepEqual(rows[0]?.waiting, { kind: "approve_plan", plan });
   assert.equal(rows[1]?.finished, true);
   assert.equal(rows[1]?.qaVerdict, "partial");
 });

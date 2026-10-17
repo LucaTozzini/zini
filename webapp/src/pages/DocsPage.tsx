@@ -51,7 +51,7 @@ function EmptyDocs({
         <Typography color="text.secondary">
           Generate architecture docs for the connected repo. Zini researches the
           codebase and writes a linked wiki, then opens a pull request with it.
-          The Project Lead and the Forge&apos;s planner use the wiki to orient
+          The Project Lead and the ForgeThe Project Lead and the Forge&apos;s planner use the wiki to orientapos;s agents use the wiki to orient
           themselves before planning.
         </Typography>
         {failedError && (

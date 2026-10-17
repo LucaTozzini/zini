@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ForgeMessage, PendingApproval, PipelineRedirect, PipelineResume, PipelineState } from 'shared'
+import type { ForgeMessage, PendingApproval, PipelineResume, PipelineState } from 'shared'
 import { api } from './client.ts'
 
 export const forgeKey = (issueId: string) => ['forge', issueId]
@@ -12,7 +12,7 @@ export function useForgeMessages(issueId: string) {
   })
 }
 
-// The issue's forge pipeline (one per issue). Its progress comes through
+// The issue's Forge (one per issue). Its progress comes through
 // useServerEvents, which refetches it (and the workspace diff) on forge.updated.
 export function useForge(issueId: string) {
   return useQuery({
@@ -59,10 +59,11 @@ export function usePipelineControl(issueId: string) {
   })
 }
 
-export function useRedirectPipeline(issueId: string) {
+// Sends the Lead a message, e.g. changes to make after it finished.
+export function useMessagePipeline(issueId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (request: PipelineRedirect) => api.post(`forge/${issueId}/redirect`, { json: request, timeout: false }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
+    mutationFn: (message: string) => api.post(`forge/${issueId}/message`, { json: { message } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
   })
 }

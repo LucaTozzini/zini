@@ -3,10 +3,10 @@ import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import {
   forgeThreadId,
   continuePipeline,
-  redirectPipeline,
   getPipeline,
   getPipelineMessages,
   loadSetup as loadPipelineSetup,
+  messagePipeline,
   pendingApprovals,
   pipelineRun,
   readReply,
@@ -14,7 +14,6 @@ import {
   resumePipeline,
   startPipeline,
 } from "../forge/forge.js";
-import { readRedirect } from "../forge/steering.js";
 import { addViewer } from "../browser/agentBrowser.js";
 import { listRunLogs, readRunLog } from "../forge/runLog.js";
 import { Workspace } from "../models/Workspace.js";
@@ -22,7 +21,7 @@ import { beginRun, pauseRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
 import { isIssueId } from "../workspaces/workspaces.js";
 
-// An issue's forge pipeline, at /api/forge/:issueId (see forge.ts).
+// An issue's Forge, at /api/forge/:issueId (see forge.ts).
 export const forge = Router();
 
 // The issue id from the URL, or null after sending a 400.
@@ -71,8 +70,8 @@ forge.get("/:issueId/messages", async (req, res) => {
   if (issueId) res.json(await getPipelineMessages(issueId));
 });
 
-// Starts the pipeline, with an optional note for the planner. Answers once it's
-// started; the planner works in the background.
+// Starts the Forge, with an optional note for the Lead. Answers once it's started;
+// the Lead works in the background.
 forge.post("/:issueId/start", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
@@ -99,14 +98,14 @@ forge.post("/:issueId/start", async (req, res) => {
   if (started) res.status(202).end();
 });
 
-// Replies to what the pipeline is waiting on: { answers } to questions, { approve: true }
-// or { decisions } on commands. Revisions use /redirect.
+// Replies to what the Forge is waiting on: { answers } to questions, or { approve: true }
+// or { feedback } on the plan. Other messages use /message.
 forge.post("/:issueId/resume", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   const reply = readReply(req.body);
   if (!reply) {
-    res.status(400).json({ error: "Expected { answers }, { approve: true } or { decisions }" });
+    res.status(400).json({ error: "Expected { answers }, { approve: true } or { feedback }" });
     return;
   }
   if (!(await requireWorkspace(issueId, res))) return;
@@ -140,18 +139,21 @@ forge.post("/:issueId/continue", async (req, res) => {
   if (await beginRun(res, forgeThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
 });
 
-forge.post("/:issueId/redirect", async (req, res) => {
+// Sends the Lead a message, e.g. changes to make after it finished. Not while it's
+// working or waiting on a reply (see /resume).
+forge.post("/:issueId/message", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  const request = readRedirect(req.body);
-  if (!request) { res.status(400).json({ error: "Expected a planner/coder/reviewer/qa target and nonempty feedback" }); return; }
+  const { message } = req.body ?? {};
+  if (typeof message !== "string" || !message.trim()) { res.status(400).json({ error: "Expected a nonempty message" }); return; }
   if (!await requireWorkspace(issueId, res)) return;
+  const pipeline = await getPipeline(issueId);
+  if (!pipeline.started) { res.status(409).json({ error: "Start the Forge first" }); return; }
+  if (pipeline.waiting) { res.status(409).json({ error: "The Forge is waiting on your reply" }); return; }
   const setup = await loadSetup(res);
   if (!setup) return;
-  try {
-    await redirectPipeline(pipelineRun(setup, issueId, req.user!.username), request);
-    res.status(202).end();
-  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
+  const run = pipelineRun(setup, issueId, req.user!.username);
+  if (await beginRun(res, forgeThreadId(issueId), (signal) => messagePipeline(run, message.trim(), signal), run.notify)) res.status(202).end();
 });
 
 forge.post("/:issueId/pause", async (req, res) => {
@@ -165,15 +167,15 @@ forge.post("/:issueId/pause", async (req, res) => {
   res.status(202).end();
 });
 
-// The QA's browser, live, as MJPEG (an <img> shows it), while it's open; 404 when it
-// isn't. Ends when the browser closes.
+// The Reviewer's browser, live, as MJPEG (an <img> shows it), while it's open; 404 when
+// it isn't. Ends when the browser closes.
 forge.get("/:issueId/browser", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  if (!(await addViewer(issueId, res))) res.status(404).json({ error: "The QA's browser isn't open" });
+  if (!(await addViewer(issueId, res))) res.status(404).json({ error: "The Reviewer's browser isn't open" });
 });
 
-// The issue's subagent runs, oldest first, for inspecting their logs (see runLog.ts).
+// The issue's agent runs, oldest first, for inspecting their logs (see runLog.ts).
 forge.get("/:issueId/logs", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;

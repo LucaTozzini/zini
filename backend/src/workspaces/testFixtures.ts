@@ -27,3 +27,30 @@ export async function createTestWorkspace(issueId: string, files: Record<string,
   }
   await cloneWorkspace(issueId, `test/${issueId}`);
 }
+
+// Starts an app command in the workspace, waits up to timeoutSeconds for url to answer
+// 2xx, then stops it: "passed", or "blocked" with why (e.g. its port is taken).
+export async function probeApp(issueId: string, command: string, url: string, timeoutSeconds = 30) {
+  const { ensureSandbox, workspaceRequest } = await import("./workspaceSandbox.js");
+  const { readOutput, startProcess, stopProcess } = await import("../forge/qaProcesses.js");
+  const target = new URL(url);
+  let process: string | undefined;
+  try {
+    await ensureSandbox(issueId);
+    await workspaceRequest(issueId, "portFree", { port: Number(target.port || (target.protocol === "https:" ? "443" : "80")) });
+    process = await startProcess(issueId, command);
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    while (true) {
+      const output = await readOutput(issueId, process);
+      if (!output.startsWith(`${process}: running`)) throw new Error(output);
+      const response = await workspaceRequest<string>(issueId, "http", { method: "GET", url }).catch(() => "");
+      if (/^2\d\d\b/.test(response)) return `passed: ${response}`;
+      if (Date.now() >= deadline) throw new Error(`Readiness timed out: ${response}\n${output}`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } catch (error) {
+    return `blocked: ${String(error)}`;
+  } finally {
+    if (process) await stopProcess(issueId, process);
+  }
+}

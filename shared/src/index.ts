@@ -193,17 +193,22 @@ export type OpenWikiEvent = { type: "openwiki.updated" };
 // Everything sent on GET /api/events.
 export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEvent | EvalEvent | ChatGptEvent | OpenWikiEvent;
 
-// The forge's pipeline for an issue: the planner plans (you answer its questions
-// and approve the plan), then the coder and reviewer loop until the review requires no
-// changes, and the QA runs the software to test them (a failure sends the coder back to
-// work). Each subagent returns a document with only what it needs to say. Every one
-// has blockingQuestions: what it couldn't decide without you (empty if nothing), which
-// pauses the pipeline to ask you.
-export type AgentRole = "planner" | "coder" | "reviewer" | "qa";
+// The forge for an issue: a Lead agent works the issue end to end. It writes the plan
+// (you approve every change to it), delegates the code to a Coder and the testing to a
+// Reviewer, commits (merging the latest default branch each time), and finishes once
+// the plan's steps are complete and its QA checklist passed. It asks you only when it
+// can't decide.
+export type AgentRole = "lead" | "coder" | "reviewer";
 
-// summary: the approach, in a few sentences. steps: plain instructions, each naming
-// the files it touches.
-export type AcceptanceCriterion = { id: string; requirement: string; source: string };
+// The plan the Lead writes. The Lead sets each step's status; only the Reviewer sets a
+// QA check's status. Every commit sets the checks back to todo. note says why a check
+// failed or was skipped.
+export type PlanStep = { id: string; description: string; status: "todo" | "in-progress" | "complete" };
+export type QaCheck = { id: string; condition: string; status: "todo" | "skipped" | "failed" | "passed"; note: string };
+export type ForgePlan = { steps: PlanStep[]; qaChecklist: QaCheck[] };
+
+// A command the repo supports (to set up, check or start it), kept with the files
+// that define it, so it's dropped once they change. Used by the workspace app launcher.
 export type RepoCommand = {
   id: string;
   kind: "setup" | "check" | "start";
@@ -212,122 +217,51 @@ export type RepoCommand = {
   purpose: string;
   sources: string[];
 };
-export type PlanDocument = {
-  existingImplementation: string;
-  summary: string;
-  steps: string[];
-  blockingQuestions: string[];
-  acceptanceCriteria: AcceptanceCriterion[];
-};
-export type CheckResult = {
-  command: string;
-  cwd: string;
-  purpose: string;
-  status: "passed" | "failed" | "blocked";
-  exitCode: number | null;
-  output: string;
-  // A failed check that already failed before this change, and why the reviewer says so:
-  // reported, but it doesn't block approval or QA.
-  preexisting?: string;
-};
-export type ChecksDocument = {
-  revision: string;
-  results: CheckResult[];
-  // Why none were selected, when none were.
-  noChecksReason?: string;
-  complete: boolean;
-};
-
-export type EnvironmentSetupDocument = ChecksDocument & {
-  noSetupReason?: string;
-  blockingQuestions: string[];
-};
-
-// The coder follows the approved plan, and its changes are the workspace's diff, so it
-// only reports what it needs you for (e.g. a step it can't follow as written).
-export type ImplementationDocument = { blockingQuestions: string[]; commitMessage: string; replanReason: string };
-
-// Reviewer approves only when requiredChanges and questions
-// are empty and its executed checks support approval.
-export type EnvironmentFailure = { command: string; reason: string };
-export type ReviewDocument = { requiredChanges: string[]; blockingQuestions: string[] };
-
-// The QA's report. coverage: each acceptance criterion's result, with its evidence.
-// failures: what doesn't work, each with how to reproduce it and the evidence. The
-// forge adds verdict and couldNotTest (what wasn't verified, and why) from these
-// and the deterministic checks.
-export type QaDocument = {
-  environmentFailures: EnvironmentFailure[];
-  verdict: "pass" | "fail" | "partial";
-  failures: string[];
-  couldNotTest: string[];
-  blockingQuestions: string[];
-  coverage: { criterionId: string; status: "pass" | "fail" | "blocked" | "skipped"; evidence: string }[];
-};
-
-// A question a subagent asked, and your answer. Kept for the whole pipeline and given
-// to every subagent.
-export type Clarification = { from: AgentRole; question: string; answer: string };
 
 // The workspace's changes against the base branch, as returned by
 // GET /api/workspaces/:issueId/diff: a unified diff, new files included.
 export type WorkspaceDiff = { diff: string; truncated: boolean };
 
-// What the pipeline is paused on, waiting for you: a subagent's questions, approving the
-// plan. Finished work has no pending request.
+// What the Forge is paused on, waiting for you: the Lead's questions, or a plan (or a
+// change to it) to approve.
 export type PipelineWaiting =
-  | { kind: "questions"; from: AgentRole; questions: string[] }
-  | { kind: "approve_plan" };
+  | { kind: "questions"; questions: string[] }
+  | { kind: "approve_plan"; plan: ForgePlan };
 
-// Your reply to what the pipeline is waiting on, as POSTed to
-// /api/forge/:issueId/resume: answers to the questions (in order), approving the
-// plan.
+// Your reply to what the Forge is waiting on, as POSTed to /api/forge/:issueId/resume:
+// answers to the questions (in order), approving the plan, or what to change in it.
 export type PipelineResume =
   | { answers: string[] }
-  | { approve: true };
+  | { approve: true }
+  | { feedback: string };
 
-export type ForgeHumanMessage = { id: string; t: string; content: string; username?: string };
 export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
-  | { kind: "stage" }
   | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
   | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string }
-  | { kind: "document" }
 );
 
-// An issue whose pipeline is waiting for you to approve something (its plan, or the QA's
-// commands), as listed by GET /api/forge/approvals.
+// An issue whose Forge is waiting for you to approve its plan, as listed by
+// GET /api/forge/approvals.
 export type PendingApproval = { issueId: string; kind: "approve_plan" };
 
-// An issue's pipeline, as returned by GET /api/forge/:issueId. One per issue.
-export type SteeringTarget = "planner" | "coder" | "reviewer" | "qa";
-export type PipelineRedirect = { target: SteeringTarget; feedback: string };
-export type SteeringOption = { target: SteeringTarget; reason: string | null };
-
+// An issue's Forge, as returned by GET /api/forge/:issueId. One per issue.
 export type PipelineState = {
   integration?: IntegrationState | null;
-  redirecting?: boolean;
-  steeringOptions?: SteeringOption[];
   started: boolean;
-  // The subagent working now, if any.
+  // The agent working now, if any: the Lead, or the worker it delegated to.
   running: AgentRole | null;
   // Cancellation is draining; do not resume into the same workspace yet.
   pausing?: boolean;
-  // Pending checkpoint work with no active run or outstanding human request.
+  // Pending work with no active run or outstanding human request.
   canResume?: boolean;
-  pendingRole?: AgentRole | null;
   waiting: PipelineWaiting | null;
-  plan: PlanDocument | null;
+  plan: ForgePlan | null;
   planApproved: boolean;
-  implementation: ImplementationDocument | null;
-  checks?: ChecksDocument | null;
-  environmentSetup?: EnvironmentSetupDocument | null;
-  review: ReviewDocument | null;
-  qa: QaDocument | null;
-  clarifications: Clarification[];
-  // The page the QA's browser is on, while it's open: it can be watched live, at
+  // The page the Reviewer's browser is on, while it's open: it can be watched live, at
   // GET /api/forge/:issueId/browser.
   browserUrl: string | null;
-  // The pipeline completed. Further revisions use redirect; no reply is pending.
+  // The Lead finished: every step complete and every QA check passed or skipped. You
+  // can still message it for changes.
   finished: boolean;
   // Why the last run failed, until the next one starts; lost if the server restarts.
   error: string | null;
@@ -380,7 +314,7 @@ export type RunLogSummary = {
 
 // ---- Evals (see evals/README.md) ---------------------------------------------------
 
-// What an eval runs: scenarios run the whole Forge pipeline on an issue
+// What an eval runs: scenarios run the whole Forge on an issue
 // (evals/scenarios), agent tests run one agent from a fixed starting point
 // (evals/agents).
 export type EvalKind = "scenarios" | "agents";
@@ -446,7 +380,7 @@ export type SummaryRow = { label: string; value: string; was: string | null; cha
 
 type SummaryMetric = [label: string, value: (run: RunMetrics) => number | null, kind?: "rate"];
 
-const SUMMARY_ROLES = ["planner", "coder", "reviewer", "qa"];
+const SUMMARY_ROLES = ["lead", "coder", "reviewer"];
 
 const SUMMARY_METRICS: SummaryMetric[] = [
   ["finished", (r) => (r.finished ? 1 : 0), "rate"],

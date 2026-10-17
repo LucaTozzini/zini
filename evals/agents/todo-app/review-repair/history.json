@@ -1,7 +1,7 @@
 [
   {
     "role": "user",
-    "content": "Prepare the required environment, review the full implementation against the issue and plan, and execute and diagnose relevant checks."
+    "content": "Review the committed code against the QA checklist."
   },
   {
     "role": "assistant",
@@ -176,20 +176,9 @@
     "tool_calls": [
       {
         "id": "call_LuWSga1Bq2hWbSUbGGEpyl9Y",
-        "name": "run_setup",
+        "name": "run_command",
         "args": {
-          "entry": {
-            "id": "npm-ci",
-            "kind": "setup",
-            "command": "npm ci",
-            "cwd": ".",
-            "purpose": "Install the exact dependencies from package-lock.json needed for lint, TypeScript, Vitest, build, and app startup.",
-            "sources": [
-              "package.json",
-              "package-lock.json"
-            ]
-          },
-          "timeoutSeconds": 1800
+          "command": "npm ci"
         }
       }
     ]
@@ -197,7 +186,7 @@
   {
     "role": "tool",
     "tool_call_id": "call_LuWSga1Bq2hWbSUbGGEpyl9Y",
-    "name": "run_setup",
+    "name": "run_command",
     "content": "{\"command\":\"npm ci\",\"cwd\":\".\",\"purpose\":\"Install the exact dependencies from package-lock.json needed for lint, TypeScript, Vitest, build, and app startup.\",\"status\":\"passed\",\"exitCode\":0,\"output\":\"exited with code 0\\n\\nadded 214 packages, and audited 215 packages in 3s\\n\\n68 packages are looking for funding\\n  run `npm fund` for details\\n\\nfound 0 vulnerabilities\\nnpm warn install-scripts 1 package has install scripts not yet covered by allowScripts:\\nnpm warn install-scripts   esbuild@0.28.2 (postinstall: node install.js)\\nnpm warn install-scripts\\nnpm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.\\n\"}"
   },
   {
@@ -396,20 +385,9 @@
     "tool_calls": [
       {
         "id": "call_caEOLCSJsyycC04tL8xJF40i",
-        "name": "run_check",
+        "name": "run_command",
         "args": {
-          "entry": {
-            "id": "store-test",
-            "kind": "check",
-            "command": "npm test -- server/store.test.ts",
-            "cwd": ".",
-            "purpose": "Run the focused TodoStore tests covering the changed immutable update implementation and its missing-item contract.",
-            "sources": [
-              "package.json",
-              "vite.config.ts"
-            ]
-          },
-          "timeoutSeconds": 120
+          "command": "npm test -- server/store.test.ts"
         }
       }
     ]
@@ -417,7 +395,7 @@
   {
     "role": "tool",
     "tool_call_id": "call_caEOLCSJsyycC04tL8xJF40i",
-    "name": "run_check",
+    "name": "run_command",
     "content": "{\"command\":\"npm test -- server/store.test.ts\",\"cwd\":\".\",\"purpose\":\"Run the focused TodoStore tests covering the changed immutable update implementation and its missing-item contract.\",\"status\":\"failed\",\"exitCode\":1,\"output\":\"exited with code 1\\n\\n> todo-app@0.0.0 test\\n> vitest run server/store.test.ts\\n\\n\\n RUN  v5.0.3 /workspace\\n\\n ❯ server/store.test.ts (4 tests | 1 failed) 19ms\\n   ❯ TodoStore (4)\\n     ✓ adds to-dos and keeps them in the file 4ms\\n     ✓ marks a to-do done 2ms\\n     × returns null when updating a to-do that doesn't exist 8ms\\n     ✓ removes a to-do 2ms\\n\\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\\n\\n FAIL  server/store.test.ts > TodoStore > returns null when updating a to-do that doesn't exist\\nAssertionError: expected undefined to be null\\n\\n- Expected:\\nnull\\n\\n+ Received:\\nundefined\\n\\n ❯ server/store.test.ts:23:73\\n     21|\\n     22|   it(\\\"returns null when updating a to-do that doesn't exist\\\", () => {\\n     23|     expect(new TodoStore(tempFile()).update(\\\"missing\\\", { done: true })…\\n       |                                                                         ^\\n     24|   });\\n     25|\\n\\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\\n\\n\\n Test Files  1 failed (1)\\n      Tests  1 failed | 3 passed (4)\\n   Start at  23:36:51\\n   Duration  245ms (transform 51%, import 24%, tests 19%, worker 6%)\\n\\n\"}"
   },
   {
@@ -426,11 +404,9 @@
     "tool_calls": [
       {
         "id": "call_6WMOyzrBLKpG5jPU82XSdNMh",
-        "name": "check_app",
+        "name": "run_command",
         "args": {
-          "command": "PORT=4173 DATA_FILE=/tmp/eval-1-review-todos.json npm run dev",
-          "url": "http://localhost:4173",
-          "timeoutSeconds": 120
+          "command": "PORT=4173 DATA_FILE=/tmp/eval-1-review-todos.json npm run dev"
         }
       }
     ]
@@ -438,7 +414,7 @@
   {
     "role": "tool",
     "tool_call_id": "call_6WMOyzrBLKpG5jPU82XSdNMh",
-    "name": "check_app",
+    "name": "run_command",
     "content": "{\"receipt\":\"Readiness: PORT=4173 DATA_FILE=/tmp/eval-1-review-todos.json npm run dev -> http://localhost:4173\",\"command\":\"Readiness: PORT=4173 DATA_FILE=/tmp/eval-1-review-todos.json npm run dev -> http://localhost:4173\",\"cwd\":\".\",\"purpose\":\"Application startup and HTTP(S) readiness\",\"status\":\"passed\",\"exitCode\":0,\"output\":\"200 OK\\nContent-Type: text/html\\n\\n<!doctype html>\\n<html lang=\\\"en\\\">\\n  <head>\\n    <script type=\\\"module\\\">import { injectIntoGlobalHook } from \\\"/@react-refresh\\\";\\ninjectIntoGlobalHook(window);\\nwindow.$RefreshReg$ = () => {};\\nwindow.$RefreshSig$ = () => (type) => type;</script>\\n\\n    <script type=\\\"module\\\" src=\\\"/@vite/client\\\"></script>\\n\\n    <meta charset=\\\"UTF-8\\\" />\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\" />\\n    <title>To-dos</title>\\n  </head>\\n  <body>\\n    <div id=\\\"root\\\"></div>\\n    <script type=\\\"module\\\" src=\\\"/src/main.tsx\\\"></script>\\n  </body>\\n</html>\\n\"}"
   },
   {

@@ -6,19 +6,20 @@ import type { AgentRole, RunLogEntry, RunLogEvent, RunLogSummary } from "shared"
 import { storage } from "../db.js";
 import { sendEvent } from "../core/events.js";
 
-// A log of each subagent run, for debugging: what it was given, every model call and
-// tool call, and how it ended (see RunLogEntry). One JSON Lines file per run, written
+// A log of each Forge agent run (the Lead's, or a worker's), for debugging: what it was
+// given, every model call and tool call, and how it ended (see RunLogEntry). One JSON
+// Lines file per run, written
 // as the run goes, so it can be watched live (Get-Content -Wait, tail -f, or the
 // webapp: each line sends a forge.log event) and a run that fails still leaves
 // everything up to the failure:
 //   data/forge-logs/<issueId>/<runId>.jsonl
-// where the run id is when it started and its role, e.g. 2026-09-27T07-26-59-397Z-planner.
+// where the run id is when it started and its role, e.g. 2026-09-27T07-26-59-397Z-lead.
 
 const LOG_DIR = resolve(dirname(storage), "forge-logs");
 
 // A run id, split into the time it started (its ISO string, with : and . as -) and
 // its role. Checked before an id is used in a file path.
-const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(planner|coder|reviewer|qa)$/;
+const RUN_ID = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)-(lead|coder|reviewer)$/;
 
 const runLogPath = (issueId: string, runId: string) => join(LOG_DIR, issueId, `${runId}.jsonl`);
 

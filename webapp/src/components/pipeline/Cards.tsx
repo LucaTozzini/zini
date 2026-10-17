@@ -18,7 +18,7 @@ export function CardFrame({ title, children }: { title: string; children: React.
   );
 }
 
-// Starts the pipeline, with an optional note for the planner.
+// Starts the Forge, with an optional note for the Lead.
 export function StartCard({ issueId, onStart, loading }: { issueId: string; onStart: (note: string) => void; loading?: boolean }) {
   const [note, setNote] = useState("");
   const workspace = useWorkspace(issueId);
@@ -40,7 +40,7 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
     <Stack component="form" spacing={1.5} onSubmit={handleSubmit}>
       <Typography variant="body2" color="text.secondary">
         {workspace.data === null ? "Create a workspace for this issue before starting the forge." :
-          "You’ll be asked to approve the plan and any commands that need permission."}
+          "The Lead works the issue end to end; you approve its plan and answer its questions."}
       </Typography>
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
       <WorkspaceChoices error={failure} busy={busy} choose={selection => create.mutate({ issueId, ...selection })} />
@@ -48,7 +48,7 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
         size="small"
         multiline
         minRows={2}
-        label="Note for the planner (optional)"
+        label="Note for the Lead (optional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />}

@@ -1,6 +1,6 @@
 # zini
 
-Turn Linear tickets into merged PRs: a Project Lead chat front-end with an agent pipeline that plans, builds, reviews, and ships.
+Turn Linear tickets into merged PRs: a Project Lead chat front-end with a Forge that plans, builds, reviews, and ships.
 
 ## How it works
 
@@ -12,7 +12,7 @@ Turn Linear tickets into merged PRs: a Project Lead chat front-end with an agent
    sites. The browser button in the chat header opens a live, read-only viewer with
    the current URL. Sessions persist between turns until the Project Lead closes its browser,
    the chat is deleted, or the backend restarts. Closing the viewer leaves the
-   browser running. QA uses the same browser controls and viewer transport but
+   browser running. The Forge's Reviewer uses the same browser controls and viewer transport but
    continues to open only localhost addresses and closes its browser after each run.
    Browser tools include screenshots the model can see, keyboard input, hover, scrolling,
    drag, native select/checkbox controls, conditional waits, and viewport/media emulation.
@@ -22,22 +22,27 @@ Turn Linear tickets into merged PRs: a Project Lead chat front-end with an agent
 
    This works today too: the Project Lead writes the spec onto the issue.
 
-3. **Build** — a Forge spins up an isolated workspace per ticket and runs the agent pipeline: plan → code → review (environment preparation, checks and code review) → QA.
+3. **Build** — a Forge spins up an isolated workspace per ticket, where a Lead agent works the ticket end to end with two workers.
 
-   Reviewer prepares repository dependencies, migrations, fixtures, services and TLS
-   through tools, observes outputs and repairs routine environment failures in the same
-   turn. It then executes tests, static checks, builds and diagnostics and reviews the
-   complete diff against the issue and plan. Missing external configuration pauses for
-   your answer; source defects return to coder. Preparation and check results are
-   recorded automatically. Reusable instructions live in the source-validated runbook.
+   The Lead reads the code (read-only) and the repo's OpenWiki, and writes the plan:
+   implementation steps and a QA checklist (behaviour plus code checks such as
+   typecheck, lint, tests and the diff's scope). You approve the plan, and every later
+   change to its contents; the Lead asks you anything else only when it can't decide. It
+   then delegates briefs to the Coder (edits files, runs commands, resolves merge
+   conflicts) and marks steps done. Its `commit` tool commits with its message and then
+   merges the latest default branch; every commit sets the QA checks back to todo. The
+   Reviewer tests the committed code against the checklist (commands, services, TLS and
+   a headless browser you can watch live) and is the only one that marks the checks,
+   reporting findings outside the checklist to the Lead. The Lead's `finish` is refused
+   until every step is complete, every check passed or was skipped, and everything is
+   committed on top of the latest default branch. All three keep their conversations
+   (compacted when long); commands run inside Docker without per-command approval.
 
-   QA uses the prepared environment and runbook to start the app, call its APIs and test its UI in a headless browser you can watch live. It verifies acceptance criteria through product behavior and reuses Reviewer's check results. Commands run inside Docker without per-command approval. QA findings return to Reviewer, which repairs environment prerequisites or requests concrete source fixes from coder before QA retests. Coder receives current repair requests in system context. QA keeps its conversation and previous report across repairs, retests exact failed examples first, and collects fresh evidence for current coverage.
-
-   The QA browser runs inside the workspace container. Project Lead chats keep their browser on the host.
+   The Reviewer's browser runs inside the workspace container. Project Lead chats keep their browser on the host.
 
 4. **Ship** — a PR is created; the workspace is torn down after merge.
 
-   This is the intended end state, and it isn't built. The pipeline stops after QA, with no pending reply; revisions use redirect, and each completed coder round is committed automatically using its submitted commit message, and you push the commits explicitly from the pipeline panel. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the container, Linux workspace and runtime volumes, the host marker folder, the setup log, the pipeline conversation and the run logs.
+   This is the intended end state, and it isn't built. The Forge stops once the Lead finishes; you can message it for changes, and you push its commits explicitly from the Forge panel. No pull request is opened, and nothing is torn down on merge: you delete the workspace yourself, which removes the container, Linux workspace and runtime volumes, the host marker folder, the setup log, the Forge's conversations and the run logs.
 
 ## Backend source layout
 
@@ -49,7 +54,7 @@ The remaining files are grouped by responsibility:
 | `routes/` | Express endpoints |
 | `models/` | Sequelize models |
 | `auth/` | Access-token session lookup and authenticated request identity |
-| `forge/` | Pipeline execution, history, steering, QA, and subscriptions |
+| `forge/` | The Forge's Lead and workers, their tools, history, and subscriptions |
 | `projectLead/` | Project Lead conversations, notes, and Forge updates |
 | `agents/` | Shared agent setup, compaction, run state, and code exploration tools |
 | `providers/` | Model connections, ChatGPT authentication/streaming, and OpenRouter |
@@ -65,9 +70,9 @@ Tests live beside the modules they cover as `*.test.ts` files.
 ## Status
 
 What works today: the Project Lead chat; an independent Git clone and Docker sandbox per issue;
-the plan → code → review (environment preparation, checks and code review) → QA pipeline with questions and
-plan approval; the diff view, logs, live QA browser, persistent previews, and explicit
-commit/push. Setup, check and QA commands run automatically inside Docker. See
+the Forge's Lead with its Coder and Reviewer, questions and plan approval; the diff view, logs,
+live Reviewer browser, persistent previews, and explicit commit/push. Worker commands run
+automatically inside Docker. See
 [sandbox setup and lifecycle](sandbox/README.md).
 
 The Project Lead automatically follows Forges it starts. Its
@@ -80,7 +85,7 @@ after cancellation drains and uses the saved checkpoint; questions and approvals
 go through `reply_to_pipeline`.
 Meaningful progress, questions, approvals, failures and
 completion appear as Forge activity messages and wake the Project Lead when the chat is
-idle. The pipeline emits lifecycle events directly; token and file updates only refresh
+idle. The Forge emits lifecycle events directly; token and file updates only refresh
 the webapp. Subscriptions and a source-agnostic Project Lead message queue live in SQLite.
 Updates wait while the Project Lead is busy or awaiting approval. Stop cancels the current
 chat turn; future Forge events can wake it again.
@@ -103,7 +108,7 @@ its prerequisites, startup commands, ports and readiness endpoints, or asks abou
 missing configuration. The launcher executes its setup and server plan inside the workspace sandbox, diagnoses startup failures and returns the preview URL to the Project Lead when ready. Changed workspace files
 invalidate a plan before execution. `workspace_app_status` reports readiness, errors
 and recent output; `stop_workspace_app` stops the session. Servers survive the Project Lead turn
-and are owned separately from QA. The gateway owns sessions and keeps the launch plan in a persistent volume. Preview requests and explicit app-status queries reconnect to existing processes on demand, including after backend restarts; there is no background workspace polling. Container restarts recover the plan. The returned
+and are owned separately from the Forge's processes. The gateway owns sessions and keeps the launch plan in a persistent volume. Preview requests and explicit app-status queries reconnect to existing processes on demand, including after backend restarts; there is no background workspace polling. Container restarts recover the plan. The returned
 `previewUrl` is a relative `/preview/<issueId>/...` link through Zini, usable from any
 device that can reach Zini. The local `url` is retained for diagnostics. The proxy
 streams HTTP bodies and WebSockets, including HMR, to declared loopback services.
@@ -123,17 +128,10 @@ upgrades. Development Vite also forwards `/preview/` to the backend.
 
 Ahead of the code: opening a pull request, and tearing a workspace down after a merge.
 
-Forge steering is available through **Redirect…** on the issue page and the Project Lead's
-`redirect_forge` tool (`issueId`, `target`, `feedback`). Targets are planner,
-coder, reviewer, or QA. It pauses and drains the current run, replaces pending work
-or approvals, records feedback, clears downstream results, and reruns the normal
-pipeline. Existing workspace edits and history remain. Forward jumps and missing
-prerequisites are rejected; new plans still require approval.
-
-All revisions use `/api/forge/:issueId/redirect` / `redirect_forge`.
-The plan revision and completed-work "Send to coder" cards are shortcuts to that
-same operation. `/resume` / `reply_to_pipeline` accepts only answers, plan approval,
-and command decisions. Completed pipelines have `waiting: null`.
+To steer a Forge, message its Lead: the issue page's message box (`/api/forge/:issueId/message`)
+or the Project Lead's `message_forge` tool, whenever it isn't running or waiting on a
+reply (pause it first to change course). `/resume` / `reply_to_pipeline` accepts answers,
+plan approval, or feedback on a proposed plan. Finished Forges have `waiting: null`.
 
 ### Development environment variables
 
@@ -152,6 +150,6 @@ direct you to Settings. Variable values are not deliberately included in prompts
 
 Workspace creation uses Linear-linked GitHub PRs in the configured repository. A single open PR resumes its actual head branch and retains its target branch. Multiple open PRs or closed unmerged work require a choice. Completed PRs start a fresh branch; an exact suggested branch without a PR can be resumed. Fork PRs require starting fresh. Existing workspaces are preserved.
 
-Forge integrates the target branch before planning, after each completed coder round, and before declaring the run finished. Planner sees inherited work and merge conflicts, retains full issue acceptance criteria, and plans only the remaining changes. Coder resolves conflicts through file tools and controlled resolution tools; infrastructure completes merges and commits. Reviewer and QA validate the complete implementation. Upstream integration invalidates earlier validation and returns to planner for assessment and approval. Integration retries are capped at three; redirecting resets the budget. No force push or automatic publication is performed.
+Every commit by the Lead merges the latest target branch; it starts by committing nothing, to begin from the latest code. The Lead sees inherited work and merge conflicts and plans only the remaining changes. The Coder resolves conflicts through file tools and controlled resolution tools; the Lead's next commit completes the merge. Merges set the QA checks back to todo, and finishing requires the latest target branch. No force push or automatic publication is performed.
 
-Workspaces record starting context when created. Uncommitted edits in interrupted workspaces are preserved and integration is deferred until a completed coder round commits them.
+Workspaces record starting context when created. Uncommitted edits in interrupted workspaces are preserved until the Lead commits them.

@@ -1,20 +1,49 @@
 {
   "plan": {
-    "summary": "The inherited PR already renders the unfinished-to-do count in src/App.tsx from the full to-do list. No source changes remain; the result still needs checks, review and QA.",
-    "existingImplementation": "src/App.tsx renders \"N to-dos left\" (\"1 to-do left\" for one) after TodoList whenever todos is non-empty, counting every to-do that isn't done from the full todos state rather than the filtered list, so filters don't change it. Every mutation goes through change(), which refetches todos, so the count follows additions, ticks and deletions. The PR also rewrites TodoStore.update in server/store.ts to replace the to-do immutably.",
-    "steps": [],
-    "blockingQuestions": [],
-    "acceptanceCriteria": [
-      { "id": "count-shown", "requirement": "Below the list, the number of unfinished to-dos is shown as \"N to-dos left\", or \"1 to-do left\" for one.", "source": "Below the list, show how many to-dos aren't done yet, as \"3 to-dos left\", or \"1 to-do left\" for one." },
-      { "id": "count-hidden", "requirement": "The count is hidden when there are no to-dos at all.", "source": "Hide it when there are no to-dos at all." },
-      { "id": "count-updates", "requirement": "The count updates as to-dos are added, ticked, unticked and deleted.", "source": "The count updates as to-dos are added, ticked, unticked and deleted." },
-      { "id": "count-ignores-filter", "requirement": "The count includes every unfinished to-do whichever filter is selected.", "source": "It counts every to-do that isn't done, whichever filter is selected." }
+    "steps": [
+      {
+        "id": "S1",
+        "description": "Render the unfinished to-do count below the list in src/App.tsx",
+        "status": "complete"
+      }
+    ],
+    "qaChecklist": [
+      {
+        "id": "Q1",
+        "condition": "Below the list, the number of unfinished to-dos is shown as \"N to-dos left\", or \"1 to-do left\" for one.",
+        "status": "todo",
+        "note": ""
+      },
+      {
+        "id": "Q2",
+        "condition": "The count is hidden when there are no to-dos at all.",
+        "status": "todo",
+        "note": ""
+      },
+      {
+        "id": "Q3",
+        "condition": "The count updates as to-dos are added, ticked, unticked and deleted.",
+        "status": "todo",
+        "note": ""
+      },
+      {
+        "id": "Q4",
+        "condition": "The count includes every unfinished to-do whichever filter is selected.",
+        "status": "todo",
+        "note": ""
+      },
+      {
+        "id": "Q5",
+        "condition": "The repo's typecheck, lint and tests pass.",
+        "status": "todo",
+        "note": ""
+      },
+      {
+        "id": "Q6",
+        "condition": "The diff only touches what the issue needs, with no hardcoded or test-only shortcuts.",
+        "status": "todo",
+        "note": ""
+      }
     ]
-  },
-  "planApproved": true,
-  "implementation": {
-    "blockingQuestions": [],
-    "commitMessage": "Return null when updating a missing to-do",
-    "replanReason": ""
   }
 }

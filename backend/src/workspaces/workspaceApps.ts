@@ -7,8 +7,7 @@ import { z } from "zod";
 import { checkpointer, modelRetry, toolErrors } from "../agents/agents.js";
 import { workspaceFilesystem } from "../forge/tools.js";
 import { requireSubmission } from "../forge/submission.js";
-import { freshRunbook, runbookText, type Runbook } from "../forge/validation.js";
-import { fingerprintWorkspaceFile, workspaceRevision, workspaceWorkingDirectory } from "./workspaceFiles.js";
+import { workspaceRevision, workspaceWorkingDirectory } from "./workspaceFiles.js";
 import { Workspace } from "../models/Workspace.js";
 import { availableAppPort, validateAppLaunchPlan } from "./workspaceAppRuntime.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
@@ -52,8 +51,7 @@ development: the app's own localhost URLs, API endpoints, ports and hot reload w
 they are. Bind servers to localhost/127.0.0.1. Do not edit source or claim the app is
 usable without evidence. Readiness/app paths start with /.
 The browser-facing service must have HTTP or HTTPS readiness. Use a real health/page endpoint. Set readiness=https for TLS services. Generated workspace TLS paths and CA trust variables are inherited; if missing, report that Forge setup should call generate_tls_certificates.
-Reuse current runbook instructions and completed preparation, but do not assume an
-install is present. Include an idempotent install/readiness command when uncertain.
+Do not assume an install is present. Include an idempotent install/readiness command when uncertain.
 Execute only through start_app_services, which runs the plan in the Docker sandbox.\nInclude the verified workspace revision in each start_app_services call. If the workspace
 changed, reread affected files and get workspace_revision before proposing a new plan.
 If startup fails, inspect the returned logs, diagnose and revise the plan yourself;
@@ -71,9 +69,6 @@ export async function launchWorkspaceApp(model: BaseChatModel, issueId: string, 
   if (existing.status === "ready") return { issueId, explanation: "The workspace app is already running.", questions: [], sources: [], ...existing };
   if (isRunning(`forge:${issueId}`)) throw new Error("Pause the Forge before launching the user app.");
   const revision = await workspaceRevision(issueId);
-  const tuple = await checkpointer.getTuple({ configurable: { thread_id: `forge:${issueId}`, checkpoint_ns: "" } });
-  const values = tuple?.checkpoint.channel_values ?? {};
-  const book = await freshRunbook((values.runbook ?? {}) as Runbook, (path) => fingerprintWorkspaceFile(issueId, path));
   const logDir = join(dirname(storage), "launcher-logs", issueId);
   await mkdir(logDir, { recursive: true });
   const file = join(logDir, `${randomUUID()}.jsonl`);
@@ -85,7 +80,7 @@ export async function launchWorkspaceApp(model: BaseChatModel, issueId: string, 
   await log.write({ event: "start", request, revision });
   const agent = createAgent({
     model, checkpointer: true, responseFormat: toolStrategy(REPORT),
-    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\n\nCurrent source-validated runbook:\n${runbookText(book)}\n\nPrevious environment preparation:\n${JSON.stringify(values.environmentReport ?? null)}\n\nConfigured development variables (names/status only):\n${await developmentEnvironmentContext()}\nMissing credentials must be added in Settings → Development environment variables (/settings), never pasted into chat or launch commands.`,
+    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\n\nConfigured development variables (names/status only):\n${await developmentEnvironmentContext()}\nMissing credentials must be added in Settings → Development environment variables (/settings), never pasted into chat or launch commands.`,
     tools: [tool(async () => availableAppPort(issueId), {
       name: "available_port", description: "Find an unused local port for a service with configurable ports. It is checked again before launch.", schema: z.object({}),
     }), tool(async () => workspaceRevision(issueId), {

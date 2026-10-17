@@ -9,9 +9,9 @@ test("TLS setup reuses isolated certificates and supports HTTPS readiness, QA an
   skip: process.env.ZINI_DOCKER_TESTS !== "1", timeout: 180000,
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "zini-tls-")); process.env.DB_PATH = join(dir, "db.sqlite");
-  const { createTestWorkspace } = await import("./testFixtures.js");
+  const { createTestWorkspace, probeApp } = await import("./testFixtures.js");
   const { ensureSandbox, workspaceRequest, removeSandbox, docker, sandboxName } = await import("./workspaceSandbox.js");
-  const { SetupEvidence, setupTools } = await import("../forge/setupTools.js");
+  const { serviceTools } = await import("../forge/serviceTools.js");
   const { startProcess, stopProcess, runCommandResult } = await import("../forge/qaProcesses.js");
   const { getPage, closeBrowser } = await import("../browser/agentBrowser.js");
   const { WorkspaceAppRuntime } = await import("./workspaceAppRuntime.js");
@@ -33,7 +33,7 @@ server.listen(4443,'127.0.0.1');`;
     await createTestWorkspace(id, { "tls.cjs": tlsApp, "http.cjs": "require('http').createServer((q,r)=>r.end('HTTP works')).listen(4444,'127.0.0.1');" });
     await saveSettings({ githubRepo: "fixture/tls" });
     await saveDevelopmentEnvironment("fixture/tls", [{ name: "TLS_KEY", value: "invalid-host-path" }]);
-    const tools = setupTools(id, new SetupEvidence(null, "fixture"));
+    const tools = serviceTools(id);
     const generate = tools.find(tool => tool.name === "generate_tls_certificates")!;
     const bindings = { REPO_KEY: "key", REPO_CERT: "cert" } as const;
     const first = JSON.parse(JSON.stringify(await generate.invoke({ bindings })));
@@ -41,7 +41,7 @@ server.listen(4443,'127.0.0.1');`;
     assert.ok(!JSON.stringify(first).includes("PRIVATE KEY"));
     assert.equal(JSON.parse(JSON.stringify(await generate.invoke({ bindings }))).reused, true);
     assert.equal((await runCommandResult(id, 'test "$TLS_KEY" = "$REPO_KEY" && stat -c %a "$TLS_KEY"')).output.trim(), "600");
-    const readiness = await tools.find(tool => tool.name === "check_app")!.invoke({ command: "node tls.cjs", url: "https://127.0.0.1:4443/" });
+    const readiness = await probeApp(id, "node tls.cjs", "https://127.0.0.1:4443/");
     assert.match(JSON.stringify(readiness), /passed/);
     const process = await startProcess(id, "node tls.cjs");
     try {
@@ -63,7 +63,7 @@ server.listen(4443,'127.0.0.1');`;
     for (let n = 0; await appPage().catch(() => null) === null && n < 30; n++) await new Promise(resolve => setTimeout(resolve, 250));
     assert.equal(await appPage(), "<h1>TLS works</h1>");
     await createTestWorkspace(ids[1]!, {});
-    await setupTools(ids[1]!, new SetupEvidence(null, "fixture")).find(tool => tool.name === "generate_tls_certificates")!.invoke({});
+    await serviceTools(ids[1]!).find(tool => tool.name === "generate_tls_certificates")!.invoke({});
     const fingerprint = (workspace: string) => runCommandResult(workspace, "openssl x509 -in /state/dev-tls/cert.pem -noout -fingerprint -sha256");
     assert.notEqual((await fingerprint(id)).output, (await fingerprint(ids[1]!)).output);
   } finally {

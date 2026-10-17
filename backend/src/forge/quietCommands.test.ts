@@ -13,7 +13,7 @@ test("sandbox commands can't wait on stdin, and quiet ones are stopped and retur
   const { createTestWorkspace } = await import("../workspaces/testFixtures.js");
   const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
   const { runCommandResult } = await import("./qaProcesses.js");
-  const { ReviewEvidence, reviewerTools } = await import("./reviewerTools.js");
+  const { commandTools } = await import("./qaTools.js");
   const { sequelize } = await import("../db.js");
   const { removeWorkspaceMarker } = await import("../repositories/git.js");
   const id = `quiet-${randomUUID()}`;
@@ -35,11 +35,9 @@ test("sandbox commands can't wait on stdin, and quiet ones are stopped and retur
     const steady = await runCommandResult(id, "node -e \"let n = 0; const t = setInterval(() => { console.log(n); if (++n === 6) clearInterval(t); }, 1000)\"", ".", 60, undefined, 3);
     assert.equal(steady.exitCode, 0);
 
-    // The agents' run_check passes quietSeconds through, and a stopped check is blocked.
-    const runCheck = reviewerTools(id, new ReviewEvidence(null, "fixture"))[0]!;
-    const check = await runCheck.invoke({ entry: { id: "prompt", kind: "check", command: "node prompt.cjs", cwd: ".", purpose: "Prompts", sources: ["prompt.cjs"] }, quietSeconds: 10 });
-    assert.match(JSON.stringify(check), /"status":"blocked"/);
-    assert.match(JSON.stringify(check), /without output/);
+    // The agents' run_command passes quietSeconds through.
+    const runTool = commandTools(id).find((entry) => entry.name === "run_command")!;
+    assert.match(String(await runTool.invoke({ command: "node prompt.cjs", quietSeconds: 10 })), /without output/);
   } finally {
     await removeSandbox(id); await removeWorkspaceMarker(id);
     await sequelize.close(); await rm(dir, { recursive: true, force: true });

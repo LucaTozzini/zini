@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFil
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
-import type { RunLogEvent, RunMetrics } from "shared";
-import { pipelineRun, reviewerAgent, runSubagent, stopQa } from "../../backend/src/forge/forge.js";
-import type { State } from "../../backend/src/forge/graphState.js";
+import type { ForgePlan, RunLogEvent, RunMetrics } from "shared";
+import { pipelineRun, stopForgeProcesses } from "../../backend/src/forge/forge.js";
+import { reviewerWorker, runWorker } from "../../backend/src/forge/workers.js";
 import { initDb } from "../../backend/src/db.js";
 import { fetchLinearIssue } from "../../backend/src/integrations/linear.js";
 import { removeSandbox } from "../../backend/src/workspaces/workspaceSandbox.js";
@@ -29,7 +29,7 @@ import {
 } from "./workspace.js";
 
 // One agent test run, in its own process (see run.ts --agents): a workspace from the
-// test's patches, then one run of its agent from the test's state and earlier
+// test's patches, then one run of its worker from the test's plan and earlier
 // conversation. Results go to EVAL_RUN_DIR like a scenario run's, plus document.json.
 
 const testName = required("EVAL_AGENT"); // e.g. todo-app/review-repair
@@ -44,30 +44,6 @@ const fixture: Fixture = {
   patch: test.patch,
   branchPatches: test.branchPatches,
   preinstalledDependencies: test.preinstalledDependencies,
-};
-
-// The pipeline's state with nothing done yet but an approved plan's place; the test's
-// state file fills in what it needs.
-const emptyState: State = {
-  note: "",
-  redirectTarget: "planner",
-  steeringFeedback: [],
-  humanMessages: [],
-  timeline: [],
-  plan: null,
-  planApproved: true,
-  implementation: null,
-  runbook: {},
-  environmentReport: null,
-  checksReport: null,
-  review: null,
-  qaReport: null,
-  clarifications: [],
-  planFeedback: [],
-  implementationFeedback: [],
-  finished: false,
-  integration: null,
-  integrationAttempts: 0,
 };
 
 type HistoryMessage = {
@@ -87,8 +63,9 @@ const toMessage = (m: HistoryMessage): BaseMessage =>
 
 const readJson = <T>(file: string) => JSON.parse(readFileSync(join(testDir, file), "utf8")) as T;
 
-// Each role's agent for the issue's state. Only the reviewer so far.
-const AGENTS = { reviewer: reviewerAgent };
+// Each role's worker for the plan. Only the reviewer so far.
+const WORKERS = { reviewer: reviewerWorker };
+const BRIEFS = { reviewer: "Review the committed code against the QA checklist." };
 
 async function main() {
   const started = Date.now();
@@ -104,7 +81,7 @@ async function main() {
   await makeWorkspace(issueId, fixture);
   console.log(`${testName}: ${test.role} on "${test.title}" (model ${model})`);
 
-  const state: State = { ...emptyState, ...(test.state ? readJson<Partial<State>>(test.state) : {}) };
+  const { plan } = readJson<{ plan: ForgePlan }>(test.state);
   const history = test.history ? readJson<HistoryMessage[]>(test.history).map(toMessage) : [];
   const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals");
   const logDir = join(runDir, "logs", issueId);
@@ -112,15 +89,15 @@ async function main() {
   let error: string | null = null;
   let document: unknown = null;
   try {
-    const { agent } = await AGENTS[test.role](issueId, await fetchLinearIssue(run.setup.linear, issueId), state);
-    // The history stands in for the agent's remembered conversation.
-    document = await runSubagent(run, { ...agent, remember: false, history });
+    const worker = await WORKERS[test.role](run, await fetchLinearIssue(run.setup.linear, issueId), plan);
+    // The history stands in for the agent's remembered conversation, on a thread of its own.
+    document = await runWorker(run, worker, test.brief ?? BRIEFS[test.role], { thread: `eval:${issueId}`, history });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
     console.log(`✗ ${error}`);
   } finally {
     stopFollowing();
-    await stopQa(issueId);
+    await stopForgeProcesses(issueId);
   }
   writeFileSync(join(runDir, "document.json"), `${JSON.stringify(document, null, 2)}\n`);
 

@@ -1,6 +1,6 @@
 # Evals
 
-Runs the Forge pipeline on repeatable test issues and records model/tool usage,
+Runs the Forge on repeatable test issues and records model/tool usage,
 validation evidence, elapsed time and hidden-check results.
 
 The trusted harness runs on the host in a separate process per run, with a temporary
@@ -36,10 +36,10 @@ to a temporary system folder and perform the same sandbox cleanup.
 
 Results stay in `evals/results/<repo>/<scenario>/<batch>/run-N/`:
 
-- `logs/`: live Forge role logs
+- `logs/`: live Forge agent logs (Lead, Coder, Reviewer)
 - `diff.patch`: workspace changes before hidden checks
-- `validation.json`: setup evidence, Reviewer-executed checks, review decision and QA report
-- `metrics.json`: timing, tokens, tool calls, questions, plan approvals, QA verdict,
+- `validation.json`: the final plan, with its steps' and QA checks' statuses
+- `metrics.json`: timing, tokens, tool calls, questions, plan approvals, QA verdict (from the checklist),
   hidden-check result, `codeVersion` and `rateLimited`
 
 Each batch also saves `console.log` in its batch directory, containing the complete
@@ -51,8 +51,8 @@ Restoring output does not resume an interrupted eval process.
 
 `codeVersion` includes Forge sources and sandbox runtime/image files. The Evals
 page still compares batches and displays hidden checks and diffs. Model rate limits
-save the interrupted run and stop the remaining batch. Success requires a completed
-pipeline, passing QA and no failed hidden check.
+save the interrupted run and stop the remaining batch. Success requires a finished
+Forge, a passing QA checklist and no failed hidden check.
 
 ## Scenarios
 
@@ -71,26 +71,26 @@ Linear is stubbed with the scenario issue. Runs do not use GitHub.
 
 ## Continuation and integration scenarios
 
-Scenarios can supply `branchPatch` to seed committed inherited work, `upstreamPatch` to advance main before Forge starts, and `upstreamAfterCoderPatch` to advance it at the second upstream checkpoint. The latter runs after coder for normal implementations, or at the final checkpoint when a completed inherited implementation skips coder. The harness refreshes a controlled local upstream while using production merge/commit logic; no live Linear or GitHub credentials are needed.
+Scenarios can supply `branchPatch` to seed committed inherited work, `upstreamPatch` to advance main before Forge starts, `upstreamAfterCoderPatch` to advance it at the second upstream fetch (usually the Lead's commit after coding), and `upstreamAfterReviewPatch` to advance it at the first fetch after a review (the Lead's finish check), so finishing is refused until the new main is merged and reviewed again. The harness refreshes a controlled local upstream while using production merge/commit logic; no live Linear or GitHub credentials are needed.
 
 The continuation scenarios cover partial and complete implementations, initial conflicts, and upstream advancement with and without a coder round. Their hidden checks cover both inherited behavior and upstream preservation. Existing scenarios remain the baseline.
 
-Runs also save `zini.diff.patch` (changes since the initial head) and `git.json` (initial/final heads, commit history, latest integration, validated revision, refresh count and unfinished Git state). A completed run with dirty files or a pending merge fails the harness. Scenario patch contents contribute to `codeVersion`.
+Runs also save `zini.diff.patch` (changes since the initial head) and `git.json` (initial/final heads, commit history, latest integration, refresh count and unfinished Git state). A completed run with dirty files or a pending merge fails the harness. Scenario patch contents contribute to `codeVersion`.
 
 ## Agent tests
 
-An agent test runs one Forge agent once, from a fixed starting point, instead of the
-whole pipeline: `agents/<repo>/<name>/agent.json` names the role (only `reviewer` so far),
+An agent test runs one Forge worker once, from a fixed starting point, instead of the
+whole Forge: `agents/<repo>/<name>/agent.json` names the role (only `reviewer` so far),
 the issue, the patches for main (`patch`) and the issue branch (`branchPatches`,
-committed one by one), a `state` file of pipeline state (e.g. the approved plan) and a
+committed one by one), a `state` file with the plan, an optional `brief` from the Lead and a
 `history` file of the agent's earlier conversation, standing in for what it remembers.
-Its `check.ts` gets the run's log and the submitted document as well as the workspace,
+Its `check.ts` gets the run's log and the submitted report as well as the workspace,
 so it can check how the agent worked, not just what it decided.
 
 Run them from the Evals page's Agent tests tab, or with
 `node --import tsx evals/run.ts --agents todo-app/review-repair --repeat 1`. Results go to
-`results/agents/<repo>/<name>/<batch>/run-N/`, with `document.json` (what the agent
-submitted) next to the usual files.
+`results/agents/<repo>/<name>/<batch>/run-N/`, with `document.json` (the report the
+agent submitted) next to the usual files.
 
 ## PostgreSQL and Redis
 
@@ -100,4 +100,4 @@ Services belong to each eval workspace and are removed with its sandbox, includi
 
 ## TLS and HTTPS
 
-`todo-app/https` requires the todo server to serve HTTPS with `TLS_KEY` and `TLS_CERT`, starting without installed dependencies. Reviewer must generate workspace-local certificates, install dependencies and verify HTTPS readiness. The issue adds remaining-todo counts; Reviewer runs checks and QA exercises the real HTTPS UI/API. Hidden checks require a trusted TLS connection, reject plain HTTP, verify the HTTPS preview proxy and test count behavior. Certificates are supplied by Reviewer, never by the hidden check.
+`todo-app/https` requires the todo server to serve HTTPS with `TLS_KEY` and `TLS_CERT`, starting without installed dependencies. Reviewer must generate workspace-local certificates, install dependencies and verify HTTPS readiness. The issue adds remaining-todo counts; the Reviewer runs checks and exercises the real HTTPS UI/API. Hidden checks require a trusted TLS connection, reject plain HTTP, verify the HTTPS preview proxy and test count behavior. Certificates are supplied by Reviewer, never by the hidden check.

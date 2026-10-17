@@ -133,6 +133,7 @@ export function fakeLinear(issueId: string, fixture: Fixture): LinearClient {
     assignee: null,
     team: { key: "EVAL", name: "Evals" },
     comments: { nodes: [] },
+    attachments: { nodes: [] },
   };
   const rawRequest = async (query: string) => {
     if (!query.includes("query Issue(")) throw new Error(`Linear call not mocked in evals:\n${query}`);

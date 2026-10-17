@@ -28,10 +28,10 @@ and Docker's loopback DNS work, while host/private networks, unrelated container
 metadata endpoints are blocked. IPv6 is disabled. Private registries therefore need
 additional explicit networking support in a later version.
 
-Setup, checks, QA commands, HTTP tools, browser sessions and preview servers use this
+The Forge workers' commands, HTTP tools, browser sessions and preview servers use this
 runtime. Docker failure blocks execution; there is no host command fallback. Plan
 approval, questions and explicit commit/push remain. Unsupported language runtimes or
-missing configuration are reported for user input. QA cleanup stops its own process
+missing configuration are reported for user input. Review cleanup stops its own process
 groups and browser contexts; preview processes have separate ownership. The host proxy
 forwards HTTP and WebSockets through the gateway only to declared preview services.
 
@@ -45,8 +45,8 @@ local clone transport.
 Use the Project Lead `sync_workspace` tool or `POST /api/workspaces/:issueId/sync` with
 `{"merge":false}` to fetch, or `{"merge":true}` to merge the configured default branch.
 Pause the Forge first. Merging refuses unfinished edits, preserves commit history,
-and leaves conflicts for resolution. Source revision checks invalidate prior validation
-and source-backed facts on subsequent pipeline runs. Git mutations and container
+and leaves conflicts for resolution. The Forge can't finish on code its Reviewer hasn't
+reviewed, so a merge here needs another review. Git mutations and container
 lifecycle operations use workspace locks; credentials use the backend's configured
 GitHub repository URL rather than sandbox-controlled remotes.
 
@@ -98,10 +98,9 @@ $env:ZINI_BROWSER_TESTS='1'
 node --import tsx --test webapp/tests/developmentEnvironment.browser.test.ts
 ```
 
-The Forge integration test runs the actual graph and Docker tools with scripted
-model responses. It pauses setup for a missing development variable, configures
-the variable outside the conversation, resumes through QA and verifies that model
-prompts and pipeline documents contain no secret value.
+The Forge integration test runs the actual Lead, workers and Docker tools with scripted
+model responses: questions and plan approval, a merge conflict the Coder resolves,
+reviews, and a finish refused until the latest main is merged and reviewed.
 
 ### Local development TLS
 

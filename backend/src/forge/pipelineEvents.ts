@@ -7,18 +7,16 @@ export async function* pipelineEvents<T>(
   outcome: () => Promise<ForgeLifecycleEvent | null>,
   emit: (event: ForgeLifecycleEvent) => Promise<void>,
   signal?: AbortSignal,
-  redirecting: () => boolean = () => false,
 ): AsyncGenerator<T> {
   try {
     yield* await source;
   } catch (error) {
-    if (signal?.aborted) {
-      if (!redirecting()) await emit({ type: "stopped" });
-    } else await emit({ type: "failed", error: error instanceof Error ? error.message : String(error) });
+    if (signal?.aborted) await emit({ type: "stopped" });
+    else await emit({ type: "failed", error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
   if (signal?.aborted) {
-    if (!redirecting()) await emit({ type: "stopped" });
+    await emit({ type: "stopped" });
     return;
   }
   const event = await outcome();

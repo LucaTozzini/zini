@@ -1,99 +1,40 @@
 import { z } from "zod";
 
-// The subagents' documents (see shared). Each is also its doc tool (toolStrategy):
-// the title is the tool's name and the description tells the model what calling it
-// means. The prompts (systemPrompts.ts) name these tools too.
+// What the workers hand back to the Lead. Each is also its doc tool (toolStrategy): the
+// title is the tool's name and the description tells the model what calling it means.
+// The prompts (systemPrompts.ts) name these tools too.
 
 const questions = z
   .array(z.string())
-  .describe("Questions for the user you can't decide without; empty if none");
+  .describe("Questions for the Lead you can't decide without; empty if none");
 
-export const REPO_COMMAND = z.object({
-  id: z.string().min(1).max(80),
-  kind: z.enum(["setup", "check", "start"]),
-  command: z.string().min(1).describe("Exact command for the runtime shell; no watch mode for checks"),
-  cwd: z.string().describe("Workspace-relative working directory, '.' for the root"),
-  purpose: z.string().min(1).max(800).describe("Purpose; for startup, include known prerequisites, env/port/test-data options and readiness/access instructions so QA can use it directly"),
-  sources: z.array(z.string().min(1)).min(1).max(5).describe("Only repo files defining this command or its required setup; not incidental implementation/test files or docs"),
-});
-const runbookUpdates = z.array(REPO_COMMAND).max(16);
-const environmentFailures = z.array(z.object({ command: z.string().min(1), reason: z.string().min(1) }))
-  .describe("Observed environment blockers for Reviewer to repair, with the exact failed command and evidence; empty if none");
-export const ACCEPTANCE_CRITERION = z.object({
-  id: z.string().min(1).max(80),
-  requirement: z.string().min(1).describe("Observable outcome required by the issue, not an implementation step"),
-  source: z.string().min(1).describe("Quote from the issue or user clarification supporting this criterion"),
-});
-
-export const PLAN_SCHEMA = z
+export const CODER_REPORT = z
   .object({
-    summary: z.string().describe("The approach, in a few sentences"),
-    existingImplementation: z.string().describe("What is already implemented, with file/diff evidence; provisional until validation. Say none when starting fresh."),
-    steps: z
-      .array(z.string())
-      .describe(
-        "Plain instructions, in order, each naming the files it touches",
-      ),
-    blockingQuestions: questions,
-    acceptanceCriteria: z.array(ACCEPTANCE_CRITERION).min(1).max(64),
+    report: z.string().min(1).describe("What you changed and where, and anything the Lead should know (e.g. something you couldn't do)"),
+    steps: z.array(z.object({
+      id: z.string().describe("The plan step's id, e.g. S1"),
+      status: z.enum(["todo", "in-progress", "complete"]),
+    })).describe("The status of each plan step you worked on: complete when it's fully done, in-progress when it's partly done; empty if none"),
+    questions,
   })
   .meta({
-    title: "submit_plan",
-    description:
-      "Hand in your plan. Call it once, when you're done reading the code: it ends your turn.",
+    title: "submit_work",
+    description: "Hand your work back to the Lead. Call it once, when your changes are made: it ends your turn.",
   });
 
-export const IMPLEMENTATION_SCHEMA = z
-  .object({ blockingQuestions: questions,
-    commitMessage: z.string().describe("Meaningful commit message describing only this round's changes; empty when no changes or blocked"),
-    replanReason: z.string().describe("Why upstream changes invalidate the approved approach; empty when the plan remains applicable. Do not invent a replacement plan."),
-  })
-  .meta({
-    title: "submit_implementation",
-    description:
-      "Hand in your work. Call it once, when your changes are made: it ends your turn.",
-  });
-
-export const REVIEW_SCHEMA = z
+export const REVIEW_REPORT = z
   .object({
-    requiredChanges: z
-      .array(z.string())
-      .describe(
-        "What the coder must change, each naming the file and line; empty if none",
-      ),
-    blockingQuestions: questions,
-    runbookUpdates,
-    noChecksReason: z.string().min(1).optional().describe("Source-backed reason no finite check applies; only when no run_check results exist"),
-    preexistingFailures: z.array(z.object({
-      command: z.string().min(1).describe("A failed run_check command, exactly as run (only that command is excused)"),
-      reason: z.string().min(1).describe("Evidence it already failed before this change, e.g. its failures are all in code the change doesn't touch"),
-    })).describe("Failed checks that already failed before this change: reported, but they don't block approval; empty if none"),
+    checks: z.array(z.object({
+      id: z.string().describe("The QA check's id, e.g. Q1"),
+      status: z.enum(["passed", "failed", "skipped"]).describe(
+        "skipped only when your tools can't verify it here (no change to the code could make it testable)"),
+      note: z.string().describe("For failed: how to reproduce it and the evidence. For skipped: why. Optional for passed"),
+    })).describe("One entry per QA check"),
+    findings: z.array(z.string()).describe(
+      "Problems you noticed outside the checklist (bugs, regressions, risky code), each naming the file; empty if none. They don't block finishing: the Lead decides"),
+    questions,
   })
   .meta({
     title: "submit_review",
-    description:
-      "Hand in your review. Call it once, when you're done checking the changes: it ends your turn.",
-  });
-
-export const QA_SCHEMA = z
-  .object({
-    coverage: z.array(z.object({
-      criterionId: z.string(),
-      status: z.enum(["pass", "fail", "blocked", "skipped"]).describe(
-        "blocked when the app or its environment stopped you verifying it; skipped only when your own tools can't verify it (no change to the software could make it testable here)"),
-      evidence: z.string().min(1).describe("Concrete observation or tool result, or why this criterion could not be tested"),
-    })).describe("One entry per acceptance criterion"),
-    failures: z
-      .array(z.string())
-      .describe(
-        "What doesn't work because of the changes, each with how to reproduce it and the evidence (e.g. the error); empty if none",
-      ),
-    blockingQuestions: questions,
-    runbookUpdates,
-    environmentFailures,
-  })
-  .meta({
-    title: "submit_qa_report",
-    description:
-      "Hand in your QA report. Call it once, when you're done testing: it ends your turn.",
+    description: "Hand your review back to the Lead. Call it once, when every QA check has a result: it ends your turn.",
   });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PipelineResume, PipelineWaiting } from "shared";
@@ -8,8 +8,9 @@ import {
   pipelineRun,
   resumePipeline,
   startPipeline,
-  stopQa,
+  stopForgeProcesses,
 } from "../../backend/src/forge/forge.js";
+import { checklistVerdict } from "../../backend/src/forge/plan.js";
 import { initDb } from "../../backend/src/db.js";
 import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
@@ -63,7 +64,7 @@ let plansApproved = 0;
 function reply(waiting: PipelineWaiting): PipelineResume {
   if (waiting.kind === "questions") {
     const answers = waiting.questions.map(() => scenario.answers?.[questionsAnswered++] ?? "You decide.");
-    waiting.questions.forEach((question, i) => console.log(`? ${waiting.from}: ${question}\n  → ${answers[i]}`));
+    waiting.questions.forEach((question, i) => console.log(`? lead: ${question}\n  → ${answers[i]}`));
     return { answers };
   }
   if (waiting.kind === "approve_plan") {
@@ -92,11 +93,19 @@ async function main() {
   console.log(`${scenarioName}: ${scenario.title} (model ${model})`);
 
   let refreshes = 0;
+  let advanced = false;
+  const reviewed = () => {
+    const logs = join(runDir, "logs", issueId);
+    return existsSync(logs) && readdirSync(logs).some((file) => file.endsWith("-reviewer.jsonl"));
+  };
   const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
     refreshes++;
-    if (refreshes === 2 && scenario.upstreamAfterCoderPatch) {
+    const patch = refreshes === 2 && scenario.upstreamAfterCoderPatch ? scenario.upstreamAfterCoderPatch
+      : !advanced && scenario.upstreamAfterReviewPatch && reviewed() ? scenario.upstreamAfterReviewPatch : null;
+    if (patch) {
+      advanced = true;
       const source = join(dataDir, "source");
-      git(["apply", join(scenarioDir, scenario.upstreamAfterCoderPatch)], source);
+      git(["apply", join(scenarioDir, patch)], source);
       git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
     }
     git(["fetch", "--quiet", "--prune", "origin"], join(dataDir, "repo.git"));
@@ -119,13 +128,12 @@ async function main() {
     console.log(`✗ ${error}`);
   } finally {
     stopFollowing();
-    await stopQa(issueId);
+    await stopForgeProcesses(issueId);
   }
 
   const pipeline = await getPipeline(issueId);
   if (!error && !pipeline.finished) error = pipeline.waiting ? "Stopped after 200 pauses" : "Stopped before finishing";
-  writeFileSync(join(runDir, "validation.json"), JSON.stringify({ setup: pipeline.environmentSetup,
-    checks: pipeline.checks, review: pipeline.review, qa: pipeline.qa }, null, 2));
+  writeFileSync(join(runDir, "validation.json"), JSON.stringify({ plan: pipeline.plan }, null, 2));
 
   const { diff, truncated } = await workspaceDiff(issueId);
   writeFileSync(join(runDir, "diff.patch"), truncated ? `${diff}\n[Cut off]\n` : diff);
@@ -138,7 +146,7 @@ async function main() {
   const dirty = (await runGit(["status", "--porcelain"])).trim();
   if (pipeline.finished && (pendingMerge || dirty)) error = "Completed pipeline left uncommitted changes or a pending merge";
   writeFileSync(join(runDir, "git.json"), JSON.stringify({ initialHead, finalHead, commits: await runGit(["log", "--format=%H %s", `${initialHead}..HEAD`]),
-    integration: pipeline.integration, validatedRevision: pipeline.checks?.revision, upstreamRefreshes: refreshes, pendingMerge, dirty }, null, 2));
+    integration: pipeline.integration, upstreamRefreshes: refreshes, pendingMerge, dirty }, null, 2));
 
   let check: RunMetrics["check"] = null;
   const checkFile = join(scenarioDir, "check.ts");
@@ -151,12 +159,14 @@ async function main() {
     console.log(`${check.passed ? "✓" : "✗"} check: ${check.details}`);
   }
 
-  const roles = roleMetrics(join(runDir, "logs", issueId));
+  // A run that failed before any agent started has no logs.
+  const logDir = join(runDir, "logs", issueId);
+  const roles = existsSync(logDir) ? roleMetrics(logDir) : {};
   const metrics: RunMetrics = {
     scenario: scenarioName,
     model,
     finished: pipeline.finished,
-    qaVerdict: pipeline.qa?.verdict ?? null,
+    qaVerdict: checklistVerdict(pipeline.plan),
     error,
     rateLimited: isModelRateLimit(error),
     codeVersion: codeVersion(),

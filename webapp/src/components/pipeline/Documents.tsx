@@ -1,142 +1,30 @@
-import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
-import type { ChecksDocument, Clarification, PlanDocument, QaDocument, ReviewDocument } from "shared";
+import { List, ListItem, Stack, Typography } from "@mui/material";
+import type { ForgePlan } from "shared";
 
-// Documents shown in step dialogs (and beside plan approval). Blocking questions
-// are handled inline on the issue page, not in these documents. The coder's
-// document is only questions; its work shows as the workspace's diff.
-
-function Summary({ text }: { text: string }) {
-  return <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{text}</Typography>;
+// The Lead's plan: its steps and QA checklist, each with its status (and a check's
+// note on why it failed or was skipped).
+export function PlanView({ plan }: { plan: ForgePlan }) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary">Steps</Typography>
+      {plan.steps.length === 0
+        ? <Typography variant="body2" color="text.secondary">No implementation steps.</Typography>
+        : <Items items={plan.steps.map((step) => `${step.id} [${step.status}] ${step.description}`)} />}
+      <Typography variant="overline" color="text.secondary">QA checklist</Typography>
+      <Items items={plan.qaChecklist.map((check) =>
+        `${check.id} [${check.status}] ${check.condition}${check.note ? ` — ${check.note}` : ""}`)} />
+    </Stack>
+  );
 }
 
-// A numbered or bulleted list of plain-text items.
-function Items({ items, numbered }: { items: string[]; numbered?: boolean }) {
+function Items({ items }: { items: string[] }) {
   return (
-    <List
-      component={numbered ? "ol" : "ul"}
-      dense
-      disablePadding
-      sx={{ pl: 3, listStyleType: numbered ? "decimal" : "disc" }}
-    >
+    <List component="ul" dense disablePadding sx={{ pl: 3, listStyleType: "disc" }}>
       {items.map((item, i) => (
         <ListItem key={i} disableGutters sx={{ display: "list-item", py: 0.25 }}>
-          <Typography variant="body2">{item}</Typography>
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{item}</Typography>
         </ListItem>
       ))}
     </List>
-  );
-}
-
-export function PlanView({ plan }: { plan: PlanDocument }) {
-  return (
-    <Stack spacing={1.5}>
-      <Summary text={plan.summary} />
-      {plan.existingImplementation && <><Typography variant="overline" color="text.secondary">Existing implementation</Typography>
-        <Summary text={plan.existingImplementation} /></>}
-      <Typography variant="overline" color="text.secondary">
-        Steps
-      </Typography>
-      <Items items={plan.steps} numbered />
-      {!!plan.acceptanceCriteria?.length && <>
-        <Typography variant="overline" color="text.secondary">Acceptance criteria</Typography>
-        <Items items={plan.acceptanceCriteria.map((entry) => `${entry.id}: ${entry.requirement}`)} />
-      </>}
-    </Stack>
-  );
-}
-
-// Validation requests remain pending until their results have been reviewed.
-export function ReviewView({ review }: { review: ReviewDocument }) {
-  return <Stack spacing={1.5}>
-    {review.requiredChanges.length > 0 && (
-    <Alert severity="warning" variant="outlined">
-      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-        Required changes
-      </Typography>
-      <Items items={review.requiredChanges} />
-    </Alert>
-    )}
-    {!review.requiredChanges.length && !review.blockingQuestions.length && (
-    <Alert severity="success" variant="outlined">
-      No changes required.
-    </Alert>
-    )}
-  </Stack>;
-}
-
-// The QA's report: the verdict with what's broken, then what it checked and what it
-// couldn't.
-export function QaView({ qa }: { qa: QaDocument }) {
-  return (
-    <Stack spacing={1.5}>
-      {qa.verdict === "fail" ? (
-        <Alert severity="error" variant="outlined">
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Failures
-          </Typography>
-          <Items items={qa.failures} />
-        </Alert>
-      ) : qa.verdict === "partial" ? (
-        <Alert severity="warning" variant="outlined">Validation is incomplete.</Alert>
-      ) : (
-        <Alert severity="success" variant="outlined">
-          Passed.
-        </Alert>
-      )}
-      {qa.couldNotTest.length > 0 && (
-        <Alert severity="warning" variant="outlined">
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Couldn't test
-          </Typography>
-          <Items items={qa.couldNotTest} />
-        </Alert>
-      )}
-      {qa.coverage.length > 0 && (
-        <>
-          <Typography variant="overline" color="text.secondary">
-            Coverage
-          </Typography>
-          <Items items={qa.coverage.map((entry) => `${entry.criterionId} (${entry.status}): ${entry.evidence}`)} />
-        </>
-      )}
-    </Stack>
-  );
-}
-
-export function ChecksView({ checks, setup = false }: { checks: ChecksDocument; setup?: boolean }) {
-  return <Stack spacing={1.5}>
-    {checks.results.length === 0 && <Typography color="text.secondary">
-      {checks.noChecksReason ? `${setup ? "No setup required" : "No checks selected"}: ${checks.noChecksReason}`
-        : setup ? "Environment setup has not finished yet."
-        : checks.complete ? "No deterministic commands were recorded." : "Checks have not finished yet."}
-    </Typography>}
-    {checks.results.map((result, index) => <Alert key={index}
-      severity={result.status === "passed" ? "success" : result.status === "failed" && !result.preexisting ? "error" : "warning"}
-      variant="outlined">
-      <Typography variant="body2">{result.command} ({result.cwd}): {result.status}</Typography>
-      {result.preexisting && <Typography variant="body2">Already failing before this change: {result.preexisting}</Typography>}
-      <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}>{result.output}</Typography>
-    </Alert>)}
-  </Stack>;
-}
-
-// The questions a stage asked and how you answered them, shown compactly above its
-// latest document so it's clear why the document changed.
-export function ClarificationList({ clarifications }: { clarifications: Clarification[] }) {
-  if (clarifications.length === 0) return null;
-  return (
-    <Stack spacing={1} sx={{ mb: 2 }}>
-      <Typography variant="overline" color="text.secondary">
-        Your answers
-      </Typography>
-      {clarifications.map((c, i) => (
-        <Stack key={i} spacing={0.25}>
-          <Typography variant="body2" color="text.secondary">
-            {c.question}
-          </Typography>
-          <Typography variant="body2">{c.answer}</Typography>
-        </Stack>
-      ))}
-    </Stack>
   );
 }

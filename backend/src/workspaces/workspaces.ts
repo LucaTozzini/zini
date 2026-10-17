@@ -10,7 +10,7 @@ import { cloneWorkspace, fetchRepo, pushBranch, removeWorkspaceMarker, workspace
 import { fetchLinearIssue, linkedPullRequests } from "../integrations/linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "../models/Workspace.js";
-import { forgeThreadId, deleteConversation, stopQa } from "../forge/forge.js";
+import { forgeThreadId, deleteConversation, stopForgeProcesses } from "../forge/forge.js";
 import { deleteRunLogs } from "../forge/runLog.js";
 import { forgetRun, isRunning } from "../agents/runs.js";
 import { workspaceApps } from "./workspaceAppSessions.js";
@@ -111,7 +111,7 @@ async function deleteWorkspaceLocked(issueId: string) {
   if (!row) return false;
   if (isForgeRunning(issueId) || workspaceApps.starting(issueId)) throw new Error("The workspace is still in use by a Forge or app launch");
   await workspaceApps.stop(issueId);
-  await stopQa(issueId);
+  await stopForgeProcesses(issueId);
   await removeSandbox(issueId);
   await removeWorkspaceMarker(issueId);
   await deleteConversation(issueId);

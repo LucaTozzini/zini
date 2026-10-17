@@ -1,4 +1,5 @@
 import type { PipelineState } from "shared";
+import { checklistVerdict } from "./plan.js";
 
 type WorkspaceStatus = { issueId: string };
 
@@ -22,7 +23,7 @@ export async function listForges(workspaces: WorkspaceStatus[], subscribedIds: s
       error: pipeline.error,
       pausing: pipeline.pausing ?? false,
       canResume: pipeline.canResume ?? false,
-      qaVerdict: pipeline.qa?.verdict ?? null,
+      qaVerdict: checklistVerdict(pipeline.plan),
     };
   }));
 }

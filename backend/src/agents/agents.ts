@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { getRetryable } from "@langchain/core/errors";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
-import { modelRetryMiddleware, toolErrorMiddleware } from "langchain";
+import { createMiddleware, modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "../db.js";
@@ -78,6 +78,37 @@ export const modelRetry = modelRetryMiddleware({
   // A stopped run's aborted call isn't worth trying again; anything else is retried
   // unless LangChain has marked it as not retryable (its default).
   retryOn: (error) => error.name !== "AbortError" && !isModelRateLimit(error) && (getRetryable(error) ?? true),
+});
+
+// Tool calls that never got a result, because the run died while they ran (a crash, a
+// server restart, a stop), make the model API reject the whole conversation, leaving it
+// stuck. Each model call gets a stand-in result for them; the saved history is left
+// as it is.
+function withMissingToolResults(messages: BaseMessage[]) {
+  const answered = new Set(messages.filter(ToolMessage.isInstance).map((m) => m.tool_call_id));
+  return messages.flatMap((message) => {
+    const missing = AIMessage.isInstance(message)
+      ? (message.tool_calls ?? []).filter((call) => call.id && !answered.has(call.id))
+      : [];
+    return [
+      message,
+      ...missing.map(
+        (call) =>
+          new ToolMessage({
+            tool_call_id: call.id!,
+            name: call.name,
+            status: "error",
+            content: "This call was interrupted and never ran.",
+          }),
+      ),
+    ];
+  });
+}
+
+export const repairToolCalls = createMiddleware({
+  name: "RepairToolCalls",
+  wrapModelCall: (request, handler) =>
+    handler({ ...request, messages: withMissingToolResults(request.messages) }),
 });
 
 // The user's messages, the agent's written replies and its tool calls, each with its

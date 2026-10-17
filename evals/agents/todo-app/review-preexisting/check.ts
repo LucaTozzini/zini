@@ -1,25 +1,24 @@
 import type { AgentCheck } from "../../../harness/types.js";
 
+type Review = { checks?: { id: string; status: string; note: string }[] } | null;
+
 // A correct PR on a repo whose lint already fails, in a file the PR doesn't touch
-// (src/legacyImport.ts). The reviewer should approve, listing lint as already failing,
-// rather than requiring a fix outside the change.
+// (src/legacyImport.ts). The reviewer should pass every check, saying lint was already
+// failing, rather than failing the change for code outside it.
 const check: AgentCheck = async ({ document }) => {
   const failures: string[] = [];
-  const review = document as {
-    requiredChanges?: string[];
-    blockingQuestions?: string[];
-    preexistingFailures?: { command: string; reason: string }[];
-  } | null;
-  if (!review) failures.push("The reviewer didn't submit a review");
+  const review = document as Review;
+  if (!review?.checks) failures.push("The reviewer didn't submit a review");
   else {
-    if (review.requiredChanges?.length || review.blockingQuestions?.length)
-      failures.push(`Expected an approval, got: ${JSON.stringify({ requiredChanges: review.requiredChanges, blockingQuestions: review.blockingQuestions })}`);
-    if (!review.preexistingFailures?.some(({ command }) => /lint|eslint/.test(command)))
-      failures.push(`Expected lint among preexistingFailures, got: ${JSON.stringify(review.preexistingFailures ?? [])}`);
+    const failed = review.checks.filter((entry) => entry.status === "failed");
+    if (failed.length) failures.push(`Expected no failed checks, got: ${JSON.stringify(failed)}`);
+    const code = review.checks.find((entry) => entry.id === "Q5");
+    if (!code || !/lint/i.test(code.note) || !/already|before|pre-?exist/i.test(code.note))
+      failures.push(`Expected Q5's note to say lint was already failing, got: ${JSON.stringify(code ?? null)}`);
   }
   return {
     passed: failures.length === 0,
-    details: failures.length ? failures.join("\n") : `Approved, with lint reported as already failing: ${JSON.stringify(review!.preexistingFailures)}`,
+    details: failures.length ? failures.join("\n") : `Passed, with lint reported as already failing: ${review!.checks!.find((entry) => entry.id === "Q5")!.note}`,
   };
 };
 

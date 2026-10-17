@@ -15,22 +15,36 @@ export async function workspaceContext(id: string): Promise<WorkspaceContext> {
   if (!row.context) throw new Error("Workspace starting context is missing");
   return row.context;
 }
-export async function prepareIntegration(id: string, refresh: () => Promise<void> = fetchRepo): Promise<IntegrationState> {
+// Commits everything not committed yet (completing a merge once its conflicts are
+// resolved), then merges in the latest target branch. committed: a commit was made.
+// The integration says whether the merge happened, wasn't needed, or stopped on
+// conflicts, which stay in the workspace to resolve.
+export async function commitAndIntegrate(id: string, message: string, refresh: () => Promise<void> = fetchRepo):
+  Promise<{ committed: boolean; integration: IntegrationState }> {
   const context = await workspaceContext(id);
-  // Recover a pending merge before fetching another upstream revision.
   return locked(id, async () => {
     const run = runner(id);
-    if (!await mergeHead(run)) { await refresh(); await refreshWorkspaceRefs(id); }
-    const result = await integrateBranch(run, context.targetBranch);
+    const committed = await commitRound(run, message);
+    await refresh(); await refreshWorkspaceRefs(id);
+    const integration = await integrateBranch(run, context.targetBranch);
     sendEvent({ type: "workspace.updated", issueId: id });
-    return result;
+    return { committed, integration };
   });
 }
-export async function commitCoderRound(id: string, message: string) {
+
+// Whether everything is committed and the branch has the latest target branch (fetched
+// first) merged in.
+export async function isUpToDate(id: string, refresh: () => Promise<void> = fetchRepo) {
+  const context = await workspaceContext(id);
   return locked(id, async () => {
-    const committed = await commitRound(runner(id), message);
-    sendEvent({ type: "workspace.updated", issueId: id });
-    return committed;
+    const run = runner(id);
+    if (await mergeHead(run) || (await run(["status", "--porcelain"])).trim()) return false;
+    await refresh(); await refreshWorkspaceRefs(id);
+    const target = (await run(["rev-parse", `refs/remotes/origin/${context.targetBranch}`])).trim();
+    return run(["merge-base", "--is-ancestor", target, "HEAD"]).then(() => true, (error) => {
+      if ((error as { code?: number }).code === 1) return false;
+      throw error;
+    });
   });
 }
 export const inspectConflicts = (id: string, path?: string) => locked(id, async () => path

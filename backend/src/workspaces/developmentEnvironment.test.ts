@@ -17,7 +17,6 @@ test("workspace credentials reach setup and previews, rotate, and respect servic
   const { ensureSandbox, removeSandbox, docker, sandboxName } = await import("./workspaceSandbox.js");
   const { removeWorkspaceMarker } = await import("../repositories/git.js");
   const { runCommandResult } = await import("../forge/qaProcesses.js");
-  const { SetupEvidence, setupTools } = await import("../forge/setupTools.js");
   const { provisionWorkspaceServices, configureWorkspaceEnvironment } = await import("./workspaceServices.js");
   const { WorkspaceAppRuntime } = await import("./workspaceAppRuntime.js");
   await initDb(); await saveSettings({ githubRepo: "fixture/dev" });
@@ -27,10 +26,8 @@ test("workspace credentials reach setup and previews, rotate, and respect servic
   try {
     await createTestWorkspace(id, { "app.cjs": script });
     await saveDevelopmentEnvironment("fixture/dev", [{ name: "DEV_TOKEN", value: token }, { name: "APP_LABEL", value: "public-label" }]);
-    const evidence = new SetupEvidence(null, "fixture");
-    const entry = { id: "credentials", kind: "setup" as const, command: "node -e 'if(!process.env.DEV_TOKEN)process.exit(1);console.log(process.env.APP_LABEL)'", cwd: ".", purpose: "Check injected credentials", sources: ["app.cjs"] };
-    const output = await setupTools(id, evidence).find(tool => tool.name === "run_setup")!.invoke({ entry });
-    assert.match(JSON.stringify(output), /passed/); assert.match(JSON.stringify(output), /public-label/); assert.ok(!JSON.stringify(evidence.results).includes(token));
+    const output = await runCommandResult(id, "node -e 'if(!process.env.DEV_TOKEN)process.exit(1);console.log(process.env.APP_LABEL)'");
+    assert.equal(output.exitCode, 0); assert.match(output.output, /public-label/); assert.ok(!output.output.includes(token));
     await assert.rejects(configureWorkspaceEnvironment(id, { DEV_TOKEN: "agent-override" }), /Settings/);
     const plan = { setup: [], services: [{ id: "web", command: "node app.cjs", cwd: ".", port: 4321, readiness: "http" as const, path: "/" }], app: { serviceId: "web", path: "/" } };
     const preview = await runtime.launch(id, plan); assert.equal(preview.status, "ready");

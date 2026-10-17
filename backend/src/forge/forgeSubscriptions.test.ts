@@ -46,12 +46,12 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       const writer = await sequelize.transaction({ type: Transaction.TYPES.IMMEDIATE });
       await Queue.update({ content: "Writer holds queue lock" }, { where: { eventId: "event-a" }, transaction: writer });
       const ids = Array.from({ length: 8 }, (_, index) => `lock-event-${index}`);
-      const emitting = Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "planner" }, id)));
+      const emitting = Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
       const release = new Promise<void>((resolve, reject) => {
         setTimeout(() => { void writer.commit().then(resolve, reject); }, 50);
       });
       await Promise.all([emitting, release]);
-      await Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "planner" }, id)));
+      await Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
       assert.equal(await Queue.count({ where: { eventId: { [Op.in]: ids } } }), ids.length);
       await Queue.destroy({ where: { eventId: { [Op.in]: ids } } });
     });
@@ -71,8 +71,8 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       assert.equal(await Queue.count({ where: { status: "pending" } }), 0);
     });
     await t.test("startup recovers interrupted claims and preserves FIFO", async () => {
-      await emitForgeEvent("issue-b", { type: "stage_started", role: "planner" }, "first");
-      await emitForgeEvent("issue-b", { type: "waiting", waiting: { kind: "approve_plan" } }, "second");
+      await emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, "first");
+      await emitForgeEvent("issue-b", { type: "waiting", waiting: { kind: "approve_plan", plan: { steps: [], qaChecklist: [] } } }, "second");
       const original = (await claimMessages("one"))!;
       assert.deepEqual(original.messages.map((message) => message.eventId), ["first", "second"]);
       await recoverMessageQueue();
@@ -113,8 +113,10 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       assert.equal(await Queue.count({ where: { threadId: "two" } }), 0);
     });
     await t.test("notification payloads preserve questions, completion details and failures", () => {
-      assert.match(forgeEventContent({ type: "waiting", waiting: { kind: "questions", from: "planner", questions: ["Which layout?"] } }), /Which layout/);
-      assert.match(forgeEventContent({ type: "completed", qa: { verdict: "partial", failures: ["Broken page"], environmentFailures: [], couldNotTest: ["Mobile"], blockingQuestions: [], coverage: [] } }), /Broken page\nNot verified:\nMobile/);
+      assert.match(forgeEventContent({ type: "waiting", waiting: { kind: "questions", questions: ["Which layout?"] } }), /Which layout/);
+      assert.match(forgeEventContent({ type: "completed", plan: { steps: [], qaChecklist: [
+        { id: "Q1", condition: "Page loads", status: "failed", note: "Broken page" },
+        { id: "Q2", condition: "Works on mobile", status: "skipped", note: "No device" }] } }), /failed: Page loads \(Broken page\)\n- skipped: Works on mobile/);
       assert.equal(forgeEventContent({ type: "failed", error: "Timeout" }), "Forge failed: Timeout");
     });
     await sequelize.close();
