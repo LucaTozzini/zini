@@ -20,6 +20,7 @@ import { Workspace } from "../models/Workspace.js";
 import { beginRun, pauseRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
 import { isIssueId } from "../workspaces/workspaces.js";
+import { parseMessageInput } from "../projectLead/messageInput.js";
 
 // An issue's Forge, at /api/forge/:issueId (see forge.ts).
 export const forge = Router();
@@ -65,9 +66,16 @@ forge.get("/:issueId", async (req, res) => {
   res.json(await getPipeline(issueId));
 });
 
+// The Lead's conversation, or with ?agent=coder|reviewer, that worker's.
 forge.get("/:issueId/messages", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
-  if (issueId) res.json(await getPipelineMessages(issueId));
+  if (!issueId) return;
+  const agent = req.query.agent ?? "lead";
+  if (agent !== "lead" && agent !== "coder" && agent !== "reviewer") {
+    res.status(400).json({ error: "agent must be lead, coder or reviewer" });
+    return;
+  }
+  res.json(await getPipelineMessages(issueId, agent));
 });
 
 // Starts the Forge, with an optional note for the Lead. Answers once it's started;
@@ -139,13 +147,14 @@ forge.post("/:issueId/continue", async (req, res) => {
   if (await beginRun(res, forgeThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
 });
 
-// Sends the Lead a message, e.g. changes to make after it finished. Not while it's
-// working or waiting on a reply (see /resume).
+// Sends the Lead a message ({ message, images? }), e.g. changes to make after it
+// finished. Not while it's working or waiting on a reply (see /resume).
 forge.post("/:issueId/message", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
-  const { message } = req.body ?? {};
-  if (typeof message !== "string" || !message.trim()) { res.status(400).json({ error: "Expected a nonempty message" }); return; }
+  let input;
+  try { input = parseMessageInput(req.body); }
+  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); return; }
   if (!await requireWorkspace(issueId, res)) return;
   const pipeline = await getPipeline(issueId);
   if (!pipeline.started) { res.status(409).json({ error: "Start the Forge first" }); return; }
@@ -153,7 +162,7 @@ forge.post("/:issueId/message", async (req, res) => {
   const setup = await loadSetup(res);
   if (!setup) return;
   const run = pipelineRun(setup, issueId, req.user!.username);
-  if (await beginRun(res, forgeThreadId(issueId), (signal) => messagePipeline(run, message.trim(), signal), run.notify)) res.status(202).end();
+  if (await beginRun(res, forgeThreadId(issueId), (signal) => messagePipeline(run, input.message.trim(), signal, input.images), run.notify)) res.status(202).end();
 });
 
 forge.post("/:issueId/pause", async (req, res) => {

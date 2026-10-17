@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ForgeMessage, PendingApproval, PipelineResume, PipelineState } from 'shared'
+import type { AgentRole, ForgeMessage, PendingApproval, PipelineResume, PipelineState } from 'shared'
 import { api } from './client.ts'
 
 export const forgeKey = (issueId: string) => ['forge', issueId]
 export const forgeMessagesKey = (issueId: string) => [...forgeKey(issueId), 'messages']
 
-export function useForgeMessages(issueId: string) {
+// The Lead's conversation, or a worker's (all its briefs and what it did for each).
+export function useForgeMessages(issueId: string, agent: AgentRole = 'lead') {
   return useQuery({
-    queryKey: forgeMessagesKey(issueId),
-    queryFn: () => api.get(`forge/${issueId}/messages`).json<ForgeMessage[]>(),
+    queryKey: [...forgeMessagesKey(issueId), agent],
+    queryFn: () => api.get(`forge/${issueId}/messages`, { searchParams: { agent } }).json<ForgeMessage[]>(),
   })
 }
 
@@ -63,7 +64,7 @@ export function usePipelineControl(issueId: string) {
 export function useMessagePipeline(issueId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => api.post(`forge/${issueId}/message`, { json: { message } }),
+    mutationFn: (input: { message: string; images: string[] }) => api.post(`forge/${issueId}/message`, { json: input }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
   })
 }

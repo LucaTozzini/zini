@@ -3,6 +3,7 @@ import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messag
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createAgent, createMiddleware, fakeModel, modelCallLimitMiddleware, tool } from "langchain";
 import type {
+  AgentRole,
   ForgePlan,
   IntegrationState,
   PendingApproval,
@@ -312,9 +313,10 @@ export function startPipeline(run: Run, note: string, signal?: AbortSignal) {
   return runLead(run, { messages: [userMessage(text, [], run.username ?? null)] }, text, signal);
 }
 
-// Sends the Lead a message, e.g. changes you want after it finished.
-export function messagePipeline(run: Run, message: string, signal?: AbortSignal) {
-  return runLead(run, { messages: [userMessage(message, [], run.username ?? null)] }, message, signal);
+// Sends the Lead a message, with any images (base64 data URLs), e.g. changes you want
+// after it finished.
+export function messagePipeline(run: Run, message: string, signal?: AbortSignal, images: string[] = []) {
+  return runLead(run, { messages: [userMessage(message, images, run.username ?? null)] }, message, signal);
 }
 
 // Answers what the Forge is waiting on, and carries on.
@@ -371,16 +373,14 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   };
 }
 
-// The Lead's and its workers' conversations, for the activity feed.
-export async function getPipelineMessages(issueId: string) {
-  const roles = ["lead", "coder", "reviewer"] as const;
-  const threads = await Promise.all(roles.map(async (agent) => {
-    const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent);
-    const { checkpoints } = await loadForgeHistory(checkpointer, thread);
-    return { agent, checkpoint: checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns) };
-  }));
+// One agent's conversation, for the activity feed: the Lead's, or a worker's (all its
+// briefs from the Lead, with what it did for each).
+export async function getPipelineMessages(issueId: string, agent: AgentRole = "lead") {
+  const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent);
+  const { checkpoints } = await loadForgeHistory(checkpointer, thread);
+  const checkpoint = checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns);
   const { running } = await getPipeline(issueId);
-  return forgeMessages(threads, running);
+  return forgeMessages([{ agent, checkpoint }], running);
 }
 
 // The issues whose Forge is waiting for plan approval, for marking them in the webapp's

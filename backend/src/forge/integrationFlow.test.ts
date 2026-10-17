@@ -131,8 +131,10 @@ test("the Lead plans, delegates, resolves conflicts, reviews and finishes only o
     assert.equal((await runGit(["status", "--porcelain"])).trim(), "");
     assert.match(await runGit(["show", "HEAD:file.txt"]), /issue behavior\nupstream behavior/);
     assert.equal((await runGit(["show", "HEAD:later.txt"])).trim(), "later upstream behavior");
-    const feed = await getPipelineMessages(id);
-    assert.deepEqual([...new Set(feed.map((item) => item.agent))].sort(), ["coder", "lead", "reviewer"]);
+    for (const agent of ["lead", "coder", "reviewer"] as const) {
+      const feed = await getPipelineMessages(id, agent);
+      assert.ok(feed.length > 0 && feed.every((item) => item.agent === agent), `${agent}'s chat loads on its own`);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     await removeSandbox(id); await removeWorkspaceMarker(id).catch(() => {});

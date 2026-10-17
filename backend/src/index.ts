@@ -27,6 +27,8 @@ const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
 app.use("/api/project-lead", express.json({ limit: "30mb" }));
+// Messages to a Forge's Lead can carry images too.
+app.use("/api/forge/:issueId/message", express.json({ limit: "30mb" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use("/api", requireApiUser);

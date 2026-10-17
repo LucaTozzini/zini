@@ -17,6 +17,7 @@ import { useWorkspace } from "../api/workspaces.ts";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
 import ForgeView from "../components/ForgeView.tsx";
+import ForgeDocuments from "../components/pipeline/ForgeDocuments.tsx";
 import { isActiveBlocker } from "shared";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import IssuePanel from "../components/IssuePanel.tsx";
@@ -27,6 +28,7 @@ const Header = ({
   identifier,
   linearUrl,
   link,
+  actions,
   handleShowDetails,
 }: {
   title: string;
@@ -34,6 +36,8 @@ const Header = ({
   linearUrl?: string;
   // The issue's other view: its Forge, or its app's preview.
   link?: { to: string; label: string; icon: ReactNode };
+  // Extra buttons, before the link.
+  actions?: ReactNode;
   handleShowDetails?: () => void;
 }) => (
   <Box
@@ -76,6 +80,7 @@ const Header = ({
         </Typography>
       </ButtonBase>
       <Box sx={{ display: "flex", alignItems: "center" }}>
+        {actions}
         {link && (
           <Tooltip title={link.label}>
             <IconButton size="small" component={RouterLink} to={link.to} aria-label={link.label}>
@@ -129,6 +134,7 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
           ? { to: `/issues/${issue.data.id}`, label: "Open the Forge", icon: <ConstructionOutlinedIcon sx={{ fontSize: 19 }} /> }
           : workspace.data ? { to: `/issues/${issue.data.id}/preview`, label: "Open the app's preview", icon: <OpenInBrowserIcon sx={{ fontSize: 19 }} /> }
           : undefined}
+        actions={view === "forge" && <ForgeDocuments issueId={issue.data.id} />}
         handleShowDetails={() => setShowDetails(true)}
       />
       {view === "forge" && issue.data.blockedBy.some(isActiveBlocker) && <Alert severity="warning" sx={{ borderRadius: 0 }}>

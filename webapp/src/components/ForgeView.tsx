@@ -5,24 +5,13 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Cont
 import type { PipelineResume, PipelineState } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useForge, useMessagePipeline, usePipelineControl, useResumePipeline, useStartPipeline } from "../api/forge.ts";
-import { useWorkspaceDiff } from "../api/workspaces.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import CheckpointActivity from "./forge-activity/CheckpointActivity.tsx";
+import ChatInput from "./chat/ChatInput.tsx";
 import BrowserView from "./pipeline/BrowserView.tsx";
 import CommitCard from "./pipeline/CommitCard.tsx";
-import DiffView from "./pipeline/DiffView.tsx";
-import { PlanView } from "./pipeline/Documents.tsx";
 import PipelineRequest from "./pipeline/PipelineRequest.tsx";
 import PullRequestCard from "./pipeline/PullRequestCard.tsx";
-
-// The workspace's changes, fetched only while open.
-function Changes({ issueId }: { issueId: string }) {
-  const diff = useWorkspaceDiff(issueId, true);
-  if (diff.isPending) return <Skeleton height={120} />;
-  if (diff.isError) return <Alert severity="error">{errorMessage(diff.error)}</Alert>;
-  return diff.data?.diff ? <DiffView diff={diff.data.diff} truncated={diff.data.truncated} />
-    : <Typography color="text.secondary">No workspace changes yet.</Typography>;
-}
 
 function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: PipelineState }) {
   const start = useStartPipeline(issueId);
@@ -38,7 +27,17 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
     content, sending, busy: Boolean(pipeline.running),
     error: Boolean(failure || pipeline.error), lastIsReply: false,
   });
-  const hasControl = Boolean(pipeline.running || pipeline.pausing || pipeline.canResume);
+  // Paused or interrupted work can be resumed; running work is paused from the input.
+  const resumable = Boolean(pipeline.pausing || (pipeline.canResume && !pipeline.running));
+  const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  // The Lead takes messages when it isn't working or waiting on a reply.
+  const canMessage = pipeline.started && !pipeline.running && !pipeline.pausing && !pipeline.waiting;
+  const canSend = canMessage && !sending && Boolean(draft.trim() || images.length);
+  const send = () => {
+    if (!canSend) return;
+    message.mutate({ message: draft.trim(), images }, { onSuccess: () => { setDraft(""); setImages([]); } });
+  };
 
   return (
     <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
@@ -46,16 +45,6 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
         sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
       <Container maxWidth={false} sx={{ maxWidth: 750, pt: 3, pb: 18 }}>
       <Stack spacing={3}>
-      {pipeline.plan && <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>
-          Plan{pipeline.planApproved ? "" : " (not approved yet)"}{pipeline.finished ? " · finished" : ""}
-        </Typography></AccordionSummary>
-        <AccordionDetails><PlanView plan={pipeline.plan} /></AccordionDetails>
-      </Accordion>}
-      {pipeline.started && <Accordion slotProps={{ transition: { unmountOnExit: true } }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Code changes</Typography></AccordionSummary>
-        <AccordionDetails><Changes issueId={issueId} /></AccordionDetails>
-      </Accordion>}
       {pipeline.started && <CheckpointActivity issueId={issueId} pipeline={pipeline} onContentChange={setActivityContent} />}
       {pipeline.error && <Alert severity="error">{pipeline.error}</Alert>}
       {pipeline.integration?.status === "conflicts" && <Alert severity="warning">
@@ -69,7 +58,7 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
       </>}
       <Box data-chat-message="">
         <PipelineRequest issueId={issueId} pipeline={pipeline} onStart={(note) => start.mutate(note)} onReply={reply}
-          onMessage={(text) => message.mutate(text)} sending={sending} />
+          sending={sending} />
       </Box>
       {pipeline.browserUrl && <Accordion slotProps={{ transition: { unmountOnExit: true } }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Live product preview</Typography></AccordionSummary>
@@ -78,18 +67,36 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
       </Stack>
       </Container>
       </Box>
-      {(hasControl || messagesBelow !== null) && <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0,
-        pt: 4, pb: 3, pointerEvents: "none",
-        background: (theme) => `linear-gradient(transparent, ${(theme.vars || theme).palette.background.default} 50%)` }}>
+      {(pipeline.started || messagesBelow !== null) && <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0,
+        pt: 4, pb: 2, pointerEvents: "none",
+        background: (theme) => `linear-gradient(transparent, ${(theme.vars || theme).palette.background.default} 40%)` }}>
         <Stack spacing={1} sx={{ alignItems: "center" }}>
           {messagesBelow !== null && <Button variant="contained" size="small" startIcon={<KeyboardArrowDownIcon />}
             onClick={scrollToBottom} sx={{ pointerEvents: "auto" }}>Latest activity</Button>}
-          {hasControl && <Button variant="outlined" loading={control.isPending || pipeline.pausing}
+          {resumable && <Button variant="outlined" loading={control.isPending || pipeline.pausing}
             disabled={sending || pipeline.pausing}
-            onClick={() => control.mutate(pipeline.running ? "pause" : "continue")}
+            onClick={() => control.mutate("continue")}
             sx={{ pointerEvents: "auto", bgcolor: "background.default" }}>
-            {pipeline.pausing ? "Pausing…" : pipeline.running ? "Pause" : "Resume"}
+            {pipeline.pausing ? "Pausing…" : "Resume"}
           </Button>}
+          {pipeline.started && <Container maxWidth={false} sx={{ maxWidth: 750, pointerEvents: "auto" }}>
+            <ChatInput
+              images={images}
+              onImagesChange={setImages}
+              value={draft}
+              onChange={setDraft}
+              loading={message.isPending}
+              disabled={Boolean(pipeline.waiting)}
+              canSend={canSend}
+              stoppable={Boolean(pipeline.running && !pipeline.pausing)}
+              onStop={() => control.mutate("pause")}
+              placeholder={pipeline.waiting ? "Reply to the Lead above first"
+                : pipeline.running ? "Pause the Lead to message it"
+                : pipeline.finished ? "Ask the Lead for changes" : "Message the Lead"}
+              handleKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              onSubmit={send}
+            />
+          </Container>}
         </Stack>
       </Box>}
     </Box>
