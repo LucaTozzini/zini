@@ -111,6 +111,19 @@ export const repairToolCalls = createMiddleware({
     handler({ ...request, messages: withMissingToolResults(request.messages) }),
 });
 
+// Saves which model wrote each reply in its additional_kwargs.model, like createdAt
+// (see messageTimestamps.ts), so a conversation that changes models stays traceable. A
+// reply that hands in a document comes back with its messages; each AI one is stamped.
+export const modelStamp = (model: string) => createMiddleware({
+  name: "ModelStamp",
+  wrapModelCall: async (request, handler) => {
+    const reply = await handler(request);
+    const messages = AIMessage.isInstance(reply) ? [reply] : ((reply as { messages?: BaseMessage[] }).messages ?? []);
+    for (const message of messages) if (AIMessage.isInstance(message)) message.additional_kwargs.model ??= model;
+    return reply;
+  },
+});
+
 // The user's messages, the agent's written replies and its tool calls, each with its
 // result's status, and a marker where each compaction happened, with its summary.
 // Results themselves stay out: they can be whole files. live: the conversation is

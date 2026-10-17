@@ -27,6 +27,7 @@ import {
 import {
   checkpointer,
   modelRetry,
+  modelStamp,
   repairToolCalls,
   streamConfig,
   threadConfig,
@@ -639,6 +640,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       toolErrors,
       compactionMiddleware(chatModel),
       modelRetry,
+      modelStamp(model),
       repairToolCalls,
       senderNames,
       todoListMiddleware(),
