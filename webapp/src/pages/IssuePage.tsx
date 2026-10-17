@@ -17,6 +17,7 @@ import { useWorkspace } from "../api/workspaces.ts";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
 import ForgeView from "../components/ForgeView.tsx";
+import { isActiveBlocker } from "shared";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import IssuePanel from "../components/IssuePanel.tsx";
 import { useState, type ReactNode } from "react";
@@ -130,6 +131,10 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
           : undefined}
         handleShowDetails={() => setShowDetails(true)}
       />
+      {view === "forge" && issue.data.blockedBy.some(isActiveBlocker) && <Alert severity="warning" sx={{ borderRadius: 0 }}>
+        Blocked by {issue.data.blockedBy.filter(isActiveBlocker)
+          .map((blocker) => `${blocker.identifier} ${blocker.title} (${blocker.state.name})`).join(", ")}
+      </Alert>}
       {view === "preview" ? <PreviewView key={issue.data.id} issueId={issue.data.id} />
         : <ForgeView key={issue.data.id} issueId={issue.data.id} />}
       <Dialog

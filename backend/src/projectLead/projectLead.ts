@@ -21,6 +21,7 @@ import {
   fetchLinearIssues,
   fetchLinearTeams,
   searchLinearIssues,
+  setLinearBlocker,
   updateLinearIssue,
 } from "../integrations/linear.js";
 import {
@@ -85,13 +86,16 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   your own replies with a name.
 - Look at existing issues before proposing new ones (search_issues finds them by keyword),
   and point out likely duplicates.
-- The user approves every create_issue and update_issue call before it runs. If they
+- The user approves every create_issue, update_issue and set_blocker call before it runs. If they
   reject one, read their note, adjust, and propose again.
   For any approval-gated tool, a rejection returns the user's note as the tool result
   and the tool does not execute. Treat that note as user feedback about the proposed
   action, not as a backend error or evidence of Forge state. Answer questions
   in that note before proposing another action.
 - Linear priorities: 0 = none, 1 = urgent, 2 = high, 3 = medium, 4 = low.
+- get_issue shows an issue's blockers (blockedBy) and what it blocks; set_blocker adds or
+  removes one. A blocker is active until it's done or canceled. Mention active blockers
+  before starting a Forge on a blocked issue.
 - Statuses and assignees are per team: use list_teams to see a team's status names and
   members. "Me" is the list_teams viewer.
 - After creating or updating an issue, share its identifier and link.
@@ -203,8 +207,20 @@ function buildTools(linear: LinearClient) {
     }),
     tool(async ({ id }) => JSON.stringify(await fetchLinearIssue(linear, id)), {
       name: "get_issue",
-      description: "Get one issue with its description, comments and attachments (links such as its pull requests), by identifier (e.g. ENG-123) or id.",
+      description: "Get one issue with its description, comments, attachments (links such as its pull requests), " +
+        "the issues blocking it (blockedBy) and the issues it blocks, each with its status, by identifier (e.g. ENG-123) or id.",
       schema: z.object({ id: z.string() }),
+    }),
+    tool(async ({ issueId, blockerId, blocked }) =>
+      JSON.stringify({ blockedBy: await setLinearBlocker(linear, issueId, blockerId, blocked ?? true) }), {
+      name: "set_blocker",
+      description: "Mark blockerId as blocking issueId, or with blocked=false, remove that blocker. " +
+        "Returns the issue's blockers afterwards. The user approves the call before it runs.",
+      schema: z.object({
+        issueId: z.string().describe("The blocked issue: identifier (e.g. ENG-123) or id"),
+        blockerId: z.string().describe("The issue that blocks it: identifier or id"),
+        blocked: z.boolean().optional().describe("false removes the blocker; default true"),
+      }),
     }),
     tool(async () => JSON.stringify(await fetchLinearTeams(linear)), {
       name: "list_teams",
@@ -631,6 +647,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
           update_issue: { allowedDecisions: ["approve", "reject"] },
+          set_blocker: { allowedDecisions: ["approve", "reject"] },
           reply_to_pipeline: { allowedDecisions: ["approve", "reject"] },
           commit_and_push: { allowedDecisions: ["approve", "reject"] },
           pull_request_create: { allowedDecisions: ["approve", "reject"] },

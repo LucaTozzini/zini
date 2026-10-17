@@ -42,7 +42,24 @@ export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
   comments: LinearComment[];
   // Links on the issue, such as its pull requests.
   attachments: LinearAttachment[];
+  // Issues that block this one, and issues it blocks (Linear's "blocks" relations).
+  blockedBy: LinearRelatedIssue[];
+  blocks: LinearRelatedIssue[];
 };
+
+// An issue on the other end of a "blocks" relation. relationId identifies the relation,
+// for removing it.
+export type LinearRelatedIssue = {
+  relationId: string;
+  id: string;
+  identifier: string;
+  title: string;
+  state: { name: string; type: StatusType };
+};
+
+// A blocker is active until it's done or canceled.
+export const isActiveBlocker = (issue: LinearRelatedIssue) =>
+  issue.state.type !== "completed" && issue.state.type !== "canceled";
 
 export type LinearAttachment = { title: string; url: string };
 

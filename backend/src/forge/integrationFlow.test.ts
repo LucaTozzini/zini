@@ -93,7 +93,7 @@ test("the Lead plans, delegates, resolves conflicts, reviews and finishes only o
       return new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "Content-Type": "text/event-stream" } });
     };
     const linear = { client: { rawRequest: async () => ({ data: { issue: {
-      id, identifier: "TEST-1", title: "Preserve both behaviors", description: "Preserve both behaviors", comments: { nodes: [] }, attachments: { nodes: [] },
+      id, identifier: "TEST-1", title: "Preserve both behaviors", description: "Preserve both behaviors", comments: { nodes: [] }, attachments: { nodes: [] }, relations: { nodes: [] }, inverseRelations: { nodes: [] },
     } } }) } } as unknown as LinearClient;
     const run = pipelineRun({ linear, connection: { provider: "openrouter", key: "test-only" }, model: "fixture" }, id, "Test", async () => {
       // Main advances once the first review is in, so the first finish is refused.

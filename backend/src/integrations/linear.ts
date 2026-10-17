@@ -1,6 +1,6 @@
 import { AuthenticationLinearError, LinearClient } from "@linear/sdk";
 import { getKey } from "../models/Integration.js";
-import type { LinearAttachment, LinearComment, LinearIssue, LinearIssueDetails, StatusType } from "shared";
+import type { LinearAttachment, LinearComment, LinearIssue, LinearIssueDetails, LinearRelatedIssue, StatusType } from "shared";
 
 // Built per call so a replaced or removed key takes effect immediately.
 export async function getLinearClient() {
@@ -73,13 +73,19 @@ const ISSUE_QUERY = `
       team { key name }
       comments(first: 100) { nodes { body createdAt user { name } } }
       attachments(first: 100) { nodes { title url } }
+      relations(first: 100) { nodes { id type relatedIssue { id identifier title state { name type } } } }
+      inverseRelations(first: 100) { nodes { id type issue { id identifier title state { name type } } } }
     }
   }
 `;
 
-type IssueWithCommentNodes = Omit<LinearIssueDetails, "comments" | "attachments"> & {
+type RelatedIssue = Omit<LinearRelatedIssue, "relationId">;
+type IssueWithCommentNodes = Omit<LinearIssueDetails, "comments" | "attachments" | "blockedBy" | "blocks"> & {
   comments: { nodes: LinearComment[] };
   attachments: { nodes: LinearAttachment[] };
+  // This issue's relations to others (it blocks relatedIssue), and others' to it.
+  relations: { nodes: { id: string; type: string; relatedIssue: RelatedIssue }[] };
+  inverseRelations: { nodes: { id: string; type: string; issue: RelatedIssue }[] };
 };
 
 // Accepts the internal id or the identifier, e.g. "ENG-123". Throws
@@ -89,9 +95,32 @@ export async function fetchLinearIssue(client: LinearClient, id: string): Promis
     ISSUE_QUERY,
     { id },
   );
-  const { comments, attachments, ...issue } = data!.issue;
+  const { comments, attachments, relations, inverseRelations, ...issue } = data!.issue;
   const oldestFirst = [...comments.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return { ...issue, comments: oldestFirst, attachments: attachments.nodes };
+  return {
+    ...issue,
+    comments: oldestFirst,
+    attachments: attachments.nodes,
+    blockedBy: inverseRelations.nodes.filter((r) => r.type === "blocks").map((r) => ({ relationId: r.id, ...r.issue })),
+    blocks: relations.nodes.filter((r) => r.type === "blocks").map((r) => ({ relationId: r.id, ...r.relatedIssue })),
+  };
+}
+
+// Marks blocker as blocking the issue, or with blocked false, removes that. Both
+// accept internal ids or identifiers. Returns the issue's blockers after the change.
+export async function setLinearBlocker(client: LinearClient, issueId: string, blockerId: string, blocked: boolean) {
+  const [issue, blocker] = await Promise.all([fetchLinearIssue(client, issueId), fetchLinearIssue(client, blockerId)]);
+  if (issue.id === blocker.id) throw new Error("An issue can't block itself");
+  const existing = issue.blockedBy.find((entry) => entry.id === blocker.id);
+  if (blocked && !existing) {
+    await client.client.rawRequest(`mutation AddBlocker($input: IssueRelationCreateInput!) {
+      issueRelationCreate(input: $input) { success }
+    }`, { input: { issueId: blocker.id, relatedIssueId: issue.id, type: "blocks" } });
+  } else if (!blocked && existing) {
+    await client.client.rawRequest(`mutation RemoveBlocker($id: String!) { issueRelationDelete(id: $id) { success } }`,
+      { id: existing.relationId });
+  }
+  return (await fetchLinearIssue(client, issue.id)).blockedBy;
 }
 
 // PR associations belong to Linear. Paginate so older links are not silently lost.

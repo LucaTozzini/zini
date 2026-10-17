@@ -86,6 +86,13 @@ function ActionDetails({ action }: { action: PendingAction }) {
   if (action.name === "reply_to_pipeline") return <PipelineReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
   if (action.name.startsWith("pull_request_")) return <PullRequestDetails action={action} />;
+  if (action.name === "set_blocker") return (
+    <Typography variant="subtitle2">
+      {action.args.blocked === false
+        ? `Remove ${String(action.args.blockerId)} as a blocker of ${String(action.args.issueId)}`
+        : `Mark ${String(action.args.blockerId)} as blocking ${String(action.args.issueId)}`}
+    </Typography>
+  );
   if (action.name === "stop_workspace_app") return (
     <Typography variant="subtitle2">Stop the user app for {String(action.args.issueId)}</Typography>
   );
