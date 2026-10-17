@@ -254,7 +254,8 @@ export type PipelineResume =
 
 export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
   | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
-  | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string }
+  // callId: the tool call's own id, e.g. to open the Coder's run for a delegate_coder call.
+  | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string; callId?: string }
 );
 
 // An issue whose Forge is waiting for you to approve its plan, as listed by

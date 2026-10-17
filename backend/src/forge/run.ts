@@ -35,9 +35,11 @@ export async function loadSetup(): Promise<Setup | string> {
 export const forgeModel = (setup: Setup) => chatModel(setup.connection, setup.model, { maxRetries: 0 });
 
 // One Forge per issue, so the issue id is enough to find it: the Lead's conversation is
-// on this thread, and each worker's on its own.
+// on this thread, the Reviewer's on its own, and each of the Coder's briefs on its own,
+// named after the Lead's call that delegated it (the Coder starts fresh every brief).
 export const forgeThreadId = (issueId: string) => `forge:${issueId}`;
-export const workerThreadId = (issueId: string, role: "coder" | "reviewer") => `forge:${issueId}:${role}`;
+export const workerThreadId = (issueId: string, role: "coder" | "reviewer", delegation?: string) =>
+  `forge:${issueId}:${role}${delegation ? `:${delegation}` : ""}`;
 
 // What running the Forge needs. Absent when it's only read (getPipeline).
 export type Run = {

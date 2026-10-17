@@ -3,7 +3,7 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { createAgent, createMiddleware, toolStrategy } from "langchain";
 import type { ForgePlan, LinearIssueDetails } from "shared";
 import { z } from "zod";
-import { checkpointer, modelRetry, repairToolCalls, streamConfig, toolErrors } from "../agents/agents.js";
+import { checkpointer, modelRetry, modelStamp, repairToolCalls, streamConfig, toolErrors } from "../agents/agents.js";
 import { compactionMiddleware } from "../agents/compaction.js";
 import { npmTools } from "../agents/npmTools.js";
 import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
@@ -20,10 +20,12 @@ import { requireSubmission } from "./submission.js";
 import { CODER_PROMPT, REVIEWER_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem, writeTools } from "./tools.js";
 
-// The Lead's workers: the Coder and the Reviewer. Each is an agent with its own
-// conversation, on its own thread, which it keeps between the Lead's briefs (long ones
-// are compacted). A brief runs it to its report (see documents.ts), which goes back to
-// the Lead. Each run is logged (see runLog.ts). Commands run in the Docker sandbox.
+// The Lead's workers: the Coder and the Reviewer. Each brief runs one to its report (see
+// documents.ts), which goes back to the Lead. The Coder starts fresh with every brief, on
+// a thread of its own (the workspace and the plan carry what came before); the Reviewer
+// keeps one conversation across reviews (long ones are compacted), for what it learned
+// about running the app. Each run is logged (see runLog.ts). Commands run in the Docker
+// sandbox.
 
 export type Worker<S extends z.ZodObject> = {
   role: "coder" | "reviewer";
@@ -102,8 +104,8 @@ export async function reviewerWorker(run: Pick<Run, "issueId" | "notify">, issue
   };
 }
 
-// Runs a worker on a brief to its report. thread and history are for agent evals: a
-// conversation to start from, on a thread of its own.
+// Runs a worker on a brief to its report, on thread (the Coder's is the brief's own).
+// history is for agent evals: a conversation to start from.
 export async function runWorker<S extends z.ZodObject>(
   { setup, issueId, notify, signal, execution }: Run,
   { role, prompt, tools, schema, validate }: Worker<S>,
@@ -130,6 +132,7 @@ export async function runWorker<S extends z.ZodObject>(
       }),
       modelRetry,
       logTo(log),
+      modelStamp(setup.model),
       toolErrors,
       repairToolCalls,
       workspaceFilesystem(issueId, role === "coder", notify),

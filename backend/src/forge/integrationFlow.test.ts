@@ -131,10 +131,14 @@ test("the Lead plans, delegates, resolves conflicts, reviews and finishes only o
     assert.equal((await runGit(["status", "--porcelain"])).trim(), "");
     assert.match(await runGit(["show", "HEAD:file.txt"]), /issue behavior\nupstream behavior/);
     assert.equal((await runGit(["show", "HEAD:later.txt"])).trim(), "later upstream behavior");
-    for (const agent of ["lead", "coder", "reviewer"] as const) {
-      const feed = await getPipelineMessages(id, agent);
+    const lead = await getPipelineMessages(id, "lead");
+    const delegation = lead.find((item) => item.kind === "tool" && item.call.name === "delegate_coder");
+    assert.ok(delegation?.kind === "tool" && delegation.callId, "The Lead's delegation carries its call id");
+    for (const [agent, feed] of [["lead", lead], ["coder", await getPipelineMessages(id, "coder", delegation.callId)],
+      ["reviewer", await getPipelineMessages(id, "reviewer")]] as const) {
       assert.ok(feed.length > 0 && feed.every((item) => item.agent === agent), `${agent}'s chat loads on its own`);
     }
+    assert.equal((await getPipelineMessages(id, "coder")).length, 0, "The Coder has no shared thread: each brief is its own");
   } finally {
     globalThis.fetch = originalFetch;
     await removeSandbox(id); await removeWorkspaceMarker(id).catch(() => {});

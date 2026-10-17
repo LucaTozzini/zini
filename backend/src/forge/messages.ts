@@ -49,7 +49,7 @@ export function forgeMessages(threads: { agent: AgentRole; checkpoint?: Checkpoi
       for (const [i, call] of (message.tool_calls ?? []).entries()) {
         if (submissions.has(call.name)) continue;
         const result = call.id ? results.get(call.id) : undefined;
-        const base = { id: `${key}:tool:${call.id ?? i}`, t, agent, kind: "tool" as const };
+        const base = { id: `${key}:tool:${call.id ?? i}`, t, agent, kind: "tool" as const, ...(call.id ? { callId: call.id } : {}) };
         const callBase = { role: "tool" as const, name: call.name, args: call.args };
         if (result) items.push({ ...base, result: result.text, call: { ...callBase, status: result.status === "error" ? "error" : "done",
           ...(result.status === "error" ? { error: result.text } : {}) } });

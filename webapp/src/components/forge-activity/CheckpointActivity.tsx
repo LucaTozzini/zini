@@ -17,10 +17,13 @@ import { groupMessages, type GroupedMessage } from "./groupMessages.ts";
 
 const titles = { coder: "Coder", reviewer: "Reviewer" };
 
+// Which worker conversation is open: the Reviewer's, or the Coder's run for one call.
+type Opened = { worker: "coder" | "reviewer"; delegation?: string; working: boolean };
+
 // One agent's conversation: its messages and tool calls, with delegations to workers as
 // buttons that open the worker's conversation.
 function Conversation({ items, busy, onOpen }: {
-  items: GroupedMessage[]; busy: boolean; onOpen?: (worker: "coder" | "reviewer") => void;
+  items: GroupedMessage[]; busy: boolean; onOpen?: (opened: Opened) => void;
 }) {
   return <>
     {items.map((item) => <Box key={item.id} data-chat-message="" sx={{ minWidth: 0 }}>
@@ -36,17 +39,18 @@ function Conversation({ items, busy, onOpen }: {
 }
 
 // A delegate_coder or delegate_reviewer call: the worker, how it went, and the brief.
-function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "delegation" }>; onOpen?: (worker: "coder" | "reviewer") => void }) {
+function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "delegation" }>; onOpen?: (opened: Opened) => void }) {
   const { call } = item.tool;
   const brief = typeof call.args.brief === "string" ? call.args.brief : "";
   const status = call.status === "pending" ? "working" : call.status === "done" ? "done"
     : call.status === "error" ? "failed" : "didn't finish";
   return <Paper variant="outlined">
-    <ButtonBase onClick={() => onOpen?.(item.worker)} sx={{ display: "block", width: "100%", textAlign: "left", p: 1.5 }}>
+    <ButtonBase onClick={() => onOpen?.({ worker: item.worker, delegation: item.worker === "coder" ? item.tool.callId : undefined,
+      working: call.status === "pending" })} sx={{ display: "block", width: "100%", textAlign: "left", p: 1.5 }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 0.5 }}>
         {call.status === "pending" && <CircularProgress size={12} />}
         <Typography variant="subtitle2">{titles[item.worker]} · {status}</Typography>
-        <Typography variant="caption" color="text.secondary">Open its conversation</Typography>
+        <Typography variant="caption" color="text.secondary">{item.worker === "coder" ? "Open this run" : "Open its conversation"}</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
         {brief}
@@ -55,11 +59,11 @@ function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "d
   </Paper>;
 }
 
-// A worker's whole conversation: every brief from the Lead and what it did for each.
+// A worker's conversation: the Coder's run for one brief, or the Reviewer's every review.
 // Opens at its end and follows new activity while scrolled to the bottom, like the
 // Lead's and the Project Lead's chats.
-function WorkerConversation({ issueId, worker, busy }: { issueId: string; worker: "coder" | "reviewer"; busy: boolean }) {
-  const history = useForgeMessages(issueId, worker);
+function WorkerConversation({ issueId, opened, busy }: { issueId: string; opened: Opened; busy: boolean }) {
+  const history = useForgeMessages(issueId, opened.worker, opened.delegation);
   const items = useMemo(() => groupMessages(history.data ?? []), [history.data]);
   const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
     content: history.dataUpdatedAt, sending: false, busy, error: history.isError, lastIsReply: false,
@@ -84,7 +88,7 @@ export default function CheckpointActivity({ issueId, pipeline, onContentChange 
 }) {
   const history = useForgeMessages(issueId);
   const items = useMemo(() => groupMessages(history.data ?? []), [history.data]);
-  const [open, setOpen] = useState<"coder" | "reviewer" | null>(null);
+  const [open, setOpen] = useState<Opened | null>(null);
   const busy = Boolean(pipeline.running);
   useEffect(() => onContentChange(String(history.dataUpdatedAt)), [history.dataUpdatedAt, onContentChange]);
   return <Stack spacing={2} aria-label="Forge activity" sx={{ minWidth: 0 }}>
@@ -95,10 +99,11 @@ export default function CheckpointActivity({ issueId, pipeline, onContentChange 
     {busy && pipeline.running === "lead" && <ThinkingIndicator />}
     <Dialog open={open !== null} onClose={() => setOpen(null)} fullWidth maxWidth="md" aria-labelledby="worker-conversation-title">
       <DialogTitle id="worker-conversation-title" sx={{ pr: 7 }}>
-        {open && titles[open]}
+        {open && titles[open.worker]}
         <IconButton aria-label="Close" onClick={() => setOpen(null)} sx={{ position: "absolute", right: 12, top: 12 }}><CloseIcon /></IconButton>
       </DialogTitle>
-      {open && <WorkerConversation issueId={issueId} worker={open} busy={pipeline.running === open} />}
+      {open && <WorkerConversation key={`${open.worker}:${open.delegation ?? ""}`} issueId={issueId} opened={open}
+        busy={pipeline.running === open.worker && (open.worker === "reviewer" || open.working)} />}
     </Dialog>
   </Stack>;
 }

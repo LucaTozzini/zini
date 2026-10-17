@@ -5,11 +5,13 @@ import { api } from './client.ts'
 export const forgeKey = (issueId: string) => ['forge', issueId]
 export const forgeMessagesKey = (issueId: string) => [...forgeKey(issueId), 'messages']
 
-// The Lead's conversation, or a worker's (all its briefs and what it did for each).
-export function useForgeMessages(issueId: string, agent: AgentRole = 'lead') {
+// The Lead's conversation, the Reviewer's (every review), or the Coder's run for one
+// delegate_coder call (delegation: that call's id).
+export function useForgeMessages(issueId: string, agent: AgentRole = 'lead', delegation?: string) {
   return useQuery({
-    queryKey: [...forgeMessagesKey(issueId), agent],
-    queryFn: () => api.get(`forge/${issueId}/messages`, { searchParams: { agent } }).json<ForgeMessage[]>(),
+    queryKey: [...forgeMessagesKey(issueId), agent, delegation ?? null],
+    queryFn: () => api.get(`forge/${issueId}/messages`,
+      { searchParams: { agent, ...(delegation ? { delegation } : {}) } }).json<ForgeMessage[]>(),
   })
 }
 

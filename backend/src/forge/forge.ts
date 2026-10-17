@@ -12,7 +12,7 @@ import type {
   PipelineWaiting,
 } from "shared";
 import { z } from "zod";
-import { checkpointer, modelRetry, repairToolCalls, streamConfig, threadConfig, toolErrors } from "../agents/agents.js";
+import { checkpointer, modelRetry, modelStamp, repairToolCalls, streamConfig, threadConfig, toolErrors } from "../agents/agents.js";
 import { compactionMiddleware } from "../agents/compaction.js";
 import { npmTools } from "../agents/npmTools.js";
 import { isRunning, runStatus } from "../agents/runs.js";
@@ -160,7 +160,8 @@ function leadTools(issueId: string, need: () => Run) {
       const plan = approved(runtime.state);
       const run = need();
       await emitForgeEvent(issueId, { type: "stage_started", role: "coder" });
-      const { steps, ...report } = await runWorker(run, await coderWorker(run, await issue(), plan), brief);
+      const { steps, ...report } = await runWorker(run, await coderWorker(run, await issue(), plan), brief,
+        { thread: workerThreadId(issueId, "coder", runtime.toolCallId) });
       const changes = await workspaceChanges(issueId, true);
       const statuses = new Map(steps.map(({ id, status }) => [id, status]));
       const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };
@@ -257,6 +258,7 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
       }),
       modelRetry,
       ...(log ? [logTo(log)] : []),
+      ...(run ? [modelStamp(run.setup.model)] : []),
       toolErrors,
       compactionMiddleware(model),
       repairToolCalls,
@@ -373,10 +375,11 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   };
 }
 
-// One agent's conversation, for the activity feed: the Lead's, or a worker's (all its
-// briefs from the Lead, with what it did for each).
-export async function getPipelineMessages(issueId: string, agent: AgentRole = "lead") {
-  const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent);
+// One agent's conversation, for the activity feed: the Lead's, the Reviewer's (every
+// review), or the Coder's run for one of the Lead's delegate_coder calls.
+export async function getPipelineMessages(issueId: string, agent: AgentRole = "lead", delegation?: string) {
+  const thread = agent === "lead" ? forgeThreadId(issueId)
+    : workerThreadId(issueId, agent, agent === "coder" ? delegation : undefined);
   const { checkpoints } = await loadForgeHistory(checkpointer, thread);
   const checkpoint = checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns);
   const { running } = await getPipeline(issueId);
@@ -401,10 +404,12 @@ export async function stopForgeProcesses(issueId: string) {
   await closeBrowser(issueId);
 }
 
-// Deletes the issue's Forge: the Lead's and its workers' conversations, e.g. with its
-// workspace.
+// Deletes the issue's Forge: the Lead's and its workers' conversations (every thread
+// named after it), e.g. with its workspace.
 export async function deleteConversation(issueId: string) {
-  await checkpointer.deleteThread(forgeThreadId(issueId));
-  await checkpointer.deleteThread(workerThreadId(issueId, "coder"));
-  await checkpointer.deleteThread(workerThreadId(issueId, "reviewer"));
+  const thread = forgeThreadId(issueId);
+  await loadForgeHistory(checkpointer, thread); // Creates the tables on a fresh database.
+  const threads = checkpointer.db.prepare("SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id = ? OR thread_id LIKE ?")
+    .all(thread, `${thread}:%`) as { thread_id: string }[];
+  for (const { thread_id } of threads) await checkpointer.deleteThread(thread_id);
 }

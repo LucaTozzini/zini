@@ -66,7 +66,8 @@ forge.get("/:issueId", async (req, res) => {
   res.json(await getPipeline(issueId));
 });
 
-// The Lead's conversation, or with ?agent=coder|reviewer, that worker's.
+// The Lead's conversation, or with ?agent=reviewer, the Reviewer's, or with
+// ?agent=coder&delegation=<call id>, the Coder's run for that delegate_coder call.
 forge.get("/:issueId/messages", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
@@ -75,7 +76,12 @@ forge.get("/:issueId/messages", async (req, res) => {
     res.status(400).json({ error: "agent must be lead, coder or reviewer" });
     return;
   }
-  res.json(await getPipelineMessages(issueId, agent));
+  const { delegation } = req.query;
+  if (delegation !== undefined && (typeof delegation !== "string" || !/^[\w-]{1,200}$/.test(delegation))) {
+    res.status(400).json({ error: "Invalid delegation" });
+    return;
+  }
+  res.json(await getPipelineMessages(issueId, agent, delegation));
 });
 
 // Starts the Forge, with an optional note for the Lead. Answers once it's started;
