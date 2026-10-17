@@ -53,15 +53,16 @@ export function useChatScroll({ content, sending, busy, error, lastIsReply }: Ch
     onScroll();
   }
 
-  // Smooth, except the first scroll when a chat opens, which jumps straight there.
+  // Smooth, except the first scroll when a chat opens, which jumps straight there. The
+  // first one that actually moves: a chat that opens empty and loads after still jumps.
   function scrollTo(top: number) {
     const el = scrollRef.current!;
     const behavior = hasScrolled.current ? "smooth" : "instant";
-    hasScrolled.current = true;
     // Clamp to where the browser can actually scroll: a scroll that doesn't move
     // never fires scrollend, which would leave autoScrolling stuck on.
     top = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
     if (Math.abs(el.scrollTop - top) < 1) return;
+    hasScrolled.current = true;
     autoScrolling.current = behavior === "smooth";
     el.scrollTo({ top, behavior });
     // Fallback in case scrollend never fires (e.g. browsers without it).

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import CloseIcon from "@mui/icons-material/Close";
-import { Alert, Box, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Paper, Skeleton, Stack, Typography,
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Paper, Skeleton, Stack, Typography,
   ButtonBase } from "@mui/material";
+import { useChatScroll } from "../../hooks/useChatScroll.ts";
 import type { PipelineState } from "shared";
 import { errorMessage } from "../../api/client.ts";
 import { useForgeMessages } from "../../api/forge.ts";
@@ -54,16 +56,26 @@ function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "d
 }
 
 // A worker's whole conversation: every brief from the Lead and what it did for each.
+// Opens at its end and follows new activity while scrolled to the bottom, like the
+// Lead's and the Project Lead's chats.
 function WorkerConversation({ issueId, worker, busy }: { issueId: string; worker: "coder" | "reviewer"; busy: boolean }) {
   const history = useForgeMessages(issueId, worker);
   const items = useMemo(() => groupMessages(history.data ?? []), [history.data]);
-  return <Stack spacing={2}>
-    {history.isPending && <Skeleton height={100} />}
-    {history.isError && <Alert severity="error">{errorMessage(history.error)}</Alert>}
-    {history.data?.length === 0 && <Typography variant="body2" color="text.secondary">No activity yet.</Typography>}
-    <Conversation items={items} busy={busy} />
-    {busy && <ThinkingIndicator />}
-  </Stack>;
+  const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
+    content: history.dataUpdatedAt, sending: false, busy, error: history.isError, lastIsReply: false,
+  });
+  return <DialogContent dividers ref={scrollRef} onScroll={onScroll} onScrollEnd={onScrollEnd} sx={{ position: "relative" }}>
+    <Stack spacing={2}>
+      {history.isPending && <Skeleton height={100} />}
+      {history.isError && <Alert severity="error">{errorMessage(history.error)}</Alert>}
+      {history.data?.length === 0 && <Typography variant="body2" color="text.secondary">No activity yet.</Typography>}
+      <Conversation items={items} busy={busy} />
+      {busy && <ThinkingIndicator />}
+    </Stack>
+    {messagesBelow !== null && <Box sx={{ position: "sticky", bottom: 0, display: "flex", justifyContent: "center", pt: 1 }}>
+      <Button variant="contained" size="small" startIcon={<KeyboardArrowDownIcon />} onClick={scrollToBottom}>Latest activity</Button>
+    </Box>}
+  </DialogContent>;
 }
 
 // The Lead's conversation; its workers' open from their delegations.
@@ -86,9 +98,7 @@ export default function CheckpointActivity({ issueId, pipeline, onContentChange 
         {open && titles[open]}
         <IconButton aria-label="Close" onClick={() => setOpen(null)} sx={{ position: "absolute", right: 12, top: 12 }}><CloseIcon /></IconButton>
       </DialogTitle>
-      <DialogContent dividers>
-        {open && <WorkerConversation issueId={issueId} worker={open} busy={pipeline.running === open} />}
-      </DialogContent>
+      {open && <WorkerConversation issueId={issueId} worker={open} busy={pipeline.running === open} />}
     </Dialog>
   </Stack>;
 }
