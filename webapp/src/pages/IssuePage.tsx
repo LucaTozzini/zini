@@ -92,7 +92,8 @@ const Header = ({
 // The issue's page: its Forge, or (view "preview") its workspace app's preview.
 function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "preview" }) {
   const issue = useLinearIssue(issueId);
-  const workspace = useWorkspace(issueId);
+  // The URL can name the issue by its identifier; the workspace is keyed by its id.
+  const workspace = useWorkspace(issue.data?.id);
   const [showDetails, setShowDetails] = useState(false);
 
   if (issue.isPending) return <Header title="Loading..." />;

@@ -14,11 +14,13 @@ import { forgeKey } from "./forge.ts";
 export const workspacesKey = ["workspaces"];
 export const workspaceKey = (issueId: string) => [...workspacesKey, issueId];
 
-// The issue's workspace, or null if it doesn't have one yet.
-export function useWorkspace(issueId: string) {
+// The issue's workspace, or null if it doesn't have one yet. issueId is the issue's id (not
+// its identifier, e.g. ENG-123); nothing is fetched until it's known.
+export function useWorkspace(issueId: string | undefined) {
   return useQuery({
-    queryKey: workspaceKey(issueId),
+    queryKey: workspaceKey(issueId ?? ""),
     queryFn: () => api.get(`workspaces/${issueId}`).json<Workspace | null>(),
+    enabled: Boolean(issueId),
     retry: false,
   });
 }
