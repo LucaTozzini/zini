@@ -36,28 +36,22 @@ const ConductorCard = () => {
         <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
           <Typography variant="h6">Conductor</Typography>
           <Stack direction="row" spacing={1}>
-          <Chip label={enabled ? "On" : "Off"} color={enabled ? "success" : "default"} />
-          <Chip
-            label={conductorStatus.data!.running! ? "Running" : "Idle"}
-            color={conductorStatus.data!.running! ? "success" : "default"}
-            icon={
-              conductorStatus.data!.running! ? (
-                <CircularProgress
-                  size={14}
-                  sx={{ color: "inherit", ml: "4px" }}
-                />
-              ) : (
-                <HourglassEmptyIcon sx={{ fontSize: 14 }} />
-              )
-            }
-          />
+            <Chip label={enabled ? "On" : "Off"} color={enabled ? "success" : "default"} />
+            <Chip
+              label={conductorStatus.data!.running! ? "Running" : "Idle"}
+              color={conductorStatus.data!.running! ? "success" : "default"}
+              icon={
+                conductorStatus.data!.running! ? (
+                  <CircularProgress size={14} sx={{ color: "inherit", ml: "4px" }} />
+                ) : (
+                  <HourglassEmptyIcon sx={{ fontSize: 14 }} />
+                )
+              }
+            />
           </Stack>
         </Box>
         <Typography variant="body2" color="textSecondary">
-          <i>
-            Last Ran:{" "}
-            {conductorStatus.data.lastRan ? new Date(conductorStatus.data.lastRan).toLocaleString() : "Never"}
-          </i>
+          <i>Last Ran: {conductorStatus.data.lastRan ? new Date(conductorStatus.data.lastRan).toLocaleString() : "Never"}</i>
         </Typography>
       </CardContent>
     </Card>
@@ -69,7 +63,7 @@ const SubscriptionsCard = () => {
     <Card variant="outlined">
       <CardContent>
         <Typography variant="h6">Subscriptions</Typography>
-        <Divider sx={{my: 2}}/>
+        <Divider sx={{ my: 2 }} />
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Project Leads follow connected Forges. Open a node to view its chat or issue.
         </Typography>

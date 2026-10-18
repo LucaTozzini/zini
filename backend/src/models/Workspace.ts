@@ -1,10 +1,4 @@
-import {
-  DataTypes,
-  Model,
-  type CreationOptional,
-  type InferAttributes,
-  type InferCreationAttributes,
-} from "sequelize";
+import { DataTypes, Model, type CreationOptional, type InferAttributes, type InferCreationAttributes } from "sequelize";
 import { sequelize } from "../db.js";
 import type { WorkspaceContext } from "shared";
 

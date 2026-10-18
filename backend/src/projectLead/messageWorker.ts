@@ -13,21 +13,35 @@ export function startProjectLeadMessageWorker() {
     if (working) return;
     working = true;
     try {
-      await outsideAgentRun(() => drainMessageQueue(async (threadId) => {
-        if (isRunning(threadId)) return false;
-        const setup = await loadProjectLeadSetup();
-        return typeof setup !== "string" && !await projectLeadAwaitingApproval(setup, threadId);
-      }, async (threadId, messages) => {
-        if (!await ProjectLeadThread.findByPk(threadId)) return false;
-        const setup = await loadProjectLeadSetup();
-        if (typeof setup === "string" || isRunning(threadId) || await projectLeadAwaitingApproval(setup, threadId)) return false;
-        return startRun(threadId, (signal) => receiveQueuedMessages(setup, threadId, messages, signal),
-          () => sendEvent({ type: "thread.updated", threadId }));
-      }));
-    } catch (error) { console.error("Delivering PL messages failed:", error); }
-    finally { working = false; }
+      await outsideAgentRun(() =>
+        drainMessageQueue(
+          async (threadId) => {
+            if (isRunning(threadId)) return false;
+            const setup = await loadProjectLeadSetup();
+            return typeof setup !== "string" && !(await projectLeadAwaitingApproval(setup, threadId));
+          },
+          async (threadId, messages) => {
+            if (!(await ProjectLeadThread.findByPk(threadId))) return false;
+            const setup = await loadProjectLeadSetup();
+            if (typeof setup === "string" || isRunning(threadId) || (await projectLeadAwaitingApproval(setup, threadId)))
+              return false;
+            return startRun(
+              threadId,
+              (signal) => receiveQueuedMessages(setup, threadId, messages, signal),
+              () => sendEvent({ type: "thread.updated", threadId }),
+            );
+          },
+        ),
+      );
+    } catch (error) {
+      console.error("Delivering PL messages failed:", error);
+    } finally {
+      working = false;
+    }
   };
-  const timer = setInterval(() => { void tick(); }, 1000);
+  const timer = setInterval(() => {
+    void tick();
+  }, 1000);
   timer.unref();
   return () => clearInterval(timer);
 }

@@ -25,10 +25,7 @@ function ToolCallGroup({ calls, busy, results }: { calls: ToolCall[]; busy: bool
         </Box>
         {calls.length} tool calls{failed ? ` · ${failed} failed` : ""}
         {neverRan ? ` · ${neverRan} never ran` : ""}
-        <ExpandMoreIcon
-          fontSize="small"
-          sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }}
-        />
+        <ExpandMoreIcon fontSize="small" sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
       </ButtonBase>
       <Collapse in={open} unmountOnExit>
         <Stack spacing={0.5} sx={{ mt: 0.5, pl: 2 }}>

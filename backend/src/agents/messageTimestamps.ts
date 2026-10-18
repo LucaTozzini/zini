@@ -19,6 +19,8 @@ export function timestampedSerializer(serializer: SerializerProtocol): Serialize
       stampMessages(value);
       return serializer.dumpsTyped(value);
     },
-    loadsTyped(type, data) { return serializer.loadsTyped(type, data); },
+    loadsTyped(type, data) {
+      return serializer.loadsTyped(type, data);
+    },
   };
 }

@@ -14,7 +14,8 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
   const { ProjectLeadQueueMessage: Queue } = await import("../models/ProjectLeadQueueMessage.js");
   const { forgeSubscriptions: subscriptions } = await import("./forgeSubscriptions.js");
   const { emitForgeEvent, forgeEventContent } = await import("./events.js");
-  const { enqueueMessages, claimMessages, finishClaim, recoverMessageQueue, drainMessageQueue } = await import("../projectLead/messageQueue.js");
+  const { enqueueMessages, claimMessages, finishClaim, recoverMessageQueue, drainMessageQueue } =
+    await import("../projectLead/messageQueue.js");
   await initDb();
   let closed = false;
   try {
@@ -46,62 +47,118 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       const writer = await sequelize.transaction({ type: Transaction.TYPES.IMMEDIATE });
       await Queue.update({ content: "Writer holds queue lock" }, { where: { eventId: "event-a" }, transaction: writer });
       const ids = Array.from({ length: 8 }, (_, index) => `lock-event-${index}`);
-      const emitting = Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
+      const emitting = Promise.all(ids.map((id) => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
       const release = new Promise<void>((resolve, reject) => {
-        setTimeout(() => { void writer.commit().then(resolve, reject); }, 50);
+        setTimeout(() => {
+          void writer.commit().then(resolve, reject);
+        }, 50);
       });
       await Promise.all([emitting, release]);
-      await Promise.all(ids.map(id => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
+      await Promise.all(ids.map((id) => emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, id)));
       assert.equal(await Queue.count({ where: { eventId: { [Op.in]: ids } } }), ids.length);
       await Queue.destroy({ where: { eventId: { [Op.in]: ids } } });
     });
     await t.test("busy recipients wait; failed deliveries retry the same IDs; other sources are accepted", async () => {
-      await enqueueMessages(["one"], { eventId: "external", source: "scheduler", sourceId: "job", eventType: "reminder", content: "Review progress" });
+      await enqueueMessages(["one"], {
+        eventId: "external",
+        source: "scheduler",
+        sourceId: "job",
+        eventType: "reminder",
+        content: "Review progress",
+      });
       const attempted: string[] = [];
       const errors: unknown[] = [];
-      await drainMessageQueue(async (id) => id !== "two", async (id, messages) => {
-        attempted.push(id);
-        assert.equal(messages[0]!.eventId, "external");
-        throw new Error("temporary failure");
-      }, (error) => errors.push(error));
+      await drainMessageQueue(
+        async (id) => id !== "two",
+        async (id, messages) => {
+          attempted.push(id);
+          assert.equal(messages[0]!.eventId, "external");
+          throw new Error("temporary failure");
+        },
+        (error) => errors.push(error),
+      );
       assert.deepEqual(attempted, ["one"]);
       assert.equal(errors.length, 1);
       assert.equal(await Queue.count({ where: { status: "pending" } }), 2);
-      await drainMessageQueue(async () => true, async () => true);
+      await drainMessageQueue(
+        async () => true,
+        async () => true,
+      );
       assert.equal(await Queue.count({ where: { status: "pending" } }), 0);
     });
     await t.test("startup recovers interrupted claims and preserves FIFO", async () => {
       await emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, "first");
-      await emitForgeEvent("issue-b", { type: "waiting", waiting: { kind: "approve_plan", plan: { steps: [], qaChecklist: [] } } }, "second");
+      await emitForgeEvent(
+        "issue-b",
+        { type: "waiting", waiting: { kind: "approve_plan", plan: { steps: [], qaChecklist: [] } } },
+        "second",
+      );
       const original = (await claimMessages("one"))!;
-      assert.deepEqual(original.messages.map((message) => message.eventId), ["first", "second"]);
+      assert.deepEqual(
+        original.messages.map((message) => message.eventId),
+        ["first", "second"],
+      );
       await recoverMessageQueue();
       const recovered = (await claimMessages("one"))!;
       assert.notEqual(recovered.claimToken, original.claimToken);
-      assert.deepEqual(recovered.messages.map((message) => message.eventId), ["first", "second"]);
+      assert.deepEqual(
+        recovered.messages.map((message) => message.eventId),
+        ["first", "second"],
+      );
       await finishClaim(original.claimToken, true);
       assert.equal(await Queue.count({ where: { status: "processing" } }), 2);
       await finishClaim(recovered.claimToken, false);
     });
     await t.test("overlapping workers cannot deliver the same PL batch", async () => {
-      await enqueueMessages(["empty"], { eventId: "concurrent", source: "scheduler", sourceId: "job", eventType: "reminder", content: "Once" });
-      let entered!: () => void;
-      const started = new Promise<void>((resolve) => { entered = resolve; });
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => { release = resolve; });
-      let deliveries = 0;
-      const first = drainMessageQueue(async (id) => id === "empty", async (_id, messages) => {
-        assert.deepEqual(Object.keys(messages[0]!).sort(), ["content", "eventId", "eventType", "source", "sourceId"]);
-        deliveries++; entered(); await held; return true;
+      await enqueueMessages(["empty"], {
+        eventId: "concurrent",
+        source: "scheduler",
+        sourceId: "job",
+        eventType: "reminder",
+        content: "Once",
       });
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let deliveries = 0;
+      const first = drainMessageQueue(
+        async (id) => id === "empty",
+        async (_id, messages) => {
+          assert.deepEqual(Object.keys(messages[0]!).sort(), ["content", "eventId", "eventType", "source", "sourceId"]);
+          deliveries++;
+          entered();
+          await held;
+          return true;
+        },
+      );
       await started;
       try {
-        await drainMessageQueue(async (id) => id === "empty", async () => { deliveries++; return true; });
+        await drainMessageQueue(
+          async (id) => id === "empty",
+          async () => {
+            deliveries++;
+            return true;
+          },
+        );
         assert.equal(deliveries, 1);
-      } finally { release(); await first; }
+      } finally {
+        release();
+        await first;
+      }
     });
     await t.test("unsubscribe clears pending Forge messages but preserves other sources", async () => {
-      await enqueueMessages(["one"], { eventId: "keep", source: "scheduler", sourceId: "issue-b", eventType: "reminder", content: "Keep me" });
+      await enqueueMessages(["one"], {
+        eventId: "keep",
+        source: "scheduler",
+        sourceId: "issue-b",
+        eventType: "reminder",
+        content: "Keep me",
+      });
       await subscriptions.unsubscribe("one", "issue-b");
       assert.equal(await Queue.count({ where: { threadId: "one", source: "forge", sourceId: "issue-b", status: "pending" } }), 0);
       assert.equal(await Queue.count({ where: { eventId: "keep" } }), 1);
@@ -113,10 +170,23 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       assert.equal(await Queue.count({ where: { threadId: "two" } }), 0);
     });
     await t.test("notification payloads preserve questions, completion details and failures", () => {
-      assert.match(forgeEventContent({ type: "waiting", waiting: { kind: "questions", questions: ["Which layout?"] } }), /Which layout/);
-      assert.match(forgeEventContent({ type: "completed", plan: { steps: [], qaChecklist: [
-        { id: "Q1", condition: "Page loads", status: "failed", note: "Broken page" },
-        { id: "Q2", condition: "Works on mobile", status: "skipped", note: "No device" }] } }), /failed: Page loads \(Broken page\)\n- skipped: Works on mobile/);
+      assert.match(
+        forgeEventContent({ type: "waiting", waiting: { kind: "questions", questions: ["Which layout?"] } }),
+        /Which layout/,
+      );
+      assert.match(
+        forgeEventContent({
+          type: "completed",
+          plan: {
+            steps: [],
+            qaChecklist: [
+              { id: "Q1", condition: "Page loads", status: "failed", note: "Broken page" },
+              { id: "Q2", condition: "Works on mobile", status: "skipped", note: "No device" },
+            ],
+          },
+        }),
+        /failed: Page loads \(Broken page\)\n- skipped: Works on mobile/,
+      );
       assert.equal(forgeEventContent({ type: "failed", error: "Timeout" }), "Forge failed: Timeout");
     });
     await sequelize.close();
@@ -127,7 +197,9 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       assert.equal(rows.length, 1);
       const [messages] = await reopened.query("SELECT * FROM project_lead_message_queue WHERE eventId = 'keep'");
       assert.equal(messages.length, 1);
-    } finally { await reopened.close(); }
+    } finally {
+      await reopened.close();
+    }
   } finally {
     if (!closed) await sequelize.close();
     await rm(directory, { recursive: true, force: true });

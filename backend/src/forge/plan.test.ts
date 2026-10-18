@@ -25,7 +25,10 @@ test("a plan is finished only when approved, every step is complete and every ch
   assert.equal(checklistVerdict(plan), "partial");
   const done = {
     steps: plan.steps.map((step) => ({ ...step, status: "complete" as const })),
-    qaChecklist: [{ ...plan.qaChecklist[0]!, status: "passed" as const }, { ...plan.qaChecklist[1]!, status: "skipped" as const, note: "No network control" }],
+    qaChecklist: [
+      { ...plan.qaChecklist[0]!, status: "passed" as const },
+      { ...plan.qaChecklist[1]!, status: "skipped" as const, note: "No network control" },
+    ],
   };
   assert.deepEqual(unfinishedPlan(done, true), []);
   assert.equal(checklistVerdict(done), "pass");

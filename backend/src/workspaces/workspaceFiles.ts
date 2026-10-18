@@ -31,7 +31,10 @@ export async function workspaceRevision(issueId: string) {
   ]);
   const hash = createHash("sha256").update(head).update(diff);
   for (const path of untracked.split("\0").filter(Boolean).sort()) {
-    hash.update(path).update("\0").update(await fingerprintWorkspaceFile(issueId, path) ?? "missing");
+    hash
+      .update(path)
+      .update("\0")
+      .update((await fingerprintWorkspaceFile(issueId, path)) ?? "missing");
   }
   return hash.digest("hex");
 }
@@ -55,7 +58,13 @@ type Change = { path: string; added: string; removed: string; isNew: boolean };
 // Collect the summary and patch in the same frozen snapshot and helper invocation.
 export async function workspaceDiffSnapshot(issueId: string, path = "", uncommitted = false, summary = true, patch = true) {
   const rel = path ? repositoryPath(path) : "";
-  return workspaceGitOperation<WorkspaceDiff & { changes: Change[] }>(issueId, { operation: "diff", path: rel, uncommitted, summary, patch });
+  return workspaceGitOperation<WorkspaceDiff & { changes: Change[] }>(issueId, {
+    operation: "diff",
+    path: rel,
+    uncommitted,
+    summary,
+    patch,
+  });
 }
 
 export async function workspaceDiff(issueId: string, path = "", uncommitted = false): Promise<WorkspaceDiff> {

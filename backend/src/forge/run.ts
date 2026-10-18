@@ -18,11 +18,7 @@ export type Setup = {
 
 // What the Forge needs to run, or what's missing.
 export async function loadSetup(): Promise<Setup | string> {
-  const [linear, provider, model] = await Promise.all([
-    getLinearClient(),
-    getSetting("forgeProvider"),
-    getSetting("forgeModel"),
-  ]);
+  const [linear, provider, model] = await Promise.all([getLinearClient(), getSetting("forgeProvider"), getSetting("forgeModel")]);
   if (!linear) return "Linear isn't connected";
   const connection = await loadConnection(provider);
   if (typeof connection === "string") return connection;
@@ -70,5 +66,4 @@ export const working = new Map<string, AgentRole>();
 // Lead's for its workers. Inside one, the run would join it as a subgraph, saving its
 // checkpoints under that run's namespace (where getPipeline doesn't look) and sharing
 // its callbacks.
-export const outsideAgentRun = <T>(start: () => T) =>
-  AsyncLocalStorageProviderSingleton.getInstance().run(undefined, start);
+export const outsideAgentRun = <T>(start: () => T) => AsyncLocalStorageProviderSingleton.getInstance().run(undefined, start);

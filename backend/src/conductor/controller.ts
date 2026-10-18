@@ -30,15 +30,20 @@ export class ConductorController {
     if (!this.enabled || this.running) return;
     this.running = true;
     this.lastRan = new Date();
-    try { await this.iteration(() => this.enabled); }
-    catch (error) { this.onError(error); }
-    finally {
+    try {
+      await this.iteration(() => this.enabled);
+    } catch (error) {
+      this.onError(error);
+    } finally {
       this.running = false;
       if (this.enabled) {
-        this.timeout = setTimeout(() => {
-          this.timeout = undefined;
-          void this.run();
-        }, 5 * 60 * 1000);
+        this.timeout = setTimeout(
+          () => {
+            this.timeout = undefined;
+            void this.run();
+          },
+          5 * 60 * 1000,
+        );
         this.timeout.unref();
       }
     }

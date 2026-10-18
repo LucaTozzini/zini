@@ -28,15 +28,14 @@ export function required(name: string) {
 
 export const model = required("EVAL_MODEL");
 // The backend keeps the mounted ChatGPT token current; reread it for every request.
-export const connection: ModelConnection = process.env.EVAL_PROVIDER === "chatgpt"
-  ? { provider: "chatgpt", token: async () => readFileSync(required("CHATGPT_TOKEN_FILE"), "utf8") }
-  : { provider: "openrouter", key: required("OPENROUTER_API_KEY") };
+export const connection: ModelConnection =
+  process.env.EVAL_PROVIDER === "chatgpt"
+    ? { provider: "chatgpt", token: async () => readFileSync(required("CHATGPT_TOKEN_FILE"), "utf8") }
+    : { provider: "openrouter", key: required("OPENROUTER_API_KEY") };
 
 // The trusted harness stays outside the repository sandbox.
 if (existsSync("/.dockerenv")) {
-  console.error(
-    "Run the trusted harness on the host; repository commands run in the workspace sandbox.",
-  );
+  console.error("Run the trusted harness on the host; repository commands run in the workspace sandbox.");
   process.exit(1);
 }
 
@@ -89,7 +88,8 @@ export function makeSourceRepo(fixture: Fixture) {
   }
   if (fixture.upstreamPatch) {
     git(["apply", join(fixture.dir, fixture.upstreamPatch)], source);
-    git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream update"], source);
+    git(["add", "-A"], source);
+    git(["commit", "--quiet", "-m", "Upstream update"], source);
   }
   return source;
 }
@@ -113,8 +113,23 @@ export async function makeWorkspace(issueId: string, fixture: Fixture) {
     const install = await runCommandResult(issueId, "npm ci");
     if (install.exitCode !== 0) throw new Error(`Fixture dependencies failed: ${install.output}`);
   }
-  await Workspace.create({ issueId, context: { branch: branchOf(fixture), initialHead: (await workspaceGit(["-C", workspacePath(issueId), "rev-parse", "HEAD"])).trim(), targetBranch: "main",
-    sourcePr: fixture.branchPatches?.length ? { number: 1, url: "https://github.com/evals/fixture/pull/1", state: "open", title: fixture.title, body: fixture.description } : null } });
+  await Workspace.create({
+    issueId,
+    context: {
+      branch: branchOf(fixture),
+      initialHead: (await workspaceGit(["-C", workspacePath(issueId), "rev-parse", "HEAD"])).trim(),
+      targetBranch: "main",
+      sourcePr: fixture.branchPatches?.length
+        ? {
+            number: 1,
+            url: "https://github.com/evals/fixture/pull/1",
+            state: "open",
+            title: fixture.title,
+            body: fixture.description,
+          }
+        : null,
+    },
+  });
 }
 
 // Linear, as far as the pipeline uses it: fetchLinearIssue's query, answered with the
@@ -168,7 +183,10 @@ export function followLogs(logDir: string) {
   const poll = () => {
     if (!existsSync(logDir)) return;
     for (const file of readdirSync(logDir).sort()) {
-      const role = file.replace(/\.jsonl$/, "").split("-").at(-1);
+      const role = file
+        .replace(/\.jsonl$/, "")
+        .split("-")
+        .at(-1);
       const lines = readFileSync(join(logDir, file), "utf8").split("\n").filter(Boolean);
       for (const line of lines.slice(read.get(file) ?? 0)) {
         const event = JSON.parse(line) as { event: string; name?: string; args?: Record<string, unknown>; outcome?: string };

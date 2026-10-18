@@ -17,6 +17,11 @@ test("each saved reply records the model that wrote it", async () => {
   await agent.invoke({ messages: [{ role: "user", content: "Again" }] }, config);
   const { values } = await agent.graph.getState(config);
   const replies = (values.messages as AIMessage[]).filter(AIMessage.isInstance);
-  assert.deepEqual(replies.map((reply) => [reply.text, reply.additional_kwargs.model]),
-    [["First", "fixture-model"], ["Second", "fixture-model"]]);
+  assert.deepEqual(
+    replies.map((reply) => [reply.text, reply.additional_kwargs.model]),
+    [
+      ["First", "fixture-model"],
+      ["Second", "fixture-model"],
+    ],
+  );
 });

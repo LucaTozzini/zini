@@ -74,7 +74,7 @@ await startConductor();
 const server = createServer(app);
 previewSockets(server, async (issueId) => {
   const app = await workspaceApps.refresh(issueId);
-  return app.status === "ready" ? app.url ?? null : null;
+  return app.status === "ready" ? (app.url ?? null) : null;
 });
 server.listen(port, () => {
   console.log(`backend listening on http://localhost:${port}`);

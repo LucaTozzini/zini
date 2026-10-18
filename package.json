@@ -11,9 +11,12 @@
     "dev": "concurrently -n backend,webapp -c blue,magenta \"npm run dev -w backend\" \"npm run dev -w webapp\"",
     "build": "npm run build --workspaces --if-present",
     "start": "npm run start -w backend",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format": "prettier --write backend/src webapp/src shared/src evals/harness",
+    "format:check": "prettier --check backend/src webapp/src shared/src evals/harness"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "prettier": "3.9.10"
   }
 }

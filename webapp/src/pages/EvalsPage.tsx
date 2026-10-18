@@ -25,14 +25,7 @@ import {
 } from "@mui/material";
 import { summarizeRuns, type EvalBatch, type EvalKind, type RunMetrics } from "shared";
 import { errorMessage } from "../api/client.ts";
-import {
-  useEvalBatches,
-  useEvalRunDiff,
-  useEvalScenarios,
-  useEvalStatus,
-  useStartEval,
-  useStopEval,
-} from "../api/evals.ts";
+import { useEvalBatches, useEvalRunDiff, useEvalScenarios, useEvalStatus, useStartEval, useStopEval } from "../api/evals.ts";
 import DiffView from "../components/pipeline/DiffView.tsx";
 
 // Runs the forge on test scenarios, or one agent on an agent test (see evals/README.md),
@@ -161,10 +154,7 @@ function EvalOutput() {
         </Stack>
         {ended && !ended.ok && <Alert severity="error">{ended.error}</Alert>}
         {ended?.ok && <Alert severity="success">Finished.</Alert>}
-        <Box
-          component="pre"
-          sx={{ m: 0, p: 1, maxHeight: 400, overflow: "auto", fontSize: 12, bgcolor: "background.default" }}
-        >
+        <Box component="pre" sx={{ m: 0, p: 1, maxHeight: 400, overflow: "auto", fontSize: 12, bgcolor: "background.default" }}>
           {output.slice(-500).join("\n")}
           <div ref={end} />
         </Box>
@@ -218,8 +208,8 @@ function RunDetails({ kind, batch, run }: { kind: EvalKind; batch: EvalBatch; ru
           <Typography variant="body2">
             {m.rateLimited ? "Model rate limited" : m.finished ? "Finished" : "Didn't finish"} ·{" "}
             {kind === "scenarios" && `QA ${m.qaVerdict ?? "didn't report"} · `}
-            {Math.round(m.seconds)}s ·{" "}
-            {m.totals.toolCalls} tool calls · {Math.round(m.totals.inputTokens / 1000)}k tokens in · model {m.model}
+            {Math.round(m.seconds)}s · {m.totals.toolCalls} tool calls · {Math.round(m.totals.inputTokens / 1000)}k tokens in ·
+            model {m.model}
           </Typography>
           {m.error && <Alert severity="error">{m.error}</Alert>}
           {m.check && (
@@ -237,7 +227,11 @@ function RunDetails({ kind, batch, run }: { kind: EvalKind; batch: EvalBatch; ru
           <Collapse in={showDiff} unmountOnExit>
             {diff.isError && <Alert severity="error">{errorMessage(diff.error)}</Alert>}
             {diff.data !== undefined &&
-              (diff.data ? <DiffView diff={diff.data} truncated={false} /> : <Typography variant="body2">No changes.</Typography>)}
+              (diff.data ? (
+                <DiffView diff={diff.data} truncated={false} />
+              ) : (
+                <Typography variant="body2">No changes.</Typography>
+              ))}
           </Collapse>
         </Stack>
       )}
@@ -286,8 +280,7 @@ function Results({ kind }: { kind: EvalKind }) {
   const scenario = chosenScenario || running || all[0]?.scenario || "";
   const list = all.filter((b) => b.scenario === scenario);
   const [main, other] = selected.map((id) => list.find((b) => b.id === id)).filter((b): b is EvalBatch => Boolean(b));
-  const toggle = (id: string) =>
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)));
+  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)));
 
   return (
     <Stack spacing={2}>
@@ -361,7 +354,13 @@ function Results({ kind }: { kind: EvalKind }) {
           </Typography>
           <SummaryTable runs={metricsOf(main)} compare={other && metricsOf(other)} />
           {main.hasLog && (
-            <Button component="a" href={`/api/evals/batches/${main.scenario}/${main.id}/log?kind=${kind}`} target="_blank" rel="noopener" sx={{ alignSelf: "flex-start" }}>
+            <Button
+              component="a"
+              href={`/api/evals/batches/${main.scenario}/${main.id}/log?kind=${kind}`}
+              target="_blank"
+              rel="noopener"
+              sx={{ alignSelf: "flex-start" }}
+            >
               Open full batch log
             </Button>
           )}

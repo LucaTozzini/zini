@@ -9,14 +9,7 @@ function CutOutCircle({ mark }: { mark: string }) {
     <>
       <mask id={id}>
         <rect width={16} height={16} fill="white" />
-        <path
-          d={mark}
-          fill="none"
-          stroke="black"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d={mark} fill="none" stroke="black" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
       </mask>
       <circle cx={8} cy={8} r={7} mask={`url(#${id})`} />
     </>
@@ -31,9 +24,7 @@ function StatusIcon({ type, name, ...props }: { type: StatusType; name: string }
       {type === "backlog" && (
         <circle cx={8} cy={8} r={6} fill="none" stroke="currentColor" strokeWidth={1.5} strokeDasharray="2.3 1.6" />
       )}
-      {type === "unstarted" && (
-        <circle cx={8} cy={8} r={6} fill="none" stroke="currentColor" strokeWidth={1.5} />
-      )}
+      {type === "unstarted" && <circle cx={8} cy={8} r={6} fill="none" stroke="currentColor" strokeWidth={1.5} />}
       {type === "started" && (
         <>
           <circle cx={8} cy={8} r={6} fill="none" stroke="currentColor" strokeWidth={1.5} />

@@ -13,8 +13,11 @@ export function readConsoleTail(file: string): string[] {
   const buffer = Buffer.alloc(size - start);
   const fd = openSync(file, "r");
   let bytes: number;
-  try { bytes = readSync(fd, buffer, 0, buffer.length, start); }
-  finally { closeSync(fd); }
+  try {
+    bytes = readSync(fd, buffer, 0, buffer.length, start);
+  } finally {
+    closeSync(fd);
+  }
   let content = buffer.subarray(0, bytes).toString("utf8");
   if (start > 0) {
     const newline = content.indexOf("\n");
@@ -52,5 +55,8 @@ export function followConsole(stream: Readable, onLine: (line: string) => void) 
     lines.forEach(onLine);
   };
   stream.on("data", (chunk: Buffer) => read(decoder.write(chunk)));
-  stream.on("end", () => { read(decoder.end()); if (partial) onLine(partial); });
+  stream.on("end", () => {
+    read(decoder.end());
+    if (partial) onLine(partial);
+  });
 }

@@ -99,8 +99,7 @@ const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
           pointerEvents: "none",
 
           p: 1,
-          backgroundImage: (theme) =>
-            `linear-gradient(${(theme.vars || theme).palette.background.default}, transparent)`,
+          backgroundImage: (theme) => `linear-gradient(${(theme.vars || theme).palette.background.default}, transparent)`,
         }}
       >
         <Paper
@@ -109,7 +108,7 @@ const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
             alignItems: "center",
             gap: 0.5,
             pointerEvents: "all",
-            p:1,
+            p: 1,
           }}
         >
           <ButtonGroup>
@@ -132,11 +131,7 @@ const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
         </Paper>
       </Box>
 
-      <MyDialog
-        open={showModal === 2}
-        title="To-Do"
-        setShowModal={setShowModal}
-      >
+      <MyDialog open={showModal === 2} title="To-Do" setShowModal={setShowModal}>
         {todos.length > 0 && (
           <List dense>
             {todos.map((todo, i) => (
@@ -161,11 +156,7 @@ const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
         )}
       </MyDialog>
       {/* Shared by every chat: agents/project-lead.md in the backend's data folder. */}
-      <MyDialog
-        open={showModal === 3}
-        title="Project notes"
-        setShowModal={setShowModal}
-      >
+      <MyDialog open={showModal === 3} title="Project notes" setShowModal={setShowModal}>
         {notes.trim() && <MarkdownText>{notes}</MarkdownText>}
       </MyDialog>
     </>

@@ -17,10 +17,7 @@ function CompactionMarker({ summary }: { summary: string }) {
           sx={{ gap: 0.5, typography: "caption", color: "text.secondary" }}
         >
           Conversation compacted
-          <ExpandMoreIcon
-            fontSize="small"
-            sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }}
-          />
+          <ExpandMoreIcon fontSize="small" sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
         </ButtonBase>
       </Divider>
       <Collapse in={open} unmountOnExit>

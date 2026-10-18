@@ -48,10 +48,16 @@ export async function openWorkspacePullRequest(
     try {
       const workspace = await deps.workspace(issueId);
       if (!workspace) return { status: 404, error: "This issue has no workspace" };
-      try { await deps.noMerge?.(issueId); }
-      catch (error) { return { status: 409, error: error instanceof Error ? error.message : String(error) }; }
+      try {
+        await deps.noMerge?.(issueId);
+      } catch (error) {
+        return { status: 409, error: error instanceof Error ? error.message : String(error) };
+      }
       if (workspace.uncommitted || workspace.unpushed || !(await deps.pushed(issueId))) {
-        return { status: 409, error: "Commit and push the changes first (commit_and_push), then retry opening the pull request." };
+        return {
+          status: 409,
+          error: "Commit and push the changes first (commit_and_push), then retry opening the pull request.",
+        };
       }
       const github = await deps.github();
       if (!github) return { status: 409, error: "Connect GitHub and set a repository first" };
@@ -59,8 +65,10 @@ export async function openWorkspacePullRequest(
       if (!linear) return { status: 409, error: "Linear isn't connected" };
       const issue = await deps.issue(linear, issueId);
       const pullRequest = await deps.create(github.token, github.repo, {
-        title: withIdentifier(issue, title.trim()), body: body.trim(),
-        branch: workspace.branch, base: await deps.target?.(issueId) ?? await deps.base(),
+        title: withIdentifier(issue, title.trim()),
+        body: body.trim(),
+        branch: workspace.branch,
+        base: (await deps.target?.(issueId)) ?? (await deps.base()),
       });
       sendEvent({ type: "workspace.updated", issueId });
       return { pullRequest };

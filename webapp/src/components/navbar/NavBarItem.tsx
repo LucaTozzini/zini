@@ -1,15 +1,7 @@
 import type { SvgIconComponent } from "@mui/icons-material";
 import { Box, Typography } from "@mui/material";
 
-const NavBarItem = ({
-  title,
-  Icon,
-  handleClick,
-}: {
-  title: string;
-  Icon: SvgIconComponent;
-  handleClick: () => void;
-}) => {
+const NavBarItem = ({ title, Icon, handleClick }: { title: string; Icon: SvgIconComponent; handleClick: () => void }) => {
   return (
     <>
       <Box
@@ -19,7 +11,7 @@ const NavBarItem = ({
           padding: 0,
           display: "flex",
           gap: 1.5,
-          py: .7,
+          py: 0.7,
           justifyContent: "flex-start",
           alignItems: "center",
           cursor: "pointer",

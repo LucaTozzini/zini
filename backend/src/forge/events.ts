@@ -13,19 +13,28 @@ export type ForgeLifecycleEvent =
   | { type: "stopped" };
 export function forgeEventContent(event: ForgeLifecycleEvent): string {
   switch (event.type) {
-    case "stage_started": return `The Lead delegated to the ${event.role}.`;
+    case "stage_started":
+      return `The Lead delegated to the ${event.role}.`;
     case "waiting": {
       const waiting = event.waiting;
-      return waiting.kind === "questions" ? `The Lead needs answers:\n${waiting.questions.join("\n")}`
+      return waiting.kind === "questions"
+        ? `The Lead needs answers:\n${waiting.questions.join("\n")}`
         : "The plan is ready for your approval.";
     }
     case "completed": {
       const checks = event.plan?.qaChecklist ?? [];
-      return `Forge finished.${checks.length ? `\nQA checklist:\n${checks.map((check) =>
-        `- ${check.status}: ${check.condition}${check.note ? ` (${check.note})` : ""}`).join("\n")}` : ""}`;
+      return `Forge finished.${
+        checks.length
+          ? `\nQA checklist:\n${checks
+              .map((check) => `- ${check.status}: ${check.condition}${check.note ? ` (${check.note})` : ""}`)
+              .join("\n")}`
+          : ""
+      }`;
     }
-    case "failed": return `Forge failed: ${event.error}`;
-    case "stopped": return "Forge stopped with unfinished work. It can be resumed.";
+    case "failed":
+      return `Forge failed: ${event.error}`;
+    case "stopped":
+      return "Forge stopped with unfinished work. It can be resumed.";
   }
 }
 // Only explicit lifecycle events enter this durable fan-out path.
@@ -34,8 +43,16 @@ export async function emitForgeEvent(issueId: string, event: ForgeLifecycleEvent
   // upgrade can deadlock against the queue worker's concurrent transaction.
   await sequelize.transaction({ type: Transaction.TYPES.IMMEDIATE }, async (transaction) => {
     const subscribers = await ForgeSubscription.findAll({ where: { issueId }, transaction });
-    await enqueueMessages(subscribers.map((row) => row.threadId), {
-      eventId, source: "forge", sourceId: issueId, eventType: event.type, content: forgeEventContent(event),
-    }, transaction);
+    await enqueueMessages(
+      subscribers.map((row) => row.threadId),
+      {
+        eventId,
+        source: "forge",
+        sourceId: issueId,
+        eventType: event.type,
+        content: forgeEventContent(event),
+      },
+      transaction,
+    );
   });
 }

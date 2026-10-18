@@ -50,8 +50,7 @@ const NavBar = () => {
   const { data: linearIssuesUnstarted } = useLinearIssues(["unstarted"]);
   const { data: linearIssuesStarted } = useLinearIssues(["started"]);
   const { data: linearIssuesBacklog } = useLinearIssues(["backlog"]);
-  const { data: projectLeadThreads, isPending: projectLeadThreadsIsPending } =
-    useThreads();
+  const { data: projectLeadThreads, isPending: projectLeadThreadsIsPending } = useThreads();
   const issueGroups = [
     {
       id: "unstarted",
@@ -77,19 +76,12 @@ const NavBar = () => {
     position: { top: number; left: number };
     thread: ThreadSummary;
   } | null>(null);
-  const [threadToDelete, setThreadToDelete] = useState<ThreadSummary | null>(
-    null,
-  );
+  const [threadToDelete, setThreadToDelete] = useState<ThreadSummary | null>(null);
   const menuId = useId();
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
-  const menuThread =
-    projectLeadThreads?.find((thread) => thread.id === menu?.thread.id) ??
-    menu?.thread;
-  const deletingRunningThread = Boolean(
-    projectLeadThreads?.find((thread) => thread.id === threadToDelete?.id)
-      ?.running,
-  );
+  const menuThread = projectLeadThreads?.find((thread) => thread.id === menu?.thread.id) ?? menu?.thread;
+  const deletingRunningThread = Boolean(projectLeadThreads?.find((thread) => thread.id === threadToDelete?.id)?.running);
 
   function closeDeleteDialog() {
     if (deleteThread.isPending) return;
@@ -98,8 +90,7 @@ const NavBar = () => {
   }
 
   function confirmDelete() {
-    if (!threadToDelete || deleteThread.isPending || deletingRunningThread)
-      return;
+    if (!threadToDelete || deleteThread.isPending || deletingRunningThread) return;
     deleteThread.mutate(threadToDelete.id, {
       onSuccess: () => {
         setThreadToDelete(null);
@@ -171,9 +162,7 @@ const NavBar = () => {
           {(projectLeadThreadsIsPending || !projectLeadThreads?.length) && (
             <ListItem sx={{ px: 1, py: 0.25 }}>
               <ListItemText
-                primary={
-                  projectLeadThreadsIsPending ? "Loading..." : "No chats yet"
-                }
+                primary={projectLeadThreadsIsPending ? "Loading..." : "No chats yet"}
                 slotProps={{
                   primary: { variant: "body2", color: "textSecondary" },
                 }}
@@ -205,11 +194,7 @@ const NavBar = () => {
               key={group.id}
               title={group.title}
               defaultOpen={group.defaultOpen}
-              active={Boolean(
-                group.issues?.some(
-                  (issue) => location.pathname === `/issues/${issue.id}`,
-                ),
-              )}
+              active={Boolean(group.issues?.some((issue) => location.pathname === `/issues/${issue.id}`))}
             >
               <IssueItems issues={group.issues} />
             </NavigationGroup>
@@ -219,21 +204,9 @@ const NavBar = () => {
 
       <Box sx={{ flex: 1 }} />
       <Box>
-        <NavBarItem
-          Icon={ScienceIcon}
-          title="Evals"
-          handleClick={() => navigate("/evals")}
-        />
-        <NavBarItem
-          Icon={DescriptionIcon}
-          title="Docs"
-          handleClick={() => navigate("/docs")}
-        />
-        <NavBarItem
-          Icon={SettingsIcon}
-          title="Settings"
-          handleClick={() => navigate("/settings")}
-        />
+        <NavBarItem Icon={ScienceIcon} title="Evals" handleClick={() => navigate("/evals")} />
+        <NavBarItem Icon={DescriptionIcon} title="Docs" handleClick={() => navigate("/docs")} />
+        <NavBarItem Icon={SettingsIcon} title="Settings" handleClick={() => navigate("/settings")} />
         <Profile />
       </Box>
       <Menu
@@ -268,8 +241,7 @@ const NavBar = () => {
         <DialogTitle id={dialogTitleId}>Delete thread?</DialogTitle>
         <DialogContent>
           <DialogContentText id={dialogDescriptionId}>
-            Delete “{threadToDelete?.title}” and its saved conversation? This
-            cannot be undone.
+            Delete “{threadToDelete?.title}” and its saved conversation? This cannot be undone.
           </DialogContentText>
           {deletingRunningThread && (
             <Alert severity="warning" sx={{ mt: 2 }}>

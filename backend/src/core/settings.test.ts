@@ -17,12 +17,17 @@ test("settings changes notify after persistence; failed writes do not notify", a
     await saveSettings({ conductorEnabled: "false" });
     assert.deepEqual(notifications, ["false"]);
     assert.equal(await persisted, "false");
-    const failure = t.mock.method(Setting, "upsert", async () => { throw new Error("write failed"); });
+    const failure = t.mock.method(Setting, "upsert", async () => {
+      throw new Error("write failed");
+    });
     await assert.rejects(saveSettings({ conductorEnabled: "true" }), /write failed/);
     assert.deepEqual(notifications, ["false"]);
     failure.mock.restore();
     unsubscribe();
     await saveSettings({ conductorEnabled: "true" });
     assert.deepEqual(notifications, ["false"]);
-  } finally { unsubscribe(); await sequelize.close(); }
+  } finally {
+    unsubscribe();
+    await sequelize.close();
+  }
 });

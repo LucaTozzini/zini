@@ -159,16 +159,34 @@ forge.post("/:issueId/message", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   let input;
-  try { input = parseMessageInput(req.body); }
-  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); return; }
-  if (!await requireWorkspace(issueId, res)) return;
+  try {
+    input = parseMessageInput(req.body);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  if (!(await requireWorkspace(issueId, res))) return;
   const pipeline = await getPipeline(issueId);
-  if (!pipeline.started) { res.status(409).json({ error: "Start the Forge first" }); return; }
-  if (pipeline.waiting) { res.status(409).json({ error: "The Forge is waiting on your reply" }); return; }
+  if (!pipeline.started) {
+    res.status(409).json({ error: "Start the Forge first" });
+    return;
+  }
+  if (pipeline.waiting) {
+    res.status(409).json({ error: "The Forge is waiting on your reply" });
+    return;
+  }
   const setup = await loadSetup(res);
   if (!setup) return;
   const run = pipelineRun(setup, issueId, req.user!.username);
-  if (await beginRun(res, forgeThreadId(issueId), (signal) => messagePipeline(run, input.message.trim(), signal, input.images), run.notify)) res.status(202).end();
+  if (
+    await beginRun(
+      res,
+      forgeThreadId(issueId),
+      (signal) => messagePipeline(run, input.message.trim(), signal, input.images),
+      run.notify,
+    )
+  )
+    res.status(202).end();
 });
 
 forge.post("/:issueId/pause", async (req, res) => {

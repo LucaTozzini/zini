@@ -22,16 +22,8 @@ export function useUserMe() {
 export function useUserLogin() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      username,
-      password,
-    }: {
-      username: string;
-      password: string;
-    }) =>
-      api
-        .post("users/login", { json: { username, password }, timeout: false })
-        .json<User>(),
+    mutationFn: ({ username, password }: { username: string; password: string }) =>
+      api.post("users/login", { json: { username, password }, timeout: false }).json<User>(),
     onSuccess: async (data) => {
       await queryClient.cancelQueries({ queryKey: userKey });
       queryClient.setQueryData(userKey, data);

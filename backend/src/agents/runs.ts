@@ -62,13 +62,7 @@ export function pauseRun(runId: string, reservation?: symbol): boolean {
 }
 
 // Chat Stop frees the slot immediately; forge Pause frees it after draining.
-function endRun(
-  runId: string,
-  control: AbortController,
-  status: RunStatus,
-  notify: () => void,
-  err?: unknown,
-) {
+function endRun(runId: string, control: AbortController, status: RunStatus, notify: () => void, err?: unknown) {
   if (status.pausing) {
     changeRun(runId, status, { running: false, pausing: false, error: null });
     notify();
@@ -98,19 +92,24 @@ export async function startRun(
   const control = new AbortController();
   const claim = async () => {
     if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
-    runs.set(runId, status); controls.set(runId, control); return true;
+    runs.set(runId, status);
+    controls.set(runId, control);
+    return true;
   };
   if (runId.startsWith("forge:")) {
     const { withWorkspaceLock } = await import("../workspaces/workspaceLocks.js");
     const { ensureWorkspaceVolume } = await import("../workspaces/workspaceVolumes.js");
     const issueId = runId.slice("forge:".length);
-    if (!await withWorkspaceLock(issueId, async () => {
-      if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
-      // Verify storage before claiming the run.
-      await ensureWorkspaceVolume(issueId);
-      return claim();
-    })) return false;
-  } else if (!await claim()) return false;
+    if (
+      !(await withWorkspaceLock(issueId, async () => {
+        if (runStatus(runId).running || (reservations.has(runId) && reservations.get(runId) !== reservation)) return false;
+        // Verify storage before claiming the run.
+        await ensureWorkspaceVolume(issueId);
+        return claim();
+      }))
+    )
+      return false;
+  } else if (!(await claim())) return false;
 
   let chunks: AsyncIterator<unknown>;
   try {
@@ -138,12 +137,7 @@ export const alreadyRunning = (res: Response) =>
 
 // startRun for a route: true once the input is saved. Otherwise sends a 409 (already
 // running) or a 500 (the run failed before that) and returns false.
-export async function beginRun(
-  res: Response,
-  runId: string,
-  start: Parameters<typeof startRun>[1],
-  notify: () => void,
-) {
+export async function beginRun(res: Response, runId: string, start: Parameters<typeof startRun>[1], notify: () => void) {
   try {
     if (await startRun(runId, start, notify)) return true;
     alreadyRunning(res);
@@ -164,9 +158,13 @@ export async function withPausedRun<T>(runId: string, notify: () => void, work: 
     notify();
     const deadline = Date.now() + 60_000;
     while (runStatus(runId).running) {
-      if (Date.now() >= deadline) throw new Error("Cancellation has not finished. The Forge remains paused; try again once it stops.");
+      if (Date.now() >= deadline)
+        throw new Error("Cancellation has not finished. The Forge remains paused; try again once it stops.");
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     return await work(reservation);
-  } finally { reservations.delete(runId); notify(); }
+  } finally {
+    reservations.delete(runId);
+    notify();
+  }
 }

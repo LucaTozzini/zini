@@ -1,11 +1,4 @@
-import {
-  Box,
-  Divider,
-  Drawer,
-  IconButton,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Box, Divider, Drawer, IconButton, useMediaQuery, useTheme } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
@@ -35,13 +28,7 @@ function SignedInApp() {
   // The project lead only renders once its integrations are set up; until
   // then its route shows the setup banner.
   const projectLead =
-    setup?.linear &&
-    setup.modelProvider &&
-    setup.github &&
-    setup.repo &&
-    setup.model ? (
-      <ProjectLeadPage />
-    ) : null;
+    setup?.linear && setup.modelProvider && setup.github && setup.repo && setup.model ? <ProjectLeadPage /> : null;
 
   return (
     <>
@@ -64,10 +51,7 @@ function SignedInApp() {
                 borderColor: "divider",
               }}
             >
-              <IconButton
-                aria-label="Open navigation"
-                onClick={() => setNavOpen(true)}
-              >
+              <IconButton aria-label="Open navigation" onClick={() => setNavOpen(true)}>
                 <MenuIcon />
               </IconButton>
             </Box>

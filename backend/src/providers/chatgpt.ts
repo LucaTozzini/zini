@@ -31,7 +31,9 @@ export async function chatGptStatus(): Promise<ChatGptStatus> {
 let signingOut: Promise<void> | null = null;
 
 export function signOutChatGpt() {
-  return signingOut ??= revokeSession().finally(() => { signingOut = null; });
+  return (signingOut ??= revokeSession().finally(() => {
+    signingOut = null;
+  }));
 }
 
 async function revokeSession() {
@@ -42,7 +44,7 @@ async function revokeSession() {
   if (row) {
     const config = await fetch(`${AUTH}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(15_000) });
     if (!config.ok) throw new Error("Couldn't discover OpenAI's revocation endpoint; try signing out again");
-    const { revocation_endpoint } = await config.json() as { revocation_endpoint: string };
+    const { revocation_endpoint } = (await config.json()) as { revocation_endpoint: string };
     const revoked = await fetch(revocation_endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -198,12 +200,15 @@ async function requestTokens(form: Record<string, string>) {
   });
   const body = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string; error_description?: string };
   if (!res.ok) {
-    throw Object.assign(new Error(`OpenAI's token endpoint answered ${res.status}: ${body.error_description ?? body.error ?? ""}`), {
-      status: res.status,
-      code: body.error,
-      earliestRefreshAt: refreshTime(body.earliest_refresh_at),
-      retryAfter: res.headers.get("Retry-After"),
-    });
+    throw Object.assign(
+      new Error(`OpenAI's token endpoint answered ${res.status}: ${body.error_description ?? body.error ?? ""}`),
+      {
+        status: res.status,
+        code: body.error,
+        earliestRefreshAt: refreshTime(body.earliest_refresh_at),
+        retryAfter: res.headers.get("Retry-After"),
+      },
+    );
   }
   return body;
 }
@@ -221,8 +226,12 @@ async function verifyIdToken(idToken: string, clientId: string, nonce: string) {
   const { keys } = (await (await fetch(config.jwks_uri)).json()) as { keys: (JsonWebKey & { kid?: string })[] };
   const key = keys.find((k) => k.kid === kid);
   if (!key) throw new Error("the ID token's signing key isn't one of OpenAI's");
-  const valid = verify("RSA-SHA256", Buffer.from(`${header}.${payload}`), createPublicKey({ key, format: "jwk" }),
-    Buffer.from(signature, "base64url"));
+  const valid = verify(
+    "RSA-SHA256",
+    Buffer.from(`${header}.${payload}`),
+    createPublicKey({ key, format: "jwk" }),
+    Buffer.from(signature, "base64url"),
+  );
   if (!valid) throw new Error("the ID token's signature is invalid");
 
   const claims = decode(payload);
@@ -256,8 +265,12 @@ export async function chatGptAccessToken() {
 
 async function refresh(row: OAuthConnection) {
   try {
-    const tokens = await requestTokens({ grant_type: "refresh_token", client_id: row.clientId, refresh_token: row.refreshToken,
-      resource: CHATGPT_API });
+    const tokens = await requestTokens({
+      grant_type: "refresh_token",
+      client_id: row.clientId,
+      refresh_token: row.refreshToken,
+      resource: CHATGPT_API,
+    });
     return await row.update({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? row.refreshToken,
@@ -268,19 +281,32 @@ async function refresh(row: OAuthConnection) {
   } catch (error) {
     const failure = error as { code?: string; earliestRefreshAt?: Date | null; retryAfter?: string | null };
     // Cooldowns and configuration failures don't invalidate a rotating token.
-    if (["invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired",
-      "refresh_token_invalidated", "refresh_token_reused"].includes(failure.code ?? "")) {
+    if (
+      [
+        "invalid_grant",
+        "invalid_refresh_token",
+        "token_expired",
+        "refresh_token_expired",
+        "refresh_token_invalidated",
+        "refresh_token_reused",
+      ].includes(failure.code ?? "")
+    ) {
       await row.destroy();
       notify();
       throw new Error("zini's ChatGPT sign-in has expired: sign in again in Settings", { cause: error });
     }
     if (failure.code !== "invalid_client") {
       const retryAfter = failure.retryAfter;
-      const retryAt = retryAfter ? new Date(Number.isFinite(Number(retryAfter))
-        ? Date.now() + Number(retryAfter) * 1000 : retryAfter) : null;
-      const earliestRefreshAt = new Date(Math.max(Date.now() + 60_000,
-        failure.earliestRefreshAt?.getTime() ?? 0,
-        retryAt && Number.isFinite(retryAt.getTime()) ? retryAt.getTime() : 0));
+      const retryAt = retryAfter
+        ? new Date(Number.isFinite(Number(retryAfter)) ? Date.now() + Number(retryAfter) * 1000 : retryAfter)
+        : null;
+      const earliestRefreshAt = new Date(
+        Math.max(
+          Date.now() + 60_000,
+          failure.earliestRefreshAt?.getTime() ?? 0,
+          retryAt && Number.isFinite(retryAt.getTime()) ? retryAt.getTime() : 0,
+        ),
+      );
       await row.update({ earliestRefreshAt });
       if (row.expiresAt.getTime() > Date.now()) return row;
     }

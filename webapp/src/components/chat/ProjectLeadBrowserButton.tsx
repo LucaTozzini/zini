@@ -1,16 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Alert,
-  Box,
-  CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Tooltip, Typography } from "@mui/material";
 import LanguageIcon from "@mui/icons-material/Language";
 import CloseIcon from "@mui/icons-material/Close";
 import { api, errorMessage } from "../../api/client.ts";
@@ -20,9 +10,7 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
   const browser = useQuery({
     queryKey: ["project-lead", "browser", threadId],
     queryFn: () =>
-      api
-        .get(`project-lead/threads/${threadId}/browser/status`)
-        .json<{ url: string | null; sessionId: string | null }>(),
+      api.get(`project-lead/threads/${threadId}/browser/status`).json<{ url: string | null; sessionId: string | null }>(),
     enabled: open && Boolean(threadId),
     refetchInterval: open ? 2000 : false,
   });
@@ -32,22 +20,12 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
     <>
       <Tooltip title="Project Lead browser">
         <span>
-          <IconButton
-            size="small"
-            aria-label="Project Lead browser"
-            disabled={!threadId}
-            onClick={() => setOpen(true)}
-          >
+          <IconButton size="small" aria-label="Project Lead browser" disabled={!threadId} onClick={() => setOpen(true)}>
             <LanguageIcon />
           </IconButton>
         </span>
       </Tooltip>
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        maxWidth={browser.data?.url ? "md" : "xs"}
-        fullWidth
-      >
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth={browser.data?.url ? "md" : "xs"} fullWidth>
         <DialogTitle
           sx={{
             display: "flex",
@@ -56,11 +34,7 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
           }}
         >
           Browser
-          <IconButton
-            size="small"
-            aria-label="Close browser viewer"
-            onClick={() => setOpen(false)}
-          >
+          <IconButton size="small" aria-label="Close browser viewer" onClick={() => setOpen(false)}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </DialogTitle>
@@ -71,17 +45,12 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
             <Alert severity="error">{errorMessage(browser.error)}</Alert>
           ) : browser.data?.url && sessionId ? (
             <>
-              <Typography
-                variant="body2"
-                color="textSecondary"
-                sx={{ mb: 1, overflowWrap: "anywhere" }}
-              >
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 1, overflowWrap: "anywhere" }}>
                 {browser.data.url}
               </Typography>
               {failedStream === sessionId && (
                 <Alert severity="info" sx={{ mb: 1 }}>
-                  The browser stream disconnected. Reopen the viewer to
-                  reconnect.
+                  The browser stream disconnected. Reopen the viewer to reconnect.
                 </Alert>
               )}
               {open && (

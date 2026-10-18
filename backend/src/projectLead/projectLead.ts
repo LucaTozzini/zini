@@ -184,50 +184,49 @@ Help the user think through ideas, bugs and features, and turn them into clear L
   device that can reach Zini. The url field is the app's address inside the workspace.`;
 
 // Names rather than ids, so the approval card shows what will be set.
-const STATUS = z.string().describe("A status name from the issue's team, e.g. \"In Progress\"");
+const STATUS = z.string().describe('A status name from the issue\'s team, e.g. "In Progress"');
 const ASSIGNEE = z.string().describe("Email of a member of the issue's team");
 
 function buildTools(linear: LinearClient) {
   return [
-    tool(
-      async ({ statusTypes }) => JSON.stringify(await fetchLinearIssues(linear, statusTypes ?? [])),
-      {
-        name: "list_issues",
-        description:
-          "List up to 250 issues, most recently updated first, without descriptions. " +
-          "Optionally filter by status type.",
-        schema: z.object({ statusTypes: z.array(z.enum(STATUS_TYPES)).optional() }),
-      },
-    ),
+    tool(async ({ statusTypes }) => JSON.stringify(await fetchLinearIssues(linear, statusTypes ?? [])), {
+      name: "list_issues",
+      description:
+        "List up to 250 issues, most recently updated first, without descriptions. " + "Optionally filter by status type.",
+      schema: z.object({ statusTypes: z.array(z.enum(STATUS_TYPES)).optional() }),
+    }),
     tool(async ({ query }) => JSON.stringify(await searchLinearIssues(linear, query)), {
       name: "search_issues",
       description:
-        "Search issue titles and descriptions with Linear's full-text search, like its " +
-        "search box. Up to 50 results.",
+        "Search issue titles and descriptions with Linear's full-text search, like its " + "search box. Up to 50 results.",
       schema: z.object({ query: z.string().min(1) }),
     }),
     tool(async ({ id }) => JSON.stringify(await fetchLinearIssue(linear, id)), {
       name: "get_issue",
-      description: "Get one issue with its description, comments, attachments (links such as its pull requests), " +
+      description:
+        "Get one issue with its description, comments, attachments (links such as its pull requests), " +
         "the issues blocking it (blockedBy) and the issues it blocks, each with its status, by identifier (e.g. ENG-123) or id.",
       schema: z.object({ id: z.string() }),
     }),
-    tool(async ({ issueId, blockerId, blocked }) =>
-      JSON.stringify({ blockedBy: await setLinearBlocker(linear, issueId, blockerId, blocked ?? true) }), {
-      name: "set_blocker",
-      description: "Mark blockerId as blocking issueId, or with blocked=false, remove that blocker. " +
-        "Returns the issue's blockers afterwards. The user approves the call before it runs.",
-      schema: z.object({
-        issueId: z.string().describe("The blocked issue: identifier (e.g. ENG-123) or id"),
-        blockerId: z.string().describe("The issue that blocks it: identifier or id"),
-        blocked: z.boolean().optional().describe("false removes the blocker; default true"),
-      }),
-    }),
+    tool(
+      async ({ issueId, blockerId, blocked }) =>
+        JSON.stringify({ blockedBy: await setLinearBlocker(linear, issueId, blockerId, blocked ?? true) }),
+      {
+        name: "set_blocker",
+        description:
+          "Mark blockerId as blocking issueId, or with blocked=false, remove that blocker. " +
+          "Returns the issue's blockers afterwards. The user approves the call before it runs.",
+        schema: z.object({
+          issueId: z.string().describe("The blocked issue: identifier (e.g. ENG-123) or id"),
+          blockerId: z.string().describe("The issue that blocks it: identifier or id"),
+          blocked: z.boolean().optional().describe("false removes the blocker; default true"),
+        }),
+      },
+    ),
     tool(async () => JSON.stringify(await fetchLinearTeams(linear)), {
       name: "list_teams",
       description:
-        "List the workspace's teams with their statuses and members, and who \"me\" is. " +
-        "Creating an issue needs a team id.",
+        'List the workspace\'s teams with their statuses and members, and who "me" is. ' + "Creating an issue needs a team id.",
       schema: z.object({}),
     }),
     tool(async (input) => JSON.stringify(await createLinearIssue(linear, input)), {
@@ -262,29 +261,45 @@ function buildTools(linear: LinearClient) {
 }
 
 // The issue's id: workspaces and pipelines are keyed by it, not by its identifier.
-const toIssueId = async (linear: LinearClient, id: string) =>
-  isIssueId(id) ? id : (await fetchLinearIssue(linear, id)).id;
+const toIssueId = async (linear: LinearClient, id: string) => (isIssueId(id) ? id : (await fetchLinearIssue(linear, id)).id);
 
 const ISSUE_ID = z.string().describe("Linear issue id or identifier, e.g. ENG-123");
 
 function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
   return [
     tool(async ({ issueId, merge }) => JSON.stringify(await syncWorkspace(await toIssueId(linear, issueId), merge)), {
-      name: "sync_workspace", description: "Fetch the configured GitHub repository into an idle workspace. With merge=true, merge the current default branch while preserving history; refuses unfinished edits and surfaces conflicts. Pause the Forge first. Use merge only when the user requests integrating upstream changes.",
+      name: "sync_workspace",
+      description:
+        "Fetch the configured GitHub repository into an idle workspace. With merge=true, merge the current default branch while preserving history; refuses unfinished edits and surfaces conflicts. Pause the Forge first. Use merge only when the user requests integrating upstream changes.",
       schema: z.object({ issueId: ISSUE_ID, merge: z.boolean().default(false) }),
     }),
-    tool(async ({ issueId, request }, config) => JSON.stringify(await launchWorkspaceApp(model,
-      await toIssueId(linear, issueId), request, config.signal)), {
-      name: "launch_workspace_app",
-      description: "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, runs setup/server commands inside Docker, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (Zini's preview page), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle Forge. Servers stay running until stopped.",
-      schema: z.object({ issueId: ISSUE_ID, request: z.string().min(1).describe("Which app to run and any user answers or constraints. The launcher handles command discovery and sandbox startup; do not supply a guessed launch plan.") }),
-    }),
+    tool(
+      async ({ issueId, request }, config) =>
+        JSON.stringify(await launchWorkspaceApp(model, await toIssueId(linear, issueId), request, config.signal)),
+      {
+        name: "launch_workspace_app",
+        description:
+          "Delegate getting a workspace web app running to a launcher subagent. It inspects current files, runs setup/server commands inside Docker, launches, checks readiness and diagnoses/retries startup failures. Returns ready with previewUrl (Zini's preview page), not_webapp, needs_input with questions, or failed with diagnostics. Requires a paused/idle Forge. Servers stay running until stopped.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          request: z
+            .string()
+            .min(1)
+            .describe(
+              "Which app to run and any user answers or constraints. The launcher handles command discovery and sandbox startup; do not supply a guessed launch plan.",
+            ),
+        }),
+      },
+    ),
     tool(async ({ issueId }) => JSON.stringify(await workspaceApps.refresh(await toIssueId(linear, issueId))), {
-      name: "workspace_app_status", description: "Read the user app session's status, previewUrl (Zini's preview page), its address inside the workspace, startup errors and recent server output.",
+      name: "workspace_app_status",
+      description:
+        "Read the user app session's status, previewUrl (Zini's preview page), its address inside the workspace, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
     tool(async ({ issueId }) => JSON.stringify(await workspaceApps.stop(await toIssueId(linear, issueId))), {
-      name: "stop_workspace_app", description: "Stop all processes in a user app session without stopping Forge or QA processes.",
+      name: "stop_workspace_app",
+      description: "Stop all processes in a user app session without stopping Forge or QA processes.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
   ];
@@ -299,106 +314,158 @@ function forgeTools(linear: LinearClient) {
     return id;
   };
   return [
-    tool(async ({ issueId, message }, config) => {
-      const id = await toIssueId(linear, issueId);
-      if (!(await Workspace.findByPk(id))) return JSON.stringify({ status: "error", error: "This issue has no workspace" });
-      if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
-      const pipeline = await getPipeline(id);
-      if (!pipeline.started) return JSON.stringify({ status: "error", error: "The Forge hasn't started; use start_forge" });
-      if (pipeline.waiting) return JSON.stringify({ status: "error", error: "The Forge is waiting on a reply; use reply_to_pipeline", waiting: pipeline.waiting });
-      const setup = await loadPipelineSetup();
-      if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
-      await forgeSubscriptions.subscribe(caller(config), id);
-      const run = pipelineRun(setup, id, "Project Lead");
-      const started = await outsideAgentRun(() =>
-        startRun(forgeThreadId(id), (signal) => messagePipeline(run, message.trim(), signal), run.notify));
-      return JSON.stringify(started ? { status: "sent" }
-        : { status: "error", error: "The Forge is running or pausing; pause it and wait for canResume first" });
-    }, {
-      name: "message_forge",
-      description: "Send the Forge's Lead a message with the user's requested changes or corrections, e.g. after it finished. " +
-        "Not while it's running (pause_forge first) or waiting on a reply (use reply_to_pipeline). Automatically subscribes this chat.",
-      schema: z.object({ issueId: ISSUE_ID, message: z.string().trim().min(1).describe("The user's actionable requested changes, with their context. Not praise or acceptance.") }),
-    }),
-    tool(async ({ issueId }) => {
-      const id = await toIssueId(linear, issueId);
-      if (!pauseRun(forgeThreadId(id))) {
-        return JSON.stringify({ status: "error", error: "The Forge isn't running or is already pausing" });
-      }
-      sendEvent({ type: "forge.updated", issueId: id });
-      return JSON.stringify({ status: "pausing" });
-    }, {
-      name: "pause_forge",
-      description: "Pause a running Forge at the user's request. Returns pausing immediately; " +
-        "the workspace stays locked until cancellation drains. Use forge_status to check canResume.",
-      schema: z.object({ issueId: ISSUE_ID }),
-    }),
-    tool(async ({ issueId }, config) => {
-      const id = await toIssueId(linear, issueId);
-      const workspace = await Workspace.findByPk(id);
-      if (!workspace) {
-        return JSON.stringify({ status: "error", error: "This issue has no workspace" });
-      }
-      if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
-      const pipeline = await getPipeline(id);
-      if (!pipeline.canResume) {
-        return JSON.stringify({ status: "error", error: pipeline.waiting
-          ? "The Forge needs a reply through reply_to_pipeline, not continuation"
-          : "The pipeline has no interrupted work to resume", waiting: pipeline.waiting });
-      }
-      const setup = await loadPipelineSetup();
-      if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
-      await forgeSubscriptions.subscribe(caller(config), id);
-      const run = pipelineRun(setup, id, "Project Lead");
-      const started = await outsideAgentRun(() =>
-        startRun(forgeThreadId(id), (signal) => continuePipeline(run, signal), run.notify));
-      return JSON.stringify(started ? { status: "continued" }
-        : { status: "error", error: "The Forge is still running or pausing" });
-    }, {
-      name: "continue_forge",
-      description: "Continue paused or interrupted Forge work from its saved checkpoint at the user's request. " +
-        "Requires a workspace and canResume. Does not answer questions or approve plans/commands; " +
-        "use reply_to_pipeline for those. Automatically subscribes this chat to progress updates.",
-      schema: z.object({ issueId: ISSUE_ID }),
-    }),
-    tool(async ({ subscribedOnly }, config) => {
-      const workspaces = await Workspace.findAll({ order: [["createdAt", "DESC"]] });
-      return JSON.stringify(await listForges(workspaces, await forgeSubscriptions.list(caller(config)),
-        getPipeline, subscribedOnly));
-    }, {
-      name: "list_forges",
-      description: "Discover all issues with workspaces, plus issues this Project Lead chat follows. Returns issueId, " +
-        "subscribed, hasWorkspace, whether the pipeline started, its current running role, " +
-        "waiting questions/approvals, completion, errors, resume availability and QA verdict. " +
-        "Set subscribedOnly to true to list just this chat's subscriptions. Use forge_status for full reports.",
-      schema: z.object({ subscribedOnly: z.boolean().optional() }),
-    }),
-    tool(async ({ action, issueId }, config) => {
-      const threadId = caller(config);
-      const id = await toIssueId(linear, issueId);
-      if (action === "subscribe") {
-        await forgeSubscriptions.subscribe(threadId, id);
-        const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getPipeline(id)]);
-        return JSON.stringify({ issueIds: await forgeSubscriptions.list(threadId),
-          hasWorkspace: Boolean(workspace), pipeline });
-      }
-      await forgeSubscriptions.unsubscribe(threadId, id);
-      return JSON.stringify({ issueIds: await forgeSubscriptions.list(threadId) });
-    }, {
-      name: "forge_subscription",
-      description: "Subscribe this Project Lead chat to automatic updates for an issue's workspace and Forge, " +
-        "or unsubscribe (also removes queued updates). Subscriptions persist across backend restarts. " +
-        "Use list_forges to see subscriptions and discover existing workspaces/forges.",
-      schema: z.object({ action: z.enum(["subscribe", "unsubscribe"]), issueId: ISSUE_ID }),
-    }),
+    tool(
+      async ({ issueId, message }, config) => {
+        const id = await toIssueId(linear, issueId);
+        if (!(await Workspace.findByPk(id))) return JSON.stringify({ status: "error", error: "This issue has no workspace" });
+        if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
+        const pipeline = await getPipeline(id);
+        if (!pipeline.started) return JSON.stringify({ status: "error", error: "The Forge hasn't started; use start_forge" });
+        if (pipeline.waiting)
+          return JSON.stringify({
+            status: "error",
+            error: "The Forge is waiting on a reply; use reply_to_pipeline",
+            waiting: pipeline.waiting,
+          });
+        const setup = await loadPipelineSetup();
+        if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
+        await forgeSubscriptions.subscribe(caller(config), id);
+        const run = pipelineRun(setup, id, "Project Lead");
+        const started = await outsideAgentRun(() =>
+          startRun(forgeThreadId(id), (signal) => messagePipeline(run, message.trim(), signal), run.notify),
+        );
+        return JSON.stringify(
+          started
+            ? { status: "sent" }
+            : { status: "error", error: "The Forge is running or pausing; pause it and wait for canResume first" },
+        );
+      },
+      {
+        name: "message_forge",
+        description:
+          "Send the Forge's Lead a message with the user's requested changes or corrections, e.g. after it finished. " +
+          "Not while it's running (pause_forge first) or waiting on a reply (use reply_to_pipeline). Automatically subscribes this chat.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          message: z
+            .string()
+            .trim()
+            .min(1)
+            .describe("The user's actionable requested changes, with their context. Not praise or acceptance."),
+        }),
+      },
+    ),
+    tool(
+      async ({ issueId }) => {
+        const id = await toIssueId(linear, issueId);
+        if (!pauseRun(forgeThreadId(id))) {
+          return JSON.stringify({ status: "error", error: "The Forge isn't running or is already pausing" });
+        }
+        sendEvent({ type: "forge.updated", issueId: id });
+        return JSON.stringify({ status: "pausing" });
+      },
+      {
+        name: "pause_forge",
+        description:
+          "Pause a running Forge at the user's request. Returns pausing immediately; " +
+          "the workspace stays locked until cancellation drains. Use forge_status to check canResume.",
+        schema: z.object({ issueId: ISSUE_ID }),
+      },
+    ),
+    tool(
+      async ({ issueId }, config) => {
+        const id = await toIssueId(linear, issueId);
+        const workspace = await Workspace.findByPk(id);
+        if (!workspace) {
+          return JSON.stringify({ status: "error", error: "This issue has no workspace" });
+        }
+        if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
+        const pipeline = await getPipeline(id);
+        if (!pipeline.canResume) {
+          return JSON.stringify({
+            status: "error",
+            error: pipeline.waiting
+              ? "The Forge needs a reply through reply_to_pipeline, not continuation"
+              : "The pipeline has no interrupted work to resume",
+            waiting: pipeline.waiting,
+          });
+        }
+        const setup = await loadPipelineSetup();
+        if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
+        await forgeSubscriptions.subscribe(caller(config), id);
+        const run = pipelineRun(setup, id, "Project Lead");
+        const started = await outsideAgentRun(() =>
+          startRun(forgeThreadId(id), (signal) => continuePipeline(run, signal), run.notify),
+        );
+        return JSON.stringify(
+          started ? { status: "continued" } : { status: "error", error: "The Forge is still running or pausing" },
+        );
+      },
+      {
+        name: "continue_forge",
+        description:
+          "Continue paused or interrupted Forge work from its saved checkpoint at the user's request. " +
+          "Requires a workspace and canResume. Does not answer questions or approve plans/commands; " +
+          "use reply_to_pipeline for those. Automatically subscribes this chat to progress updates.",
+        schema: z.object({ issueId: ISSUE_ID }),
+      },
+    ),
+    tool(
+      async ({ subscribedOnly }, config) => {
+        const workspaces = await Workspace.findAll({ order: [["createdAt", "DESC"]] });
+        return JSON.stringify(
+          await listForges(workspaces, await forgeSubscriptions.list(caller(config)), getPipeline, subscribedOnly),
+        );
+      },
+      {
+        name: "list_forges",
+        description:
+          "Discover all issues with workspaces, plus issues this Project Lead chat follows. Returns issueId, " +
+          "subscribed, hasWorkspace, whether the pipeline started, its current running role, " +
+          "waiting questions/approvals, completion, errors, resume availability and QA verdict. " +
+          "Set subscribedOnly to true to list just this chat's subscriptions. Use forge_status for full reports.",
+        schema: z.object({ subscribedOnly: z.boolean().optional() }),
+      },
+    ),
+    tool(
+      async ({ action, issueId }, config) => {
+        const threadId = caller(config);
+        const id = await toIssueId(linear, issueId);
+        if (action === "subscribe") {
+          await forgeSubscriptions.subscribe(threadId, id);
+          const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getPipeline(id)]);
+          return JSON.stringify({
+            issueIds: await forgeSubscriptions.list(threadId),
+            hasWorkspace: Boolean(workspace),
+            pipeline,
+          });
+        }
+        await forgeSubscriptions.unsubscribe(threadId, id);
+        return JSON.stringify({ issueIds: await forgeSubscriptions.list(threadId) });
+      },
+      {
+        name: "forge_subscription",
+        description:
+          "Subscribe this Project Lead chat to automatic updates for an issue's workspace and Forge, " +
+          "or unsubscribe (also removes queued updates). Subscriptions persist across backend restarts. " +
+          "Use list_forges to see subscriptions and discover existing workspaces/forges.",
+        schema: z.object({ action: z.enum(["subscribe", "unsubscribe"]), issueId: ISSUE_ID }),
+      },
+    ),
     tool(
       async ({ issueId, pullRequest, fresh }, config) => {
         const id = await toIssueId(linear, issueId);
         await forgeSubscriptions.subscribe(caller(config), id);
         let result;
-        try { result = await createWorkspace(linear, id, { pullRequest, fresh }); }
-        catch (error) {
-          if (error instanceof WorkspaceChoiceRequired) return JSON.stringify({ status: "needs_choice", choices: error.choices, instruction: "Ask the user which PR to resume or whether to start fresh, then retry with pullRequest or fresh." });
+        try {
+          result = await createWorkspace(linear, id, { pullRequest, fresh });
+        } catch (error) {
+          if (error instanceof WorkspaceChoiceRequired)
+            return JSON.stringify({
+              status: "needs_choice",
+              choices: error.choices,
+              instruction: "Ask the user which PR to resume or whether to start fresh, then retry with pullRequest or fresh.",
+            });
           throw error;
         }
         const { workspace } = result;
@@ -420,7 +487,11 @@ function forgeTools(linear: LinearClient) {
           "Build an issue: create its workspace if it has none, and start the Forge " +
           "pipeline. Environment preparation happens in the pipeline. Returns a status: started, already_running, " +
           "finished (send changes with message_forge instead) or error.",
-        schema: z.object({ issueId: ISSUE_ID, pullRequest: z.number().int().positive().optional(), fresh: z.boolean().optional() }),
+        schema: z.object({
+          issueId: ISSUE_ID,
+          pullRequest: z.number().int().positive().optional(),
+          fresh: z.boolean().optional(),
+        }),
       },
     ),
     tool(
@@ -473,28 +544,29 @@ function forgeTools(linear: LinearClient) {
           "approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
-          message: z
-            .string()
-            .optional()
-            .describe("Commit message: a short summary line, then a blank line and the details"),
+          message: z.string().optional().describe("Commit message: a short summary line, then a blank line and the details"),
         }),
       },
     ),
-    tool(async ({ issueId, title, body }) => {
-      const result = await openWorkspacePullRequest(await toIssueId(linear, issueId), title, body);
-      if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
-      return JSON.stringify({ status: "opened", pullRequest: result.pullRequest });
-    }, {
-      name: "pull_request_create",
-      description: "Open a pull request for an issue's workspace into the configured default branch. " +
-        "All changes must be committed and pushed first; errors tell you to use commit_and_push before retrying. " +
-        "The user approves this call. Returns the PR number, URL and state. The Linear identifier is added to the title automatically.",
-      schema: z.object({
-        issueId: ISSUE_ID,
-        title: z.string().trim().min(1).describe("A short, accurate pull request title"),
-        body: z.string().optional().describe("Markdown description covering the change and relevant validation"),
-      }),
-    }),
+    tool(
+      async ({ issueId, title, body }) => {
+        const result = await openWorkspacePullRequest(await toIssueId(linear, issueId), title, body);
+        if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
+        return JSON.stringify({ status: "opened", pullRequest: result.pullRequest });
+      },
+      {
+        name: "pull_request_create",
+        description:
+          "Open a pull request for an issue's workspace into the configured default branch. " +
+          "All changes must be committed and pushed first; errors tell you to use commit_and_push before retrying. " +
+          "The user approves this call. Returns the PR number, URL and state. The Linear identifier is added to the title automatically.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          title: z.string().trim().min(1).describe("A short, accurate pull request title"),
+          body: z.string().optional().describe("Markdown description covering the change and relevant validation"),
+        }),
+      },
+    ),
     tool(
       async ({ issueId, ...input }) => {
         // Exactly one, so nothing the user approved on the card is left out.
@@ -538,8 +610,16 @@ function forgeTools(linear: LinearClient) {
         schema: z.object({
           issueId: ISSUE_ID,
           answers: z.array(z.string()).optional().describe("User answers to waiting.kind=questions, one per question in order."),
-          approve: z.boolean().optional().describe("Pass true only for user approval of a pending plan (waiting.kind=approve_plan). Not acceptance of finished work."),
-          feedback: z.string().optional().describe("The user's requested changes to a pending plan (waiting.kind=approve_plan), instead of approving it."),
+          approve: z
+            .boolean()
+            .optional()
+            .describe(
+              "Pass true only for user approval of a pending plan (waiting.kind=approve_plan). Not acceptance of finished work.",
+            ),
+          feedback: z
+            .string()
+            .optional()
+            .describe("The user's requested changes to a pending plan (waiting.kind=approve_plan), instead of approving it."),
         }),
       },
     ),
@@ -596,29 +676,41 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
         "are among its attachments (get_issue).",
       schema: z.object({ number: NUMBER }),
     }),
-    tool(async ({ number, body, replyTo }) => JSON.stringify({ url: await commentOnPullRequest(await github(), repo, number, body, replyTo) }), {
-      name: "pull_request_comment",
-      description:
-        "Comment on a pull request's conversation, or with replyTo, reply in a review " +
-        "comment's thread. Only review comments (on lines of the diff) have threads. " +
-        "Posted as the owner of Zini's GitHub token. The user approves the call before it runs.",
-      schema: z.object({
-        number: NUMBER,
-        body: z.string().trim().min(1).describe("Markdown"),
-        replyTo: z.number().int().positive().optional().describe("The id of a review comment (from pull_request_read) to reply to"),
-      }),
-    }),
-    tool(async ({ threadId, resolved }) => JSON.stringify({ resolved: await resolveReviewThread(await github(), threadId, resolved ?? true) }), {
-      name: "pull_request_resolve_thread",
-      description:
-        "Resolve a review thread, or with resolved=false, reopen it. The user approves the " +
-        "call before it runs.",
-      schema: z.object({
-        number: NUMBER.describe("The pull request's number, shown on the approval"),
-        threadId: z.string().min(1).describe("A review comment's threadId, from pull_request_read"),
-        resolved: z.boolean().optional(),
-      }),
-    }),
+    tool(
+      async ({ number, body, replyTo }) =>
+        JSON.stringify({ url: await commentOnPullRequest(await github(), repo, number, body, replyTo) }),
+      {
+        name: "pull_request_comment",
+        description:
+          "Comment on a pull request's conversation, or with replyTo, reply in a review " +
+          "comment's thread. Only review comments (on lines of the diff) have threads. " +
+          "Posted as the owner of Zini's GitHub token. The user approves the call before it runs.",
+        schema: z.object({
+          number: NUMBER,
+          body: z.string().trim().min(1).describe("Markdown"),
+          replyTo: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe("The id of a review comment (from pull_request_read) to reply to"),
+        }),
+      },
+    ),
+    tool(
+      async ({ threadId, resolved }) =>
+        JSON.stringify({ resolved: await resolveReviewThread(await github(), threadId, resolved ?? true) }),
+      {
+        name: "pull_request_resolve_thread",
+        description:
+          "Resolve a review thread, or with resolved=false, reopen it. The user approves the " + "call before it runs.",
+        schema: z.object({
+          number: NUMBER.describe("The pull request's number, shown on the approval"),
+          threadId: z.string().min(1).describe("A review comment's threadId, from pull_request_read"),
+          resolved: z.boolean().optional(),
+        }),
+      },
+    ),
   ];
   return createAgent({
     model: chatModel,
@@ -667,8 +759,11 @@ type Setup = { linear: LinearClient; connection: ModelConnection; model: string;
 
 export async function loadProjectLeadSetup(): Promise<Setup | string> {
   const [linear, connection, githubToken, model, repo] = await Promise.all([
-    getLinearClient(), getSetting("projectLeadProvider").then(loadConnection), getKey("github"),
-    getSetting("projectLeadModel"), getSetting("githubRepo"),
+    getLinearClient(),
+    getSetting("projectLeadProvider").then(loadConnection),
+    getKey("github"),
+    getSetting("projectLeadModel"),
+    getSetting("githubRepo"),
   ]);
   if (!linear) return "Linear isn't connected";
   if (typeof connection === "string") return connection;
@@ -733,7 +828,10 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
   const agent = buildAgent(setup, threadId);
   const state = await agent.graph.getState(threadConfig(threadId));
   const messages: BaseMessage[] = [...(state.values.compacted ?? []), ...(state.values.messages ?? [])];
-  const pending = await toPending(setup.linear, state.tasks.flatMap((task) => task.interrupts));
+  const pending = await toPending(
+    setup.linear,
+    state.tasks.flatMap((task) => task.interrupts),
+  );
   return {
     messages: toChatMessages(messages, running || pending.length > 0),
     pending,
@@ -743,10 +841,7 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
   };
 }
 
-async function toPending(
-  linear: LinearClient,
-  interrupts: { value?: unknown }[] = [],
-): Promise<PendingAction[]> {
+async function toPending(linear: LinearClient, interrupts: { value?: unknown }[] = []): Promise<PendingAction[]> {
   const request = interrupts[0]?.value as HITLRequest | undefined;
   return Promise.all(
     (request?.actionRequests ?? []).map(async ({ name, args }) =>

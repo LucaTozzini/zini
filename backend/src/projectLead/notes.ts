@@ -70,8 +70,7 @@ const editNotes = tool(
     const edited = replaceOnce(notes, oldText, newText, "the notes");
     if (edited.length > MAX_NOTES_CHARS && edited.length > notes.length) {
       throw new Error(
-        `The notes would be ${edited.length} characters, over the ${MAX_NOTES_CHARS} limit. ` +
-          "Condense or remove notes first.",
+        `The notes would be ${edited.length} characters, over the ${MAX_NOTES_CHARS} limit. ` + "Condense or remove notes first.",
       );
     }
     writeFileSync(NOTES_PATH, edited);
@@ -87,8 +86,13 @@ const editNotes = tool(
       "copy it from the notes in your prompt. To add a note, use a nearby line as oldText " +
       "(e.g. its section's heading) and repeat it in newText with the note added.",
     schema: z.object({
-      oldText: z.string().min(1).describe("Exact text occurring once in the current notes; include a nearby heading when adding a section or note."),
-      newText: z.string().describe("Replacement Markdown. Keep verified project context concise; an empty string removes the matched text."),
+      oldText: z
+        .string()
+        .min(1)
+        .describe("Exact text occurring once in the current notes; include a nearby heading when adding a section or note."),
+      newText: z
+        .string()
+        .describe("Replacement Markdown. Keep verified project context concise; an empty string removes the matched text."),
     }),
   },
 );

@@ -42,10 +42,7 @@ usersRouter.post("/logout", async (req, res) => {
   const accessToken = req.cookies.access_token;
 
   if (accessToken?.length) {
-    await User.update(
-      { access_token: null },
-      { where: { access_token: accessToken } },
-    );
+    await User.update({ access_token: null }, { where: { access_token: accessToken } });
   }
 
   res.clearCookie(ACCESS_TOKEN, {

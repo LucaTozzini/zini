@@ -1,9 +1,4 @@
-import {
-  DataTypes,
-  Model,
-  type InferAttributes,
-  type InferCreationAttributes,
-} from "sequelize";
+import { DataTypes, Model, type InferAttributes, type InferCreationAttributes } from "sequelize";
 import { sequelize } from "../db.js";
 
 // App settings as key/value rows, e.g. projectLeadModel.

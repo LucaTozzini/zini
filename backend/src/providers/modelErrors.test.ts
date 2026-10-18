@@ -8,6 +8,7 @@ test("rate limits are recognised through wrappers and messages", () => {
   assert.equal(isModelRateLimit(new Error("Wrapper", { cause: error })), true);
   assert.equal(isModelRateLimit("429 Rate limit exceeded: free-models-per-day-stealth"), true);
   assert.equal(isModelRateLimit(new Error("Invalid tool arguments")), false);
-  const cyclic = { cause: null as unknown }; cyclic.cause = cyclic;
+  const cyclic = { cause: null as unknown };
+  cyclic.cause = cyclic;
   assert.equal(isModelRateLimit(cyclic), false);
 });

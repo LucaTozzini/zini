@@ -88,9 +88,7 @@ export async function listRunLogs(issueId: string): Promise<RunLogSummary[]> {
       };
     }),
   );
-  return runs
-    .filter((run) => run !== null)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  return runs.filter((run) => run !== null).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
 // Deletes the issue's run logs, e.g. with its workspace.

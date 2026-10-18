@@ -1,5 +1,14 @@
 import { Router } from "express";
-import { batchLogFile, evalStatus, isEvalKind, listBatches, listScenarios, runDiff, startEval, stopEval } from "../evals/evals.js";
+import {
+  batchLogFile,
+  evalStatus,
+  isEvalKind,
+  listBatches,
+  listScenarios,
+  runDiff,
+  startEval,
+  stopEval,
+} from "../evals/evals.js";
 
 // zini's evals, at /api/evals (see evals.ts): the scenarios, the eval going on and its
 // output, starting and stopping one, and past results. ?kind=agents (or kind in the body)
@@ -47,7 +56,10 @@ evals.get("/batches", (req, res) => {
 evals.get("/batches/:repo/:name/:batch/log", (req, res) => {
   const { repo, name, batch } = req.params;
   const file = batchLogFile(kindOf(req.query.kind), repo, name, batch);
-  if (!file) { res.status(404).json({ error: "No batch log" }); return; }
+  if (!file) {
+    res.status(404).json({ error: "No batch log" });
+    return;
+  }
   res.type("text/plain").sendFile(file);
 });
 

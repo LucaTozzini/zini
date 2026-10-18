@@ -39,7 +39,14 @@ export default function ZiniIcon(props: SvgIconProps) {
       </g>
       <rect x="4.75" y="4.75" width="14.5" height="14.5" rx="1.25" fill={background} />
       <rect x="4.75" y="4.75" width="14.5" height="14.5" rx="1.25" fill={`url(#${id}-face)`} />
-      <path d="M8.5 8h7l-7 8h7" transform="translate(12 12) scale(0.85) translate(-12 -12)" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="square" />
+      <path
+        d="M8.5 8h7l-7 8h7"
+        transform="translate(12 12) scale(0.85) translate(-12 -12)"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="square"
+      />
     </SvgIcon>
   );
 }

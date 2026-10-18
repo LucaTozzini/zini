@@ -13,7 +13,12 @@ function ProjectLeadChat({ threadId }: { threadId?: string }) {
   return (
     <Chat
       chat={chat}
-      headerActions={<><ProjectLeadBrowserButton threadId={threadId} /><ProjectLeadSubscriptionsButton threadId={threadId} /></>}
+      headerActions={
+        <>
+          <ProjectLeadBrowserButton threadId={threadId} />
+          <ProjectLeadSubscriptionsButton threadId={threadId} />
+        </>
+      }
       avatar={{
         src: "/project-lead-avatar.jpg",
         label: "Project Lead",
@@ -33,12 +38,7 @@ const ProjectLeadPage = () => {
   const created = location.state as CreatedChatState | null;
   const chatKey = created?.chatKey ?? threadId ?? location.key;
 
-  return (
-    <ProjectLeadChat
-      key={chatKey}
-      threadId={threadId}
-    />
-  );
+  return <ProjectLeadChat key={chatKey} threadId={threadId} />;
 };
 
 export default ProjectLeadPage;

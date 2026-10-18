@@ -13,11 +13,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import { PRIORITY_NAMES } from "shared";
 import { errorMessage } from "../api/client.ts";
-import {
-  useCreateWorkspace,
-  useDeleteWorkspace,
-  useWorkspace,
-} from "../api/workspaces.ts";
+import { useCreateWorkspace, useDeleteWorkspace, useWorkspace } from "../api/workspaces.ts";
 import { useLinearIssue } from "../api/integrations.ts";
 import PriorityIcon from "./icons/PriorityIcon.tsx";
 import StatusIcon from "./icons/StatusIcon.tsx";
@@ -57,11 +53,7 @@ function Property({
   children?: ReactNode;
 }) {
   return (
-    <Stack
-      direction="row"
-      spacing={1.5}
-      sx={{ alignItems: "center", minHeight: 32 }}
-    >
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minHeight: 32 }}>
       <Tooltip title={label} placement="left">
         <Box
           sx={{
@@ -83,18 +75,9 @@ function Property({
 }
 
 // A section's title, with an optional action button at the far right.
-function SectionHeader({
-  title,
-  action,
-}: {
-  title: string;
-  action?: ReactNode;
-}) {
+function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <Stack
-      direction="row"
-      sx={{ alignItems: "center", justifyContent: "space-between" }}
-    >
+    <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
       <Typography variant="overline" color="text.secondary">
         {title}
       </Typography>
@@ -122,8 +105,7 @@ function Code({ children }: { children: ReactNode }) {
 // A link that opens the folder in a new VS Code window (windowId=_blank). The path is
 // on the machine running zini, so this only works in a browser on that same machine.
 // vscode://file/ takes forward slashes and no leading slash (C:/Users/… or home/…).
-const vscodeUrl = (path: string) =>
-  `vscode://file/${encodeURI(path.replace(/\\/g, "/").replace(/^\//, ""))}?windowId=_blank`;
+const vscodeUrl = (path: string) => `vscode://file/${encodeURI(path.replace(/\\/g, "/").replace(/^\//, ""))}?windowId=_blank`;
 
 // A long path shortened in the middle, keeping its start and its end (the
 // workspace's folder).
@@ -162,10 +144,7 @@ function FolderRow({ path }: { path: string }) {
       }
     >
       <Tooltip title={path}>
-        <Box
-          component="span"
-          sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap" }}
-        >
+        <Box component="span" sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
           {shortPath(path)}
         </Box>
       </Tooltip>
@@ -176,13 +155,7 @@ function FolderRow({ path }: { path: string }) {
 // The issue's git workspace: a button to create it, or its folder with
 // buttons to open it in VS Code and to delete it.
 // linearBranch is the branch Linear suggests for the issue, once it has loaded.
-function WorkspaceSection({
-  issueId,
-  linearBranch,
-}: {
-  issueId: string;
-  linearBranch?: string;
-}) {
+function WorkspaceSection({ issueId, linearBranch }: { issueId: string; linearBranch?: string }) {
   const workspace = useWorkspace(issueId);
   const create = useCreateWorkspace();
   const remove = useDeleteWorkspace();
@@ -201,31 +174,17 @@ function WorkspaceSection({
           workspace.data && (
             <Stack direction="row">
               <Tooltip title="Open in VS Code">
-                <IconButton
-                  size="small"
-                  href={vscodeUrl(workspace.data.path)}
-                  aria-label="Open in VS Code"
-                >
+                <IconButton size="small" href={vscodeUrl(workspace.data.path)} aria-label="Open in VS Code">
                   <VSCodeIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <IconButton
-                size="small"
-                onClick={(e) => setMenuAnchor(e.currentTarget)}
-                aria-label="More actions"
-              >
+              <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} aria-label="More actions">
                 <MoreVertIcon fontSize="small" />
               </IconButton>
-              <Menu
-                anchorEl={menuAnchor}
-                open={Boolean(menuAnchor)}
-                onClose={() => setMenuAnchor(null)}
-              >
+              <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
                 {/* Not while the forge is running in it. */}
                 <MenuItem
-                  disabled={
-                    workspace.data.forgeRunning
-                  }
+                  disabled={workspace.data.forgeRunning}
                   onClick={() => {
                     setMenuAnchor(null);
                     setConfirming(true);
@@ -264,50 +223,42 @@ function WorkspaceSection({
           >
             Create workspace
           </Button>
-          {create.isError && (
-            <Alert severity="error">{errorMessage(create.error)}</Alert>
-          )}
-          <WorkspaceChoices error={create.error} busy={create.isPending} choose={selection => create.mutate({ issueId, ...selection })} />
+          {create.isError && <Alert severity="error">{errorMessage(create.error)}</Alert>}
+          <WorkspaceChoices
+            error={create.error}
+            busy={create.isPending}
+            choose={(selection) => create.mutate({ issueId, ...selection })}
+          />
         </Stack>
       )}
 
       {workspace.data && (
         <Stack sx={{ mt: 0.5 }}>
-          {workspace.data.context?.sourcePr && <Typography variant="body2">
-            Continuing PR <a href={workspace.data.context.sourcePr.url}>#{workspace.data.context.sourcePr.number}</a>
-          </Typography>}
+          {workspace.data.context?.sourcePr && (
+            <Typography variant="body2">
+              Continuing PR <a href={workspace.data.context.sourcePr.url}>#{workspace.data.context.sourcePr.number}</a>
+            </Typography>
+          )}
           <FolderRow path={workspace.data.path} />
           {/* Linear's suggested branch can change (e.g. the issue is renamed) while the
               workspace keeps the branch it was created on. */}
           {linearBranch !== undefined &&
             (workspace.data.branch === linearBranch ? (
-              <Property
-                label="Branch matches Linear"
-                icon={
-                  <CheckCircleOutlinedIcon fontSize="small" color="success" />
-                }
-              >
+              <Property label="Branch matches Linear" icon={<CheckCircleOutlinedIcon fontSize="small" color="success" />}>
                 <Box component="span" sx={{ color: "text.secondary" }}>
                   Branch synced with Linear
                 </Box>
               </Property>
             ) : (
-              <Property
-                label="Branch differs from Linear"
-                icon={<CancelOutlinedIcon fontSize="small" color="warning" />}
-              >
+              <Property label="Branch differs from Linear" icon={<CancelOutlinedIcon fontSize="small" color="warning" />}>
                 <Code>{workspace.data.branch}</Code>
               </Property>
             ))}
-          <Dialog
-            open={confirming}
-            onClose={() => !remove.isPending && setConfirming(false)}
-          >
+          <Dialog open={confirming} onClose={() => !remove.isPending && setConfirming(false)}>
             <DialogTitle>Delete this workspace?</DialogTitle>
             <DialogContent>
               <DialogContentText>
-                This deletes the folder and the local branch{" "}
-                <Code>{workspace.data.branch}</Code>, including any uncommitted
+                This deletes the folder and the local branch <Code>{workspace.data.branch}</Code>, including any uncommitted
                 changes, and the Forge conversation. The branch on GitHub is kept.
               </DialogContentText>
               {remove.isError && (
@@ -317,17 +268,10 @@ function WorkspaceSection({
               )}
             </DialogContent>
             <DialogActions>
-              <Button
-                onClick={() => setConfirming(false)}
-                disabled={remove.isPending}
-              >
+              <Button onClick={() => setConfirming(false)} disabled={remove.isPending}>
                 Cancel
               </Button>
-              <Button
-                color="error"
-                loading={remove.isPending}
-                onClick={handleDelete}
-              >
+              <Button color="error" loading={remove.isPending} onClick={handleDelete}>
                 Delete
               </Button>
             </DialogActions>
@@ -339,13 +283,7 @@ function WorkspaceSection({
 }
 
 // The control panel for one Linear issue, fetched by id when it opens.
-function IssuePanel({
-  issueId,
-  onClose,
-}: {
-  issueId: string;
-  onClose: () => void;
-}) {
+function IssuePanel({ issueId, onClose }: { issueId: string; onClose: () => void }) {
   const issue = useLinearIssue(issueId);
   const data = issue.data;
 
@@ -382,13 +320,7 @@ function IssuePanel({
           action={
             data && (
               <Tooltip title="Open in Linear">
-                <IconButton
-                  size="small"
-                  href={data.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Open in Linear"
-                >
+                <IconButton size="small" href={data.url} target="_blank" rel="noreferrer" aria-label="Open in Linear">
                   <OpenInNewIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -412,32 +344,15 @@ function IssuePanel({
 
         {data && (
           <Stack sx={{ mt: 0.5 }}>
-            <Property
-              label="Status"
-              icon={
-                <StatusIcon
-                  type={data.state.type}
-                  name={data.state.name}
-                  fontSize="small"
-                />
-              }
-            >
+            <Property label="Status" icon={<StatusIcon type={data.state.type} name={data.state.name} fontSize="small" />}>
               {data.state.name}
             </Property>
-            <Property
-              label="Priority"
-              icon={<PriorityIcon priority={data.priority} fontSize="small" />}
-            >
+            <Property label="Priority" icon={<PriorityIcon priority={data.priority} fontSize="small" />}>
               {PRIORITY_NAMES[data.priority] ?? data.priority}
             </Property>
             <Property
               label="Assignee"
-              icon={
-                <PersonOutlinedIcon
-                  fontSize="small"
-                  color={data.assignee ? "action" : "disabled"}
-                />
-              }
+              icon={<PersonOutlinedIcon fontSize="small" color={data.assignee ? "action" : "disabled"} />}
             >
               {data.assignee?.name ?? (
                 <Box component="span" sx={{ color: "text.secondary" }}>
@@ -445,10 +360,7 @@ function IssuePanel({
                 </Box>
               )}
             </Property>
-            <Property
-              label="Branch"
-              icon={<AccountTreeOutlinedIcon fontSize="small" color="action" />}
-            >
+            <Property label="Branch" icon={<AccountTreeOutlinedIcon fontSize="small" color="action" />}>
               <Code>{data.branchName}</Code>
             </Property>
           </Stack>

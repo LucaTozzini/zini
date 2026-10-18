@@ -11,10 +11,13 @@ test("user sessions run setup before HTTP readiness, remain alive, and stop inde
   const firstPort = await availableAppPort();
   const secondPort = await availableAppPort();
   await writeFile(join(root, "setup.cjs"), "require('fs').writeFileSync('prepared', 'yes');");
-  await writeFile(join(root, "app.cjs"), `
+  await writeFile(
+    join(root, "app.cjs"),
+    `
     if (!require('fs').existsSync('prepared')) process.exit(1);
     require('http').createServer((req, res) => res.end('workspace app')).listen(Number(process.argv[2]), '127.0.0.1');
-  `);
+  `,
+  );
   const plan = (port: number): AppLaunchPlan => ({
     setup: [{ command: `"${process.execPath}" setup.cjs`, cwd: "." }],
     services: [{ id: "web", command: `"${process.execPath}" app.cjs ${port}`, cwd: ".", port, readiness: "http", path: "/" }],
@@ -29,7 +32,10 @@ test("user sessions run setup before HTTP readiness, remain alive, and stop inde
     assert.equal(runtime.status("first").status, "stopped");
     const response = await fetch(`http://127.0.0.1:${secondPort}/`);
     assert.equal(await response.text(), "workspace app");
-  } finally { await runtime.stopAll(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+  } finally {
+    await runtime.stopAll();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });
 
 test("setup failure prevents startup and occupied ports are never reported as a successful launch", async () => {
@@ -38,9 +44,11 @@ test("setup failure prevents startup and occupied ports are never reported as a 
   const port = await availableAppPort();
   await writeFile(join(root, "fail.cjs"), "console.error('missing configuration'); process.exit(1);");
   await writeFile(join(root, "app.cjs"), `require('http').createServer((req,res)=>res.end('ok')).listen(${port},'127.0.0.1');`);
-  const plan: AppLaunchPlan = { setup: [],
+  const plan: AppLaunchPlan = {
+    setup: [],
     services: [{ id: "web", command: `"${process.execPath}" app.cjs`, cwd: ".", port, readiness: "http", path: "/" }],
-    app: { serviceId: "web", path: "/" } };
+    app: { serviceId: "web", path: "/" },
+  };
   try {
     const failed = await runtime.launch("bad", { ...plan, setup: [{ command: `"${process.execPath}" fail.cjs`, cwd: "." }] });
     assert.equal(failed.status, "failed");
@@ -48,8 +56,11 @@ test("setup failure prevents startup and occupied ports are never reported as a 
     assert.equal((await runtime.launch("owner", plan)).status, "ready");
     const conflicting = await runtime.launch("other", plan);
     assert.equal(conflicting.status, "failed");
-    assert.match("error" in conflicting ? conflicting.error ?? "" : "", /already in use/);
+    assert.match("error" in conflicting ? (conflicting.error ?? "") : "", /already in use/);
     const response = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(await response.text(), "ok");
-  } finally { await runtime.stopAll(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+  } finally {
+    await runtime.stopAll();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });

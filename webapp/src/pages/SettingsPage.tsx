@@ -7,15 +7,23 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { errorMessage } from "../api/client.ts";
-import {
-  useConnectIntegration,
-  useDisconnectIntegration,
-  useIntegrations,
-} from "../api/integrations.ts";
+import { useConnectIntegration, useDisconnectIntegration, useIntegrations } from "../api/integrations.ts";
 import { useSaveSettings, useSettings } from "../api/settings.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
 import type { ModelProvider, Provider, Settings } from "shared";
-import { Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, MenuItem, Switch, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import {
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  FormControlLabel,
+  MenuItem,
+  Switch,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
 import DevelopmentEnvironmentCard from "../components/DevelopmentEnvironmentCard.tsx";
 
@@ -48,12 +56,8 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
         <Stack spacing={2}>
           <Typography variant="h6">{name}</Typography>
 
-          {integrations.isPending && (
-            <Typography color="text.secondary">Loading…</Typography>
-          )}
-          {integrations.isError && (
-            <Alert severity="error">{errorMessage(integrations.error)}</Alert>
-          )}
+          {integrations.isPending && <Typography color="text.secondary">Loading…</Typography>}
+          {integrations.isError && <Alert severity="error">{errorMessage(integrations.error)}</Alert>}
 
           {integrations.isSuccess && connected && !replacing && (
             <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
@@ -61,11 +65,7 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
                 Connected · key ending in <code>{status?.keyHint}</code>
               </Typography>
               <Button onClick={() => setReplacing(true)}>Replace key</Button>
-              <Button
-                color="error"
-                loading={disconnect.isPending}
-                onClick={() => disconnect.mutate()}
-              >
+              <Button color="error" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
                 Disconnect
               </Button>
             </Stack>
@@ -82,20 +82,12 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
                 autoComplete="off"
                 required
               />
-              {connect.isError && (
-                <Alert severity="error">{errorMessage(connect.error)}</Alert>
-              )}
+              {connect.isError && <Alert severity="error">{errorMessage(connect.error)}</Alert>}
               <Stack direction="row" spacing={1}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  loading={connect.isPending}
-                >
+                <Button type="submit" variant="contained" loading={connect.isPending}>
                   Connect
                 </Button>
-                {replacing && (
-                  <Button onClick={() => setReplacing(false)}>Cancel</Button>
-                )}
+                {replacing && <Button onClick={() => setReplacing(false)}>Cancel</Button>}
               </Stack>
             </Stack>
           )}
@@ -126,8 +118,7 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (drafts.githubRepo &&
-      drafts.githubRepo.trim().toLowerCase() !== (settings.data?.githubRepo ?? "").toLowerCase()) {
+    if (drafts.githubRepo && drafts.githubRepo.trim().toLowerCase() !== (settings.data?.githubRepo ?? "").toLowerCase()) {
       save.reset();
       setConfirmRepoChange(true);
       return;
@@ -141,12 +132,8 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
         <Stack spacing={2}>
           <Typography variant="h6">{title}</Typography>
 
-          {settings.isPending && (
-            <Typography color="text.secondary">Loading…</Typography>
-          )}
-          {settings.isError && (
-            <Alert severity="error">{errorMessage(settings.error)}</Alert>
-          )}
+          {settings.isPending && <Typography color="text.secondary">Loading…</Typography>}
+          {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
 
           {settings.isSuccess && (
             <Stack component="form" spacing={2} onSubmit={handleSubmit}>
@@ -165,21 +152,13 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
               ))}
               {fields.some((field) => field.setting === "githubRepo") && (
                 <Alert severity="warning">
-                  Switching repositories deletes all workspaces, their Docker containers and volumes,
-                  and Forge history and logs. Local changes and unpushed commits will be lost.
-                  Pause running Forges and stop app launches before switching.
+                  Switching repositories deletes all workspaces, their Docker containers and volumes, and Forge history and logs.
+                  Local changes and unpushed commits will be lost. Pause running Forges and stop app launches before switching.
                 </Alert>
               )}
-              {save.isError && (
-                <Alert severity="error">{errorMessage(save.error)}</Alert>
-              )}
+              {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
               <Stack direction="row">
-                <Button
-                  type="submit"
-                  variant="contained"
-                  loading={save.isPending}
-                  disabled={!edited}
-                >
+                <Button type="submit" variant="contained" loading={save.isPending} disabled={!edited}>
                   Save
                 </Button>
               </Stack>
@@ -187,23 +166,47 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
           )}
         </Stack>
       </CardContent>
-      <Dialog open={confirmRepoChange} onClose={() => !save.isPending && setConfirmRepoChange(false)}
-        aria-labelledby="repo-change-title" maxWidth="sm" fullWidth>
+      <Dialog
+        open={confirmRepoChange}
+        onClose={() => !save.isPending && setConfirmRepoChange(false)}
+        aria-labelledby="repo-change-title"
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle id="repo-change-title">Delete workspaces and switch repository?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Switching to {drafts.githubRepo?.trim()} permanently deletes all workspaces, their Docker
-            containers, volumes, Forge history and logs. Uncommitted changes and unpushed commits
-            will be lost. This cannot be undone.
+            Switching to {drafts.githubRepo?.trim()} permanently deletes all workspaces, their Docker containers, volumes, Forge
+            history and logs. Uncommitted changes and unpushed commits will be lost. This cannot be undone.
           </DialogContentText>
-          {save.isError && <Alert severity="error" sx={{ mt: 2 }}>{errorMessage(save.error)}</Alert>}
+          {save.isError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {errorMessage(save.error)}
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button disabled={save.isPending} onClick={() => setConfirmRepoChange(false)}>Cancel</Button>
-          <Button color="error" variant="contained" loading={save.isPending}
-            onClick={() => save.mutate({ ...drafts, confirmWorkspaceDeletion: true }, {
-              onSuccess: () => { setDrafts({}); setConfirmRepoChange(false); },
-            })}>Delete workspaces and switch</Button>
+          <Button disabled={save.isPending} onClick={() => setConfirmRepoChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            loading={save.isPending}
+            onClick={() =>
+              save.mutate(
+                { ...drafts, confirmWorkspaceDeletion: true },
+                {
+                  onSuccess: () => {
+                    setDrafts({});
+                    setConfirmRepoChange(false);
+                  },
+                },
+              )
+            }
+          >
+            Delete workspaces and switch
+          </Button>
         </DialogActions>
       </Dialog>
     </Card>
@@ -238,8 +241,8 @@ function ChatGptCard() {
             status.isSuccess && (
               <>
                 <Typography variant="body2" color="text.secondary">
-                  Run models on your ChatGPT plan (Plus or Pro) instead of OpenRouter. Usage counts against your
-                  plan&apos;s limits.
+                  Run models on your ChatGPT plan (Plus or Pro) instead of OpenRouter. Usage counts against your plan&apos;s
+                  limits.
                 </Typography>
                 {local ? (
                   <Stack direction="row">
@@ -261,7 +264,12 @@ function ChatGptCard() {
 
 // A role's model and where it runs: an OpenRouter model id, or one of the ChatGPT plan's
 // models. Both are saved together.
-function ModelCard({ title, provider: providerSetting, model: modelSetting, helperText }: {
+function ModelCard({
+  title,
+  provider: providerSetting,
+  model: modelSetting,
+  helperText,
+}: {
   title: string;
   provider: "projectLeadProvider" | "forgeProvider" | "openwikiProvider";
   model: "projectLeadModel" | "forgeModel" | "openwikiModel";
@@ -286,9 +294,7 @@ function ModelCard({ title, provider: providerSetting, model: modelSetting, help
         <Stack spacing={2}>
           <Typography variant="h6">{title}</Typography>
           {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
-          <Alert severity="info">
-            The model must support text and image inputs.
-          </Alert>
+          <Alert severity="info">The model must support text and image inputs.</Alert>
           {settings.isSuccess && (
             <Stack component="form" spacing={2} onSubmit={handleSubmit}>
               <TextField
@@ -376,14 +382,19 @@ function ConductorCard() {
         <Stack spacing={2}>
           <Typography variant="h6">Conductor</Typography>
           <Typography variant="body2" color="text.secondary">
-            Automatically start Forges for unstarted Linear issues. Turning this off prevents new starts;
-            existing Forge runs continue.
+            Automatically start Forges for unstarted Linear issues. Turning this off prevents new starts; existing Forge runs
+            continue.
           </Typography>
-          <FormControlLabel label="Enable conductor" control={
-            <Switch checked={settings.data?.conductorEnabled !== "false"}
-              disabled={!settings.isSuccess || save.isPending}
-              onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })} />
-          } />
+          <FormControlLabel
+            label="Enable conductor"
+            control={
+              <Switch
+                checked={settings.data?.conductorEnabled !== "false"}
+                disabled={!settings.isSuccess || save.isPending}
+                onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })}
+              />
+            }
+          />
           {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
           {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
         </Stack>
@@ -400,16 +411,8 @@ function SettingsPage() {
         Settings
       </Typography>
       <Stack spacing={2}>
-        <KeyCard
-          provider="linear"
-          name="Linear"
-          helperText="Create a personal API key in your Linear settings."
-        />
-        <KeyCard
-          provider="openrouter"
-          name="OpenRouter"
-          helperText="Create an API key at openrouter.ai/keys."
-        />
+        <KeyCard provider="linear" name="Linear" helperText="Create a personal API key in your Linear settings." />
+        <KeyCard provider="openrouter" name="OpenRouter" helperText="Create an API key at openrouter.ai/keys." />
         <KeyCard
           provider="github"
           name="GitHub"

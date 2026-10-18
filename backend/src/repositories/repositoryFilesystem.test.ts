@@ -8,8 +8,13 @@ import { promisify } from "node:util";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { createAgent, toolErrorMiddleware } from "langchain";
-import { checkedRepositoryPath, RepositoryFilesystemBackend, repositoryFilesystem,
-  repositoryPath, type RepositoryGit } from "./repositoryFilesystem.js";
+import {
+  checkedRepositoryPath,
+  RepositoryFilesystemBackend,
+  repositoryFilesystem,
+  repositoryPath,
+  type RepositoryGit,
+} from "./repositoryFilesystem.js";
 
 async function fixture(t: TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "zini-file-tools-"));
@@ -17,8 +22,12 @@ async function fixture(t: TestContext) {
   const root = join(dir, "repo");
   await mkdir(root);
   const git: RepositoryGit = async (args, exit1Ok = false) => {
-    try { return (await promisify(execFile)("git", ["-C", root, ...args])).stdout; }
-    catch (error) { if (exit1Ok && (error as { code?: number }).code === 1) return (error as { stdout?: string }).stdout ?? ""; throw error; }
+    try {
+      return (await promisify(execFile)("git", ["-C", root, ...args])).stdout;
+    } catch (error) {
+      if (exit1Ok && (error as { code?: number }).code === 1) return (error as { stdout?: string }).stdout ?? "";
+      throw error;
+    }
   };
   await git(["init", "--quiet"]);
   await mkdir(join(root, "src"));
@@ -38,15 +47,20 @@ type Call = { name: string; args: Record<string, unknown> };
 class ScriptedModel extends BaseChatModel {
   index = 0;
   visibleTools: string[] = [];
-  constructor(private calls: Call[]) { super({}); }
-  _llmType() { return "file-tools-test"; }
+  constructor(private calls: Call[]) {
+    super({});
+  }
+  _llmType() {
+    return "file-tools-test";
+  }
   bindTools(tools: unknown[]) {
     this.visibleTools = tools.map((tool) => (tool as { name: string }).name);
     return this;
   }
   async _generate(_messages: BaseMessage[]) {
     const call = this.calls[this.index++];
-    const message = call ? new AIMessage({ content: "", tool_calls: [{ ...call, id: `call-${this.index}` }] })
+    const message = call
+      ? new AIMessage({ content: "", tool_calls: [{ ...call, id: `call-${this.index}` }] })
       : new AIMessage("Done");
     return { generations: [{ text: "", message }] };
   }
@@ -54,9 +68,12 @@ class ScriptedModel extends BaseChatModel {
 
 async function runTools(backend: RepositoryFilesystemBackend, calls: Call[], writable = false) {
   const model = new ScriptedModel(calls);
-  const agent = createAgent({ model, tools: [], checkpointer: false, middleware: [
-    toolErrorMiddleware({ onError: (error) => String(error) }), repositoryFilesystem(backend, writable),
-  ] });
+  const agent = createAgent({
+    model,
+    tools: [],
+    checkpointer: false,
+    middleware: [toolErrorMiddleware({ onError: (error) => String(error) }), repositoryFilesystem(backend, writable)],
+  });
   const result = await agent.invoke({ messages: [{ role: "user", content: "Exercise filesystem tools" }] });
   return { model, results: result.messages.filter(ToolMessage.isInstance) };
 }
@@ -78,13 +95,20 @@ test("native writes and exact edits notify only on success; failed edits are log
   const { root, git } = await fixture(t);
   let notifications = 0;
   const backend = new RepositoryFilesystemBackend(root, git, true, () => notifications++);
-  const { results, model } = await runTools(backend, [
-    { name: "write_file", args: { file_path: "/added.txt", content: "one one\n" } },
-    { name: "edit_file", args: { file_path: "/added.txt", old_string: "missing", new_string: "two" } },
-    { name: "edit_file", args: { file_path: "/added.txt", old_string: "one", new_string: "two" } },
-    { name: "edit_file", args: { file_path: "/added.txt", old_string: "one", new_string: "two", replace_all: true } },
-    { name: "edit_file", args: { file_path: "/src/app.ts", old_string: 'const x = "hello";', new_string: 'const x = "world";' } },
-  ], true);
+  const { results, model } = await runTools(
+    backend,
+    [
+      { name: "write_file", args: { file_path: "/added.txt", content: "one one\n" } },
+      { name: "edit_file", args: { file_path: "/added.txt", old_string: "missing", new_string: "two" } },
+      { name: "edit_file", args: { file_path: "/added.txt", old_string: "one", new_string: "two" } },
+      { name: "edit_file", args: { file_path: "/added.txt", old_string: "one", new_string: "two", replace_all: true } },
+      {
+        name: "edit_file",
+        args: { file_path: "/src/app.ts", old_string: 'const x = "hello";', new_string: 'const x = "world";' },
+      },
+    ],
+    true,
+  );
   assert.ok(model.visibleTools.includes("write_file") && model.visibleTools.includes("edit_file"));
   assert.equal(results[1]!.status, "error");
   assert.equal(results[2]!.status, "error");
@@ -111,24 +135,38 @@ test("Git-aware discovery includes untracked and hidden source but not ignored f
   const capped = await backend.grep("hello", "/", null, 1);
   assert.equal(capped.matches?.length, 1);
   assert.equal(capped.truncated, true);
-  assert.deepEqual((await backend.grep("hello", "/src/app.ts")).matches?.map((match) => match.path), ["/src/app.ts"]);
-  assert.deepEqual((await backend.grep("hello", "/", "**/*.yml")).matches?.map((match) => match.path), ["/.github/ci.yml"]);
+  assert.deepEqual(
+    (await backend.grep("hello", "/src/app.ts")).matches?.map((match) => match.path),
+    ["/src/app.ts"],
+  );
+  assert.deepEqual(
+    (await backend.grep("hello", "/", "**/*.yml")).matches?.map((match) => match.path),
+    ["/.github/ci.yml"],
+  );
 });
 
 test("read-only tools and backend reject writes without changing files", async (t) => {
   const { root, git } = await fixture(t);
   const backend = new RepositoryFilesystemBackend(root, git);
   assert.match((await backend.write("/src/app.ts", "bad")).error!, /read-only/);
-  const { results } = await runTools(backend, [
-    { name: "write_file", args: { file_path: "/src/app.ts", content: "bad" } },
-  ]);
+  const { results } = await runTools(backend, [{ name: "write_file", args: { file_path: "/src/app.ts", content: "bad" } }]);
   assert.equal(results[0]!.status, "error");
   assert.match(await readFile(join(root, "src/app.ts"), "utf8"), /hello/);
 });
 
 test("paths reject traversal, Windows host paths, ADS, .git, and symlink/junction escapes", async (t) => {
   const { root, dir, git } = await fixture(t);
-  for (const path of ["../file", "/../file", "src/../../file", "src\\..\\file", "C:\\file", "\\\\host\\share", "file:stream", ".git/config", "src/.GIT/config"])
+  for (const path of [
+    "../file",
+    "/../file",
+    "src/../../file",
+    "src\\..\\file",
+    "C:\\file",
+    "\\\\host\\share",
+    "file:stream",
+    ".git/config",
+    "src/.GIT/config",
+  ])
     assert.throws(() => repositoryPath(path));
   assert.equal(repositoryPath("./src/app.ts"), "src/app.ts");
   assert.equal(repositoryPath("/src/app.ts"), "src/app.ts");

@@ -14,7 +14,10 @@ test("recovery after conversation save doesn't redeliver acknowledged input", ()
 });
 
 test("other queue sources are preserved without Forge metadata", () => {
-  const [message] = freshQueuedMessages([], [{ eventId: "reminder", source: "scheduler", sourceId: "job", eventType: "reminder", content: "Check progress" }]);
+  const [message] = freshQueuedMessages(
+    [],
+    [{ eventId: "reminder", source: "scheduler", sourceId: "job", eventType: "reminder", content: "Check progress" }],
+  );
   assert.equal(message!.additional_kwargs.source, "scheduler");
   assert.equal(message!.additional_kwargs.issueId, undefined);
 });

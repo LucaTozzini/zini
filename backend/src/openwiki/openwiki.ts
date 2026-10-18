@@ -18,11 +18,10 @@ export function loadOpenwiki() {
 async function load() {
   process.env.OPENWIKI_CONFIG_DIR = CONFIG_DIR;
   process.env.OPENWIKI_TELEMETRY_DISABLED = "1";
-  const [{ syncBundledSkills }, { runNativeRepositoryGeneration }, { searchWiki, readWikiSections }] =
-    await Promise.all([
-      import("openwiki/dist/agent/skills.js"),
-      import("openwiki/dist/agent/repository-runner.js"),
-      import("openwiki/dist/retrieval/wiki.js"),
-    ]);
+  const [{ syncBundledSkills }, { runNativeRepositoryGeneration }, { searchWiki, readWikiSections }] = await Promise.all([
+    import("openwiki/dist/agent/skills.js"),
+    import("openwiki/dist/agent/repository-runner.js"),
+    import("openwiki/dist/retrieval/wiki.js"),
+  ]);
   return { syncBundledSkills, runNativeRepositoryGeneration, searchWiki, readWikiSections };
 }

@@ -48,7 +48,8 @@ async function context(issueId: string, issue: LinearIssueDetails) {
 export async function coderWorker(run: Run, issue: LinearIssueDetails, plan: ForgePlan): Promise<Worker<typeof CODER_REPORT>> {
   const { issueId, notify } = run;
   const ids = plan.steps.map((step) => step.id);
-  const steps = plan.steps.map((step) => `- ${step.id} [${step.status}] ${step.description}`).join("\n") || "No implementation steps.";
+  const steps =
+    plan.steps.map((step) => `- ${step.id} [${step.status}] ${step.description}`).join("\n") || "No implementation steps.";
   return {
     role: "coder",
     prompt: `${CODER_PROMPT}\n\n${await context(issueId, issue)}\n\n# The approved plan's steps\n\n${steps}`,
@@ -64,14 +65,18 @@ export async function coderWorker(run: Run, issue: LinearIssueDetails, plan: For
     schema: CODER_REPORT,
     validate: (report) => {
       const unknown = report.steps.filter(({ id }) => !ids.includes(id)).map(({ id }) => id);
-      if (unknown.length) return `Report statuses only for the plan's steps (${ids.join(", ") || "none"}); unknown: ${unknown.join(", ")}`;
+      if (unknown.length)
+        return `Report statuses only for the plan's steps (${ids.join(", ") || "none"}); unknown: ${unknown.join(", ")}`;
     },
   };
 }
 
 // The Reviewer for the plan's QA checklist. Shared by the Lead and agent evals.
-export async function reviewerWorker(run: Pick<Run, "issueId" | "notify">, issue: LinearIssueDetails, plan: ForgePlan):
-  Promise<Worker<typeof REVIEW_REPORT>> {
+export async function reviewerWorker(
+  run: Pick<Run, "issueId" | "notify">,
+  issue: LinearIssueDetails,
+  plan: ForgePlan,
+): Promise<Worker<typeof REVIEW_REPORT>> {
   const { issueId, notify } = run;
   const revision = await workspaceRevision(issueId);
   const ids = plan.qaChecklist.map((check) => check.id);
@@ -95,8 +100,9 @@ export async function reviewerWorker(run: Pick<Run, "issueId" | "notify">, issue
       const unknown = given.filter((id, i) => !ids.includes(id) || given.indexOf(id) !== i);
       if (unknown.length) return `Give one result per QA check id from the checklist; unknown or repeated: ${unknown.join(", ")}`;
       const unexplained = review.checks.filter((check) => check.status !== "passed" && !check.note.trim());
-      if (unexplained.length) return `Explain each failed or skipped check in its note: ${unexplained.map((check) => check.id).join(", ")}`;
-      if (await workspaceRevision(issueId) !== revision)
+      if (unexplained.length)
+        return `Explain each failed or skipped check in its note: ${unexplained.map((check) => check.id).join(", ")}`;
+      if ((await workspaceRevision(issueId)) !== revision)
         return "The workspace's source changed during the review. Restore it: you don't edit source files; report the problem instead";
     },
   };
@@ -123,10 +129,11 @@ export async function runWorker<S extends z.ZodObject>(
     middleware: [
       createMiddleware({
         name: "DrainForgeTools",
-        wrapToolCall: (request, handler) => execution.track(async () => {
-          signal?.throwIfAborted();
-          return handler(request);
-        }),
+        wrapToolCall: (request, handler) =>
+          execution.track(async () => {
+            signal?.throwIfAborted();
+            return handler(request);
+          }),
       }),
       modelRetry,
       logTo(log),
@@ -140,17 +147,18 @@ export async function runWorker<S extends z.ZodObject>(
   });
   // Runs the agent on these new messages to its report. Plenty of steps: the coder may
   // read and edit many files.
-  const respond = (messages: BaseMessage[]) => outsideAgentRun(async () => {
-    let result: { structuredResponse?: z.infer<S> } = {};
-    for await (const state of await agent.stream({ messages }, streamConfig(thread, 300, signal))) {
-      result = state as typeof result;
-      notify();
-    }
-    signal?.throwIfAborted();
-    // requireSubmission keeps the agent going until it submits, or fails the run.
-    if (!result.structuredResponse) throw new Error(`The ${role} ended without its report`);
-    return result.structuredResponse;
-  });
+  const respond = (messages: BaseMessage[]) =>
+    outsideAgentRun(async () => {
+      let result: { structuredResponse?: z.infer<S> } = {};
+      for await (const state of await agent.stream({ messages }, streamConfig(thread, 300, signal))) {
+        result = state as typeof result;
+        notify();
+      }
+      signal?.throwIfAborted();
+      // requireSubmission keeps the agent going until it submits, or fails the run.
+      if (!result.structuredResponse) throw new Error(`The ${role} ended without its report`);
+      return result.structuredResponse;
+    });
   working.set(issueId, role);
   notify();
   try {

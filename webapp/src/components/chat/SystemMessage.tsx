@@ -11,35 +11,34 @@ const SystemMessage = ({ issueId, content }: SystemMessageProps) => {
   const { data } = issueId ? useLinearIssue(issueId) : {};
 
   return (
-    
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          color: "text.secondary",
-        }}
-      >
-        <CampaignIcon fontSize="small" />
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        color: "text.secondary",
+      }}
+    >
+      <CampaignIcon fontSize="small" />
 
-        {issueId && (
-          <Typography
-            variant="body2"
-            component={Link}
-            to={"/issues/" + issueId}
-            sx={{
-              color: "inherit",
-              flexShrink: 0,
-            }}
-            noWrap
-          >
-            <i>{data?.identifier || "Loading..."}</i>
-          </Typography>
-        )}
-        <Typography variant="body2" noWrap>
-          <i>{content}</i>
+      {issueId && (
+        <Typography
+          variant="body2"
+          component={Link}
+          to={"/issues/" + issueId}
+          sx={{
+            color: "inherit",
+            flexShrink: 0,
+          }}
+          noWrap
+        >
+          <i>{data?.identifier || "Loading..."}</i>
         </Typography>
-      </Box>
+      )}
+      <Typography variant="body2" noWrap>
+        <i>{content}</i>
+      </Typography>
+    </Box>
   );
 };
 

@@ -20,7 +20,8 @@ export class LatestCheckpointSaver extends SqliteSaver {
     const saved = await super.put(...args);
     const { thread_id, checkpoint_ns = "", checkpoint_id } = saved.configurable ?? {};
     for (const table of ["checkpoints", "writes"]) {
-      this.db.prepare(`DELETE FROM ${table} WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id < ?`)
+      this.db
+        .prepare(`DELETE FROM ${table} WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id < ?`)
         .run(thread_id, checkpoint_ns, checkpoint_id);
     }
     return saved;
@@ -107,22 +108,22 @@ function withMissingToolResults(messages: BaseMessage[]) {
 
 export const repairToolCalls = createMiddleware({
   name: "RepairToolCalls",
-  wrapModelCall: (request, handler) =>
-    handler({ ...request, messages: withMissingToolResults(request.messages) }),
+  wrapModelCall: (request, handler) => handler({ ...request, messages: withMissingToolResults(request.messages) }),
 });
 
 // Saves which model wrote each reply in its additional_kwargs.model, like createdAt
 // (see messageTimestamps.ts), so a conversation that changes models stays traceable. A
 // reply that hands in a document comes back with its messages; each AI one is stamped.
-export const modelStamp = (model: string) => createMiddleware({
-  name: "ModelStamp",
-  wrapModelCall: async (request, handler) => {
-    const reply = await handler(request);
-    const messages = AIMessage.isInstance(reply) ? [reply] : ((reply as { messages?: BaseMessage[] }).messages ?? []);
-    for (const message of messages) if (AIMessage.isInstance(message)) message.additional_kwargs.model ??= model;
-    return reply;
-  },
-});
+export const modelStamp = (model: string) =>
+  createMiddleware({
+    name: "ModelStamp",
+    wrapModelCall: async (request, handler) => {
+      const reply = await handler(request);
+      const messages = AIMessage.isInstance(reply) ? [reply] : ((reply as { messages?: BaseMessage[] }).messages ?? []);
+      for (const message of messages) if (AIMessage.isInstance(message)) message.additional_kwargs.model ??= model;
+      return reply;
+    },
+  });
 
 // The images (data URLs) attached to a user's message.
 export function messageImages(message: BaseMessage): string[] {
@@ -130,7 +131,11 @@ export function messageImages(message: BaseMessage): string[] {
   return message.content.flatMap((block) => {
     if (typeof block === "string" || block.type !== "image_url") return [];
     const image = block.image_url;
-    return typeof image === "string" ? [image] : image && typeof image === "object" && "url" in image && typeof image.url === "string" ? [image.url] : [];
+    return typeof image === "string"
+      ? [image]
+      : image && typeof image === "object" && "url" in image && typeof image.url === "string"
+        ? [image.url]
+        : [];
   });
 }
 
@@ -140,16 +145,19 @@ export function messageImages(message: BaseMessage): string[] {
 // running or waiting on approval, so the last reply's calls without a result may still
 // get one. Any other call without a result never ran (e.g. the run failed first).
 export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMessage[] {
-  const results = new Map(
-    messages.filter(ToolMessage.isInstance).map((m) => [m.tool_call_id, m]),
-  );
+  const results = new Map(messages.filter(ToolMessage.isInstance).map((m) => [m.tool_call_id, m]));
   const lastReply = messages.findLast(AIMessage.isInstance);
   return messages.flatMap((message): ChatMessage[] => {
     if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
     if (message.type === "human") {
       const { source, issueId, eventId, eventType, content } = message.additional_kwargs;
-      if (source === "forge" && typeof issueId === "string" && typeof eventId === "string" &&
-        typeof eventType === "string" && typeof content === "string") {
+      if (
+        source === "forge" &&
+        typeof issueId === "string" &&
+        typeof eventId === "string" &&
+        typeof eventType === "string" &&
+        typeof content === "string"
+      ) {
         return [{ role: "activity", issueId, eventId, eventType, content }];
       }
       const username = message.additional_kwargs.username;

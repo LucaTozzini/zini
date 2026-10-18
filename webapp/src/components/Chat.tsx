@@ -100,14 +100,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
     stopAgent,
   } = chat;
 
-  const {
-    scrollRef,
-    lastMessageRef,
-    onScroll,
-    onScrollEnd,
-    messagesBelow,
-    scrollToBottom,
-  } = useChatScroll({
+  const { scrollRef, lastMessageRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
     content,
     // A new chat's first message, or a message just sent to this one.
     sending: Boolean(sending) || sendLoading,
@@ -141,27 +134,15 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
           scrollbarWidth: "none",
         }}
       >
-        <ChatHeader
-          src={avatar.src}
-          label={avatar.label}
-          todos={todos}
-          notes={notes}
-          actions={headerActions}
-        />
+        <ChatHeader src={avatar.src} label={avatar.label} todos={todos} notes={notes} actions={headerActions} />
         <Container maxWidth={"md"}>
           <Stack spacing={3} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (
-              <Typography
-                color="text.secondary"
-                align="center"
-                sx={{ pt: "20vh" }}
-              >
+              <Typography color="text.secondary" align="center" sx={{ pt: "20vh" }}>
                 {emptyText}
               </Typography>
             )}
-            {loading && (
-              <Typography color="text.secondary">Loading…</Typography>
-            )}
+            {loading && <Typography color="text.secondary">Loading…</Typography>}
             {groupToolCalls(messages).map(({ i, message, calls }) =>
               calls ? (
                 calls.length === 1 ? (
@@ -172,35 +153,15 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
               ) : message.role === "compaction" ? (
                 <CompactionMarker key={i} summary={message.summary} />
               ) : message.role === "activity" ? (
-                <SystemMessage
-                  key={message.eventId}
-                  issueId={message.issueId}
-                  content={message.content}
-                />
+                <SystemMessage key={message.eventId} issueId={message.issueId} content={message.content} />
               ) : message.role === "user" ? (
-                <HumanMessage
-                  key={i}
-                  message={message}
-                  ref={i === messages.length - 1 ? lastMessageRef : undefined}
-                />
+                <HumanMessage key={i} message={message} ref={i === messages.length - 1 ? lastMessageRef : undefined} />
               ) : (
-                <AiMessage
-                  key={i}
-                  ref={i === messages.length - 1 ? lastMessageRef : undefined}
-                  content={message.content}
-                />
+                <AiMessage key={i} ref={i === messages.length - 1 ? lastMessageRef : undefined} content={message.content} />
               ),
             )}
-            {sending && (
-              <HumanMessage message={{ role: "user", content: sending.message, images: sending.images }} />
-            )}
-            {pending.length > 0 && (
-              <ApprovalCard
-                actions={pending}
-                loading={decideLoading}
-                onDecide={decide}
-              />
-            )}
+            {sending && <HumanMessage message={{ role: "user", content: sending.message, images: sending.images }} />}
+            {pending.length > 0 && <ApprovalCard actions={pending} loading={decideLoading} onDecide={decide} />}
             {busy && <ThinkingIndicator />}
             {error && <Alert severity="error">{errorMessage(error)}</Alert>}
           </Stack>
@@ -221,8 +182,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
             bottom: 0,
             left: 0,
             right: 0,
-            background: (theme) =>
-              `linear-gradient(transparent, ${(theme.vars || theme).palette.background.default} 40%)`,
+            background: (theme) => `linear-gradient(transparent, ${(theme.vars || theme).palette.background.default} 40%)`,
           }}
         >
           {/* Shown while scrolled up: jumps back to the latest message. */}
@@ -241,11 +201,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
                 clickable
                 onClick={scrollToBottom}
                 icon={<KeyboardArrowDownIcon color="inherit" />}
-                label={
-                  messagesBelow > 0
-                    ? `${messagesBelow} message${messagesBelow === 1 ? "" : "s"}`
-                    : undefined
-                }
+                label={messagesBelow > 0 ? `${messagesBelow} message${messagesBelow === 1 ? "" : "s"}` : undefined}
                 sx={{
                   bgcolor: "primary.main",
                   color: "primary.contrastText",
@@ -270,11 +226,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
               stoppable={stoppable}
               onStop={stopAgent}
               placeholder={
-                pending.length
-                  ? "Approve or reject above first"
-                  : stoppable
-                    ? "Send to steer the agent, or stop it"
-                    : placeholder
+                pending.length ? "Approve or reject above first" : stoppable ? "Send to steer the agent, or stop it" : placeholder
               }
               onSubmit={sendDraft}
             />

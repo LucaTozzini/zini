@@ -12,12 +12,10 @@ const KEEP_MESSAGES = 20;
 const SUMMARY_PREFIX = "Here is a summary of the conversation to date:";
 
 // The summary LangChain's compaction puts in place of the messages it drops.
-export const isSummary = (message: BaseMessage) =>
-  message.additional_kwargs?.lc_source === "summarization";
+export const isSummary = (message: BaseMessage) => message.additional_kwargs?.lc_source === "summarization";
 
 // A summary message's text, without its prefix.
-export const summaryText = (message: BaseMessage) =>
-  message.text.replace(SUMMARY_PREFIX, "").trim();
+export const summaryText = (message: BaseMessage) => message.text.replace(SUMMARY_PREFIX, "").trim();
 
 // The archive merges by message ID: each run of the agent writes the saved archive back,
 // or an empty default at its start, and neither may double or wipe it.

@@ -1,16 +1,8 @@
-import {
-  DataTypes,
-  Model,
-  type InferAttributes,
-  type InferCreationAttributes,
-} from "sequelize";
+import { DataTypes, Model, type InferAttributes, type InferCreationAttributes } from "sequelize";
 import type { Provider } from "shared";
 import { sequelize } from "../db.js";
 
-export class Integration extends Model<
-  InferAttributes<Integration>,
-  InferCreationAttributes<Integration>
-> {
+export class Integration extends Model<InferAttributes<Integration>, InferCreationAttributes<Integration>> {
   declare provider: string;
   declare apiKey: string;
 }

@@ -17,22 +17,38 @@ test("workspace metadata loads while its execution lock is held, without a Docke
   const { withWorkspaceLock } = await import("./workspaceLocks.js");
   await initDb();
   const id = randomUUID();
-  await Workspace.create({ issueId: id, context: {
-    branch: "feature/existing-pr", initialHead: "abc", targetBranch: "main", sourcePr: null,
-  } });
-  const app = express(); app.use("/workspaces", workspaces);
+  await Workspace.create({
+    issueId: id,
+    context: {
+      branch: "feature/existing-pr",
+      initialHead: "abc",
+      targetBranch: "main",
+      sourcePr: null,
+    },
+  });
+  const app = express();
+  app.use("/workspaces", workspaces);
   const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>(resolve => server.once("listening", resolve));
+  await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address() as { port: number };
   let release!: () => void;
   let entered!: () => void;
-  const ready = new Promise<void>(resolve => { entered = resolve; });
-  const held = withWorkspaceLock(id, () => new Promise<void>(resolve => { release = resolve; entered(); }));
+  const ready = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = withWorkspaceLock(
+    id,
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+        entered();
+      }),
+  );
   await ready;
   try {
     const response = await fetch(`http://127.0.0.1:${address.port}/workspaces/${id}`, { signal: AbortSignal.timeout(2000) });
     assert.equal(response.status, 200);
-    const workspace = await response.json() as WorkspaceResponse;
+    const workspace = (await response.json()) as WorkspaceResponse;
     assert.equal(workspace.branch, "feature/existing-pr");
     assert.equal(workspace.issueId, id);
     assert.equal(workspace.forgeRunning, false);
@@ -42,9 +58,11 @@ test("workspace metadata loads while its execution lock is held, without a Docke
     const missing = await fetch(`http://127.0.0.1:${address.port}/workspaces/${randomUUID()}`);
     assert.equal(await missing.json(), null);
   } finally {
-    release(); await held;
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    checkpointer.db.close(); await sequelize.close();
+    release();
+    await held;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    checkpointer.db.close();
+    await sequelize.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

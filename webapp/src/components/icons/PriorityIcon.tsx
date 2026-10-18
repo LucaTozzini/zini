@@ -13,8 +13,7 @@ function PriorityIcon({ priority, ...props }: { priority: number } & SvgIconProp
 
   return (
     <SvgIcon viewBox="0 0 16 16" titleAccess={title} {...props}>
-      {priority === 0 &&
-        [1.5, 6.5, 11.5].map((x) => <rect key={x} x={x} y={7.25} width={3} height={1.5} rx={0.75} />)}
+      {priority === 0 && [1.5, 6.5, 11.5].map((x) => <rect key={x} x={x} y={7.25} width={3} height={1.5} rx={0.75} />)}
 
       {priority === 1 && (
         // A rounded square with the exclamation mark cut out of it.

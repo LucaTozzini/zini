@@ -19,7 +19,15 @@ export function CardFrame({ title, children }: { title: string; children: React.
 }
 
 // Starts the Forge, with an optional note for the Lead.
-export function StartCard({ issueId, onStart, loading }: { issueId: string; onStart: (note: string) => void; loading?: boolean }) {
+export function StartCard({
+  issueId,
+  onStart,
+  loading,
+}: {
+  issueId: string;
+  onStart: (note: string) => void;
+  loading?: boolean;
+}) {
   const [note, setNote] = useState("");
   const workspace = useWorkspace(issueId);
   const create = useCreateWorkspace();
@@ -33,25 +41,31 @@ export function StartCard({ issueId, onStart, loading }: { issueId: string; onSt
     else if (ready) onStart(note.trim());
   }
   if (workspace.isPending) return <Skeleton height={100} />;
-  if (workspace.isError) return <Alert severity="error" action={<Button onClick={() => workspace.refetch()}>Retry</Button>}>
-    {errorMessage(workspace.error)}
-  </Alert>;
+  if (workspace.isError)
+    return (
+      <Alert severity="error" action={<Button onClick={() => workspace.refetch()}>Retry</Button>}>
+        {errorMessage(workspace.error)}
+      </Alert>
+    );
   return (
     <Stack component="form" spacing={1.5} onSubmit={handleSubmit}>
       <Typography variant="body2" color="text.secondary">
-        {workspace.data === null ? "Create a workspace for this issue before starting the forge." :
-          "The Lead works the issue end to end; you approve its plan and answer its questions."}
+        {workspace.data === null
+          ? "Create a workspace for this issue before starting the forge."
+          : "The Lead works the issue end to end; you approve its plan and answer its questions."}
       </Typography>
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
-      <WorkspaceChoices error={failure} busy={busy} choose={selection => create.mutate({ issueId, ...selection })} />
-      {ready && <TextField
-        size="small"
-        multiline
-        minRows={2}
-        label="Note for the Lead (optional)"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-      />}
+      <WorkspaceChoices error={failure} busy={busy} choose={(selection) => create.mutate({ issueId, ...selection })} />
+      {ready && (
+        <TextField
+          size="small"
+          multiline
+          minRows={2}
+          label="Note for the Lead (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      )}
       <Stack direction="row">
         <Button type="submit" variant="contained" loading={busy}>
           {workspace.data === null ? "Create workspace" : "Start"}
@@ -85,7 +99,9 @@ export function QuestionsCard({
         {questions.map((question, i) => (
           // The question as its own text, not the input's label, so a long one has room.
           <Box key={i}>
-            <Typography variant="body1" gutterBottom>{question}</Typography>
+            <Typography variant="body1" gutterBottom>
+              {question}
+            </Typography>
             <TextField
               size="small"
               multiline

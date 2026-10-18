@@ -1,18 +1,10 @@
 // Linear's fixed status types; every team's custom status names map to one of these.
-export const STATUS_TYPES = [
-  "triage",
-  "backlog",
-  "unstarted",
-  "started",
-  "completed",
-  "canceled",
-  "duplicate",
-] as const;
+export const STATUS_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled", "duplicate"] as const;
 
 export type User = {
   username: string;
   authority: number;
-}
+};
 
 export type StatusType = (typeof STATUS_TYPES)[number];
 
@@ -58,8 +50,7 @@ export type LinearRelatedIssue = {
 };
 
 // A blocker is active until it's done or canceled.
-export const isActiveBlocker = (issue: LinearRelatedIssue) =>
-  issue.state.type !== "completed" && issue.state.type !== "canceled";
+export const isActiveBlocker = (issue: LinearRelatedIssue) => issue.state.type !== "completed" && issue.state.type !== "canceled";
 
 export type LinearAttachment = { title: string; url: string };
 
@@ -173,11 +164,7 @@ export type Settings = {
 };
 
 // Settings that can be cleared, by saving an empty value.
-export const OPTIONAL_SETTINGS = [
-  "projectLeadProvider",
-  "forgeProvider",
-  "openwikiProvider",
-] as const;
+export const OPTIONAL_SETTINGS = ["projectLeadProvider", "forgeProvider", "openwikiProvider"] as const;
 
 // Where a model runs: on OpenRouter, with its key, or on the user's ChatGPT plan, through
 // Sign in with ChatGPT.
@@ -241,16 +228,11 @@ export type WorkspaceDiff = { diff: string; truncated: boolean };
 
 // What the Forge is paused on, waiting for you: the Lead's questions, or a plan (or a
 // change to it) to approve.
-export type PipelineWaiting =
-  | { kind: "questions"; questions: string[] }
-  | { kind: "approve_plan"; plan: ForgePlan };
+export type PipelineWaiting = { kind: "questions"; questions: string[] } | { kind: "approve_plan"; plan: ForgePlan };
 
 // Your reply to what the Forge is waiting on, as POSTed to /api/forge/:issueId/resume:
 // answers to the questions (in order), approving the plan, or what to change in it.
-export type PipelineResume =
-  | { answers: string[] }
-  | { approve: true }
-  | { feedback: string };
+export type PipelineResume = { answers: string[] } | { approve: true } | { feedback: string };
 
 export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
   | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
@@ -453,7 +435,7 @@ export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 export type ConductorStatus = {
   lastRan: null | Date;
   running: boolean;
-}
+};
 
 // The user's app in a workspace, as GET /api/workspaces/:issueId/app reports it.
 export type WorkspaceAppState = { status: "stopped" | "starting" | "ready" | "failed"; error?: string | null };
@@ -463,8 +445,16 @@ export type WorkspaceAppState = { status: "stopped" | "starting" | "ready" | "fa
 // sends the screen as JPEG frames in binary messages, and these as JSON text.
 export type PreviewMode = "desktop" | "mobile";
 export type PreviewServerMessage =
-  | { type: "state"; url: string; title: string; canGoBack: boolean; canGoForward: boolean;
-      mode: PreviewMode; width: number; height: number }
+  | {
+      type: "state";
+      url: string;
+      title: string;
+      canGoBack: boolean;
+      canGoForward: boolean;
+      mode: PreviewMode;
+      width: number;
+      height: number;
+    }
   // The page asked for files: answer with "files", or nothing to cancel.
   | { type: "fileChooser"; multiple: boolean }
   | { type: "dialog"; kind: string; message: string; defaultValue: string }
@@ -474,15 +464,24 @@ export type PreviewServerMessage =
 // x and y are in the page's CSS pixels; modifiers is CDP's bit field (Alt 1, Ctrl 2,
 // Meta 4, Shift 8).
 export type PreviewClientMessage =
-  | { type: "mouse"; action: "down" | "up" | "move"; x: number; y: number;
-      button: "left" | "middle" | "right" | "none"; clickCount: number; modifiers: number }
+  | {
+      type: "mouse";
+      action: "down" | "up" | "move";
+      x: number;
+      y: number;
+      button: "left" | "middle" | "right" | "none";
+      clickCount: number;
+      modifiers: number;
+    }
   | { type: "wheel"; x: number; y: number; deltaX: number; deltaY: number; modifiers: number }
   // key is a KeyboardEvent.key.
   | { type: "key"; action: "down" | "up"; key: string }
   // Pasted or composed text, typed as is.
   | { type: "text"; text: string }
   | { type: "navigate"; url: string }
-  | { type: "back" } | { type: "forward" } | { type: "reload" }
+  | { type: "back" }
+  | { type: "forward" }
+  | { type: "reload" }
   // The viewer's size in CSS pixels, and its device pixel ratio (frames are sharper).
   | { type: "resize"; width: number; height: number; scale: number }
   | { type: "mode"; mode: PreviewMode }

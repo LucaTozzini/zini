@@ -24,13 +24,16 @@ export const resetChecks = (plan: ForgePlan): ForgePlan => ({
   qaChecklist: plan.qaChecklist.map((check) => ({ ...check, status: "todo", note: "" })),
 });
 
-export const planText = (plan: ForgePlan) => [
-  "Implementation steps:",
-  ...plan.steps.map((step) => `- ${step.id} [${step.status}] ${step.description}`),
-  "",
-  "QA checklist:",
-  ...plan.qaChecklist.map((check) => `- ${check.id} [${check.status}] ${check.condition}${check.note ? ` (${check.note})` : ""}`),
-].join("\n");
+export const planText = (plan: ForgePlan) =>
+  [
+    "Implementation steps:",
+    ...plan.steps.map((step) => `- ${step.id} [${step.status}] ${step.description}`),
+    "",
+    "QA checklist:",
+    ...plan.qaChecklist.map(
+      (check) => `- ${check.id} [${check.status}] ${check.condition}${check.note ? ` (${check.note})` : ""}`,
+    ),
+  ].join("\n");
 
 // What keeps the plan from being finished: steps not complete, checks not passed or
 // skipped. Empty when it's done.
@@ -39,8 +42,11 @@ export function unfinishedPlan(plan: ForgePlan | null, approved: boolean) {
   if (!approved) return ["The plan isn't approved yet."];
   if (!plan.qaChecklist.length) return ["The QA checklist is empty."];
   return [
-    ...plan.steps.filter((step) => step.status !== "complete").map((step) => `Step ${step.id} is ${step.status}: ${step.description}`),
-    ...plan.qaChecklist.filter((check) => check.status !== "passed" && check.status !== "skipped")
+    ...plan.steps
+      .filter((step) => step.status !== "complete")
+      .map((step) => `Step ${step.id} is ${step.status}: ${step.description}`),
+    ...plan.qaChecklist
+      .filter((check) => check.status !== "passed" && check.status !== "skipped")
       .map((check) => `QA check ${check.id} is ${check.status}: ${check.condition}`),
   ];
 }
@@ -53,12 +59,12 @@ export function checklistVerdict(plan: ForgePlan | null): "pass" | "fail" | "par
 }
 
 export function issueText(issue: LinearIssueDetails) {
-  const comments = issue.comments.map(
-    (c) => `- ${c.user?.name ?? "An integration"} (${c.createdAt.slice(0, 10)}): ${c.body}`,
-  );
+  const comments = issue.comments.map((c) => `- ${c.user?.name ?? "An integration"} (${c.createdAt.slice(0, 10)}): ${c.body}`);
   return [
     `# ${issue.identifier}: ${issue.title}`,
     issue.description?.trim() || "(No description.)",
     comments.length ? `## Comments, oldest first\n${comments.join("\n")}` : "",
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

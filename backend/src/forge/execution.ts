@@ -5,13 +5,17 @@ export class PipelineExecution {
   async track<T>(work: () => Promise<T>): Promise<T> {
     const task = work();
     this.pending.add(task);
-    try { return await task; }
-    finally { this.pending.delete(task); }
+    try {
+      return await task;
+    } finally {
+      this.pending.delete(task);
+    }
   }
 
   async *stream<T>(source: Promise<AsyncIterable<T>>): AsyncGenerator<T> {
-    try { yield* await source; }
-    finally {
+    try {
+      yield* await source;
+    } finally {
       while (this.pending.size) await Promise.allSettled(this.pending);
     }
   }

@@ -55,7 +55,26 @@ async function executeGit(args: string[], token?: string) {
         GIT_CONFIG_VALUE_1: `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
       }
     : {};
-  const safe = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.pager=cat", "-c", "credential.helper=", "-c", "core.sshCommand=false", "-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=never", "-c", "user.name=Zini", "-c", "user.email=zini@localhost"];
+  const safe = [
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.pager=cat",
+    "-c",
+    "credential.helper=",
+    "-c",
+    "core.sshCommand=false",
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.file.allow=never",
+    "-c",
+    "user.name=Zini",
+    "-c",
+    "user.email=zini@localhost",
+  ];
   const { stdout } = await execFileAsync("git", [...safe, ...args], {
     env: {
       ...process.env,
@@ -157,7 +176,10 @@ export const workspacePath = (issueId: string) => {
 // branch when present.
 export async function remoteBranches() {
   const out = await git(["-C", REPO_DIR, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/"]);
-  return out.trim().split("\n").filter(name => name && name !== "HEAD");
+  return out
+    .trim()
+    .split("\n")
+    .filter((name) => name && name !== "HEAD");
 }
 
 export function cloneWorkspace(issueId: string, branch: string, target?: string, requireRemote = false) {
@@ -167,8 +189,13 @@ export function cloneWorkspace(issueId: string, branch: string, target?: string,
       .then(() => true)
       .catch(() => false);
     if (requireRemote && !onRemote) throw new Error("The selected PR branch is unavailable on the remote");
-    await cloneWorkspaceVolume(issueId, branch, onRemote ? remote : REF,
-      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(), `refs/remotes/origin/${target ?? await defaultBranch()}`);
+    await cloneWorkspaceVolume(
+      issueId,
+      branch,
+      onRemote ? remote : REF,
+      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(),
+      `refs/remotes/origin/${target ?? (await defaultBranch())}`,
+    );
   });
 }
 
@@ -191,7 +218,17 @@ export async function pushBranch(issueId: string) {
   const token = await requireToken();
   // Updates origin/<branch> too, which the clone's fetch shares, so one at a time.
   await exclusive(async () => {
-    await git(["-C", workspacePath(issueId), "push", "--quiet", repoUrl(String(await getSetting("githubRepo"))), `HEAD:refs/heads/${branch}`], token);
+    await git(
+      [
+        "-C",
+        workspacePath(issueId),
+        "push",
+        "--quiet",
+        repoUrl(String(await getSetting("githubRepo"))),
+        `HEAD:refs/heads/${branch}`,
+      ],
+      token,
+    );
     await git(["-C", workspacePath(issueId), "update-ref", `refs/remotes/origin/${branch}`, "HEAD"]);
   });
 }
@@ -200,32 +237,52 @@ export async function pushBranch(issueId: string) {
 // rather than sandbox-controlled remotes. Merge preserves history and refuses dirty edits.
 export async function syncWorkspace(issueId: string, merge = false) {
   await ensureWorkspaceVolume(issueId);
-  return withWorkspaceLock(issueId, () => trustedGit(workspacePath(issueId), async () => {
-    const { isRunning } = await import("../agents/runs.js");
-    if (isRunning(`forge:${issueId}`)) throw new Error("Pause the Forge before syncing its workspace");
-    const path = workspacePath(issueId);
-    const token = await requireToken();
-    await git(["-C", path, "fetch", "--quiet", "--prune", repoUrl(String(await getSetting("githubRepo"))), "+refs/heads/*:refs/remotes/origin/*"], token);
-    if (merge) {
-      const { assertNoMerge, workspaceContext } = await import("../workspaces/workspaceIntegration.js");
-      await assertNoMerge(issueId);
-      if ((await git(["-C", path, "status", "--porcelain"])).trim()) throw new Error("Workspace has unfinished edits. Fetch completed; commit or resolve them before merging.");
-      const branch = (await workspaceContext(issueId)).targetBranch;
-      await git(["-C", path, "merge", "--no-edit", `refs/remotes/origin/${branch}`]);
-    }
-    return { fetched: true, merged: merge };
-  }));
+  return withWorkspaceLock(issueId, () =>
+    trustedGit(workspacePath(issueId), async () => {
+      const { isRunning } = await import("../agents/runs.js");
+      if (isRunning(`forge:${issueId}`)) throw new Error("Pause the Forge before syncing its workspace");
+      const path = workspacePath(issueId);
+      const token = await requireToken();
+      await git(
+        [
+          "-C",
+          path,
+          "fetch",
+          "--quiet",
+          "--prune",
+          repoUrl(String(await getSetting("githubRepo"))),
+          "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        token,
+      );
+      if (merge) {
+        const { assertNoMerge, workspaceContext } = await import("../workspaces/workspaceIntegration.js");
+        await assertNoMerge(issueId);
+        if ((await git(["-C", path, "status", "--porcelain"])).trim())
+          throw new Error("Workspace has unfinished edits. Fetch completed; commit or resolve them before merging.");
+        const branch = (await workspaceContext(issueId)).targetBranch;
+        await git(["-C", path, "merge", "--no-edit", `refs/remotes/origin/${branch}`]);
+      }
+      return { fetched: true, merged: merge };
+    }),
+  );
 }
 
 // Remove the host's volume-reference marker; repository files live in Docker.
 export async function removeWorkspaceMarker(issueId: string) {
   const path = workspacePath(issueId);
   await rm(join(path, ".docker-volume"), { force: true });
-  await rmdir(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+  await rmdir(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
 }
 
 // "src/App.tsx", "./src/App.tsx" and "/src/App.tsx" all mean the same file; "" is the root.
-export const cleanPath = (path: string) => path.trim().replace(/^\.?\/+/, "").replace(/\/+$/, "");
+export const cleanPath = (path: string) =>
+  path
+    .trim()
+    .replace(/^\.?\/+/, "")
+    .replace(/\/+$/, "");
 
 async function objectType(path: string) {
   return (await git(["-C", REPO_DIR, "cat-file", "-t", `${REF}:${path}`]).catch(() => "")).trim();

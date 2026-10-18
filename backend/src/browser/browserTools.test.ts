@@ -17,13 +17,19 @@ test("Project Lead browser opens external pages, persists per chat, streams fram
   const call = (name: string, args: Record<string, unknown>) =>
     (tools.find((tool) => tool.name === name)! as StructuredToolInterface).invoke(args);
   const server = createServer(async (_req, res) => {
-    if (!await addViewer(key, res as Response)) { res.statusCode = 404; res.end(); }
+    if (!(await addViewer(key, res as Response))) {
+      res.statusCode = 404;
+      res.end();
+    }
   });
   try {
     const { page } = await getPage(key);
-    await page.route("https://zini-browser.example/**", (route) => route.fulfill({
-      contentType: "text/html", body: '<title>External site</title><button onclick="this.textContent=\'Clicked\'">Try me</button>',
-    }));
+    await page.route("https://zini-browser.example/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: "<title>External site</title><button onclick=\"this.textContent='Clicked'\">Try me</button>",
+      }),
+    );
     assert.match(String(await call("browser_open", { url: "https://zini-browser.example/" })), /External site/);
     assert.match(String(await call("browser_click", { role: "button", name: "Try me" })), /Clicked/);
     const session = browserState(key);
@@ -59,7 +65,10 @@ test("browser tools interact, wait, emulate and return real screenshot image con
     (tools.find((tool) => tool.name === name)! as StructuredToolInterface).invoke(args);
   try {
     const { page } = await getPage(key);
-    await page.route("https://zini-browser.example/**", (route) => route.fulfill({ contentType: "text/html", body: `
+    await page.route("https://zini-browser.example/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `
       <style>body{height:2500px}#scroll{height:80px;width:150px;overflow:auto}#hover:hover + #hint{display:block}#hint{display:none}</style>
       <input aria-label="Text"><input type="checkbox" aria-label="Enable">
       <select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
@@ -68,7 +77,9 @@ test("browser tools interact, wait, emulate and return real screenshot image con
       <div id="source" style="display:inline-block;width:100px;height:80px" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','item')">Drag me</div>
       <div id="target" style="display:inline-block;width:100px;height:80px" ondragenter="event.preventDefault()" ondragover="event.preventDefault()" ondrop="event.preventDefault();this.textContent='Dropped'">Drop here</div>
       <button onclick="setTimeout(()=>document.querySelector('#ready').textContent='Ready now',100)">Start</button><span id="ready"></span>
-    ` }));
+    `,
+      }),
+    );
     await call("browser_open", { url: "https://zini-browser.example/" });
     await page.getByRole("textbox", { name: "Text" }).focus();
     await call("browser_keypress", { key: "A" });
@@ -86,25 +97,43 @@ test("browser tools interact, wait, emulate and return real screenshot image con
     assert.equal(await page.locator("#target").textContent(), "Dropped");
     // Trigger a delayed update directly so browser_wait has to synchronize with it.
     await page.getByRole("button", { name: "Start", exact: true }).click();
-    assert.match(String(await call("browser_wait", { condition: { type: "text", text: "Ready now", present: true } })), /Ready now/);
+    assert.match(
+      String(await call("browser_wait", { condition: { type: "text", text: "Ready now", present: true } })),
+      /Ready now/,
+    );
     await call("browser_wait", { condition: { type: "text", text: "Absent text", present: false } });
     await call("browser_wait", { condition: { type: "element", selector: "#ready", state: "visible" } });
     await call("browser_wait", { condition: { type: "url", pattern: "**/" } });
-    await assert.rejects(call("browser_wait", { condition: { type: "element", selector: "#missing", state: "visible" }, timeoutMs: 100 }), /Waiting for .*#missing.*failed:[\s\S]*Current URL/);
+    await assert.rejects(
+      call("browser_wait", { condition: { type: "element", selector: "#missing", state: "visible" }, timeoutMs: 100 }),
+      /Waiting for .*#missing.*failed:[\s\S]*Current URL/,
+    );
     await call("browser_set_viewport", { width: 390, height: 844 });
     assert.deepEqual(page.viewportSize(), { width: 390, height: 844 });
     await call("browser_emulate_media", { colorScheme: "dark", reducedMotion: "reduce" });
     await call("browser_emulate_media", { media: "print" });
-    assert.equal(await page.evaluate("matchMedia('(prefers-color-scheme: dark)').matches && matchMedia('(prefers-reduced-motion: reduce)').matches && matchMedia('print').matches"), true);
-    const image = await call("browser_screenshot", { selector: "#ready" }) as { type: string; image_url?: string }[];
+    assert.equal(
+      await page.evaluate(
+        "matchMedia('(prefers-color-scheme: dark)').matches && matchMedia('(prefers-reduced-motion: reduce)').matches && matchMedia('print').matches",
+      ),
+      true,
+    );
+    const image = (await call("browser_screenshot", { selector: "#ready" })) as { type: string; image_url?: string }[];
     assert.equal(image[1]?.type, "input_image");
     const bytes = Buffer.from(image[1]!.image_url!.split(",")[1]!, "base64");
     assert.equal(bytes.subarray(0, 3).toString("hex"), "ffd8ff");
     await call("browser_reset_emulation", {});
     assert.deepEqual(page.viewportSize(), { width: 1280, height: 800 });
-    assert.equal(await page.evaluate("matchMedia('(prefers-color-scheme: dark)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches || matchMedia('print').matches"), false);
+    assert.equal(
+      await page.evaluate(
+        "matchMedia('(prefers-color-scheme: dark)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches || matchMedia('print').matches",
+      ),
+      false,
+    );
     const beforeScroll = await page.evaluate<number>("window.scrollY");
     await call("browser_scroll", { direction: "down", pixels: 300 });
     assert.equal(await page.evaluate("window.scrollY"), beforeScroll + 300);
-  } finally { await closeBrowser(key); }
+  } finally {
+    await closeBrowser(key);
+  }
 });

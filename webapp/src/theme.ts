@@ -4,7 +4,6 @@ declare module "@mui/material/styles" {
   interface TypeBackground {
     secondary: string;
   }
-
 }
 
 export const theme = createTheme({
@@ -13,25 +12,25 @@ export const theme = createTheme({
     light: {
       palette: {
         background: {
-          secondary: "#f0f0f0"
+          secondary: "#f0f0f0",
         },
         primary: {
           main: "#065dff",
         },
-      }
+      },
     },
     dark: {
       palette: {
         background: {
           default: "#141414",
           paper: "#1e1e1e",
-          secondary: "#252525"
+          secondary: "#252525",
         },
         primary: {
           main: "#3074bc",
         },
         secondary: {
-          main: "#62439a"
+          main: "#62439a",
         },
       },
     },
@@ -51,10 +50,7 @@ export const theme = createTheme({
         // MUI's shadow for the paper's elevation with the y offset set to 0, so it's
         // centered. Each shadow is up to three "x y blur spread color" layers.
         elevation: ({ ownerState, theme }) => ({
-          boxShadow: theme.shadows[ownerState.elevation ?? 1]?.replace(
-            /(^|,)(-?\d+px) -?\d+px/g,
-            "$1$2 0px",
-          ),
+          boxShadow: theme.shadows[ownerState.elevation ?? 1]?.replace(/(^|,)(-?\d+px) -?\d+px/g, "$1$2 0px"),
         }),
       },
     },
@@ -62,7 +58,7 @@ export const theme = createTheme({
   typography: {
     fontFamily: '"IBM Plex Sans", sans-serif',
     button: {
-      textTransform: "capitalize"
-    }
-  }
+      textTransform: "capitalize",
+    },
+  },
 });

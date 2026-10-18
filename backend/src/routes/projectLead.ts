@@ -13,20 +13,19 @@ import { parseMessageInput } from "../projectLead/messageInput.js";
 export const projectLead = Router();
 
 function readMessage(body: unknown, res: Response) {
-  try { return parseMessageInput(body); }
-  catch (error) {
+  try {
+    return parseMessageInput(body);
+  } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Invalid message" });
     return null;
   }
 }
 
-
 const isDecision = (d: unknown): d is Decision =>
   typeof d === "object" &&
   d !== null &&
   "type" in d &&
-  (d.type === "approve" ||
-    (d.type === "reject" && (!("message" in d) || typeof d.message === "string")));
+  (d.type === "approve" || (d.type === "reject" && (!("message" in d) || typeof d.message === "string")));
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
@@ -86,17 +85,14 @@ projectLead.post("/threads", async (req, res) => {
 
   const title = message.trim().replace(/\s+/g, " ").slice(0, 60) || "Image attachment";
   const thread = await ProjectLeadThread.create({ id: randomUUID(), title });
-  const start = (signal: AbortSignal) =>
-    chat(setup, thread.id, message, req.user!.username, signal, images);
+  const start = (signal: AbortSignal) => chat(setup, thread.id, message, req.user!.username, signal, images);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
     forgetRun(thread.id);
     return;
   }
-  res
-    .status(201)
-    .json({ id: thread.id, title, createdAt: thread.createdAt, running: true });
+  res.status(201).json({ id: thread.id, title, createdAt: thread.createdAt, running: true });
 });
 
 projectLead.get("/threads/:id", async (req, res) => {

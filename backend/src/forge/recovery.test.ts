@@ -16,11 +16,21 @@ test("a rebuilt pipeline continues its durable checkpoint without rerunning comp
   let secondCalls = 0;
   let fail = true;
   const state = Annotation.Root({ done: Annotation<boolean>() });
-  const build = () => new StateGraph(state)
-    .addNode("first", () => { firstCalls++; return { done: false }; })
-    .addNode("second", () => { secondCalls++; if (fail) throw new Error("interrupted"); return { done: true }; })
-    .addEdge(START, "first").addEdge("first", "second").addEdge("second", END)
-    .compile({ checkpointer: saved });
+  const build = () =>
+    new StateGraph(state)
+      .addNode("first", () => {
+        firstCalls++;
+        return { done: false };
+      })
+      .addNode("second", () => {
+        secondCalls++;
+        if (fail) throw new Error("interrupted");
+        return { done: true };
+      })
+      .addEdge(START, "first")
+      .addEdge("first", "second")
+      .addEdge("second", END)
+      .compile({ checkpointer: saved });
   const config = { configurable: { thread_id: "test" }, durability: "sync" as const };
   try {
     await assert.rejects(build().invoke({ done: false }, config), /interrupted/);
@@ -32,18 +42,25 @@ test("a rebuilt pipeline continues its durable checkpoint without rerunning comp
     assert.equal(firstCalls, 1);
     assert.equal(secondCalls, 2);
     assert.deepEqual((await build().getState(config)).next, []);
-  } finally { saved.db.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally {
+    saved.db.close();
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("continuation with null does not approve a pending human request", async () => {
   const { MemorySaver } = await import("@langchain/langgraph");
   const state = Annotation.Root({ done: Annotation<boolean>() });
   let work = 0;
-  const graph = new StateGraph(state).addNode("approval", () => {
-    interrupt({ kind: "approve_plan" });
-    work++;
-    return { done: true };
-  }).addEdge(START, "approval").addEdge("approval", END).compile({ checkpointer: new MemorySaver() });
+  const graph = new StateGraph(state)
+    .addNode("approval", () => {
+      interrupt({ kind: "approve_plan" });
+      work++;
+      return { done: true };
+    })
+    .addEdge(START, "approval")
+    .addEdge("approval", END)
+    .compile({ checkpointer: new MemorySaver() });
   const config = { configurable: { thread_id: "approval" } };
   await graph.invoke({ done: false }, config);
   await graph.invoke(null, config);
@@ -56,19 +73,42 @@ test("graph cancellation does not unlock a node still unwinding", async () => {
   const state = Annotation.Root({ done: Annotation<boolean>() });
   let entered!: () => void;
   let release!: () => void;
-  const started = new Promise<void>((resolve) => { entered = resolve; });
-  const drain = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const drain = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const execution = new PipelineExecution();
-  const graph = new StateGraph(state).addNode("work", () => execution.track(async () => {
-    entered();
-    await drain;
-    return { done: true };
-  })).addEdge(START, "work").addEdge("work", END).compile({ checkpointer: new MemorySaver() });
+  const graph = new StateGraph(state)
+    .addNode("work", () =>
+      execution.track(async () => {
+        entered();
+        await drain;
+        return { done: true };
+      }),
+    )
+    .addEdge(START, "work")
+    .addEdge("work", END)
+    .compile({ checkpointer: new MemorySaver() });
   const id = "graph-pause";
   try {
-    await startRun(id, async (signal) => execution.stream(graph.stream({ done: false }, {
-      configurable: { thread_id: id }, streamMode: "values", durability: "sync", signal,
-    })), () => {});
+    await startRun(
+      id,
+      async (signal) =>
+        execution.stream(
+          graph.stream(
+            { done: false },
+            {
+              configurable: { thread_id: id },
+              streamMode: "values",
+              durability: "sync",
+              signal,
+            },
+          ),
+        ),
+      () => {},
+    );
     await started;
     assert.equal(pauseRun(id), true);
     await setImmediate();
@@ -76,5 +116,8 @@ test("graph cancellation does not unlock a node still unwinding", async () => {
     release();
     for (let n = 0; n < 50 && isRunning(id); n++) await setImmediate();
     assert.equal(isRunning(id), false);
-  } finally { release(); forgetRun(id); }
+  } finally {
+    release();
+    forgetRun(id);
+  }
 });

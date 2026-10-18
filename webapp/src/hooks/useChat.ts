@@ -44,8 +44,7 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
   const posting = send.isPending || steer.isPending || stop.isPending || resume.isPending;
   const canSend = pending.length === 0 && !creating && !posting && (draft.trim().length > 0 || images.length > 0);
   const runError = thread.data?.error ? new Error(thread.data.error) : null;
-  const error =
-    thread.error ?? create.error ?? send.error ?? steer.error ?? stop.error ?? resume.error ?? runError;
+  const error = thread.error ?? create.error ?? send.error ?? steer.error ?? stop.error ?? resume.error ?? runError;
 
   function sendDraft(e?: FormEvent) {
     e?.preventDefault();
@@ -55,7 +54,10 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
     // If sending fails, the message goes back in the input.
     setDraft("");
     setImages([]);
-    const restore = () => { setDraft(message.message); setImages(message.images); };
+    const restore = () => {
+      setDraft(message.message);
+      setImages(message.images);
+    };
     if (threadId) {
       // While the agent works, the message redirects it: the server stops the run and
       // starts a new one with the message. A run paused on approval isn't running, so
@@ -116,4 +118,3 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
     stopAgent,
   };
 }
-

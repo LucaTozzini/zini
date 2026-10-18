@@ -5,8 +5,11 @@ import { setTimeout as delay } from "node:timers/promises";
 
 // Only the backend refreshes OAuth. Containers read this file on every model request.
 // Mount the directory, so atomic replacements remain visible inside Docker.
-export async function createEvalCredentials(token: () => Promise<string>, onError: (error: unknown) => void,
-  intervalMs = 30_000) {
+export async function createEvalCredentials(
+  token: () => Promise<string>,
+  onError: (error: unknown) => void,
+  intervalMs = 30_000,
+) {
   const directory = await mkdtemp(join(tmpdir(), "zini-eval-auth-"));
   let updating: Promise<void> | null = null;
   const update = async () => {
@@ -32,7 +35,12 @@ export async function createEvalCredentials(token: () => Promise<string>, onErro
     throw error;
   }
   const timer = setInterval(() => {
-    if (!updating) updating = update().catch(onError).finally(() => { updating = null; });
+    if (!updating)
+      updating = update()
+        .catch(onError)
+        .finally(() => {
+          updating = null;
+        });
   }, intervalMs);
   return {
     directory,

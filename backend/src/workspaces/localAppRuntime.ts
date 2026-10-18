@@ -23,7 +23,7 @@ export async function availableAppPort() {
     server.listen(0, "127.0.0.1", resolve);
   });
   const port = (server.address() as { port: number }).port;
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   return port;
 }
 
@@ -50,7 +50,8 @@ export function validateAppLaunchPlan(plan: AppLaunchPlan) {
     if (!Number.isInteger(service.port) || service.port < 1024 || service.port > 65535 || service.port === 7777)
       throw new Error("Service port must be between 1024 and 65535 and cannot use the workspace gateway port 7777.");
     if (ids.has(service.id) || ports.has(service.port)) throw new Error("Service IDs and ports must be unique.");
-    ids.add(service.id); ports.add(service.port);
+    ids.add(service.id);
+    ports.add(service.port);
     localPath(service.path);
   }
   if (!ids.has(plan.app.serviceId)) throw new Error("The app must refer to a declared service.");
@@ -63,7 +64,10 @@ async function isReady(service: AppService) {
   if (service.readiness === "tcp") {
     return new Promise<boolean>((resolve) => {
       const socket = connect({ host: "127.0.0.1", port: service.port });
-      const finish = (ready: boolean) => { socket.destroy(); resolve(ready); };
+      const finish = (ready: boolean) => {
+        socket.destroy();
+        resolve(ready);
+      };
       socket.setTimeout(1000);
       socket.once("connect", () => finish(true));
       socket.once("error", () => finish(false));
@@ -71,11 +75,16 @@ async function isReady(service: AppService) {
     });
   }
   try {
-    const response = await localResponse(new URL(`${service.readiness === "https" ? "https" : "http"}://127.0.0.1:${service.port}${service.path}`), { signal: AbortSignal.timeout(1000) });
+    const response = await localResponse(
+      new URL(`${service.readiness === "https" ? "https" : "http"}://127.0.0.1:${service.port}${service.path}`),
+      { signal: AbortSignal.timeout(1000) },
+    );
     response.resume();
     const status = response.statusCode ?? 0;
-    return status >= 200 && status < 400 || status === 401 || status === 403;
-  } catch { return false; }
+    return (status >= 200 && status < 400) || status === 401 || status === 403;
+  } catch {
+    return false;
+  }
 }
 
 // User launch sessions own their processes independently of forge/QA cleanup.
@@ -87,11 +96,17 @@ export class WorkspaceAppRuntime {
   status(issueId: string) {
     const session = this.sessions.get(issueId);
     if (!session) return { status: "stopped" as const };
-    return { status: session.status, url: session.status === "ready" ? session.url : null,
-      error: session.error, output: session.output.slice(-8000) };
+    return {
+      status: session.status,
+      url: session.status === "ready" ? session.url : null,
+      error: session.error,
+      output: session.output.slice(-8000),
+    };
   }
 
-  starting(issueId: string) { return this.sessions.get(issueId)?.status === "starting"; }
+  starting(issueId: string) {
+    return this.sessions.get(issueId)?.status === "starting";
+  }
 
   // The ready app's browser-facing service, for the eval harness's hidden checks.
   appTarget(issueId: string) {
@@ -104,18 +119,26 @@ export class WorkspaceAppRuntime {
   async stop(issueId: string) {
     const session = this.sessions.get(issueId);
     this.sessions.delete(issueId);
-    if (session) await Promise.all([...session.children].map((child) => {
-      if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Timed out stopping the app process.")), 10_000);
-        child.once("close", () => { clearTimeout(timer); resolve(); });
-        killTree(child);
-      });
-    }));
+    if (session)
+      await Promise.all(
+        [...session.children].map((child) => {
+          if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+          return new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("Timed out stopping the app process.")), 10_000);
+            child.once("close", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+            killTree(child);
+          });
+        }),
+      );
     return { status: "stopped" as const };
   }
 
-  async stopAll() { await Promise.all([...this.sessions.keys()].map((issueId) => this.stop(issueId))); }
+  async stopAll() {
+    await Promise.all([...this.sessions.keys()].map((issueId) => this.stop(issueId)));
+  }
 
   async launch(issueId: string, plan: AppLaunchPlan, signal?: AbortSignal, readinessTimeoutMs = 60_000) {
     signal?.throwIfAborted();
@@ -124,12 +147,21 @@ export class WorkspaceAppRuntime {
     validateAppLaunchPlan(plan);
     const appService = plan.services.find((service) => service.id === plan.app.serviceId)!;
     // The preview browser runs in the same container, so it opens the app at localhost.
-    const session: Session = { status: "starting", url: `${appService.readiness === "https" ? "https" : "http"}://localhost:${appService.port}${plan.app.path}`,
-      error: null, output: "", children: new Set(), plan };
+    const session: Session = {
+      status: "starting",
+      url: `${appService.readiness === "https" ? "https" : "http"}://localhost:${appService.port}${plan.app.path}`,
+      error: null,
+      output: "",
+      children: new Set(),
+      plan,
+    };
     this.sessions.set(issueId, session);
-    const append = (text: string) => { session.output = (session.output + text).slice(-200_000); };
+    const append = (text: string) => {
+      session.output = (session.output + text).slice(-200_000);
+    };
     const fail = (error: string) => {
-      session.status = "failed"; session.error = error;
+      session.status = "failed";
+      session.error = error;
       for (const child of session.children) killTree(child);
     };
     const abort = () => fail("Launch cancelled.");
@@ -151,13 +183,20 @@ export class WorkspaceAppRuntime {
       for (const entry of plan.setup) {
         const child = await spawn(entry);
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => { killTree(child); reject(new Error(`Setup timed out: ${entry.command}`)); }, 300_000);
+          const timer = setTimeout(() => {
+            killTree(child);
+            reject(new Error(`Setup timed out: ${entry.command}`));
+          }, 300_000);
           const finish = (error?: Error) => {
-            clearTimeout(timer); session.children.delete(child);
+            clearTimeout(timer);
+            session.children.delete(child);
             error ? reject(error) : resolve();
           };
           child.once("error", finish);
-          child.once("close", (code) => { killTree(child); finish(code === 0 ? undefined : new Error(`Setup exited with code ${code}: ${entry.command}`)); });
+          child.once("close", (code) => {
+            killTree(child);
+            finish(code === 0 ? undefined : new Error(`Setup exited with code ${code}: ${entry.command}`));
+          });
         });
         signal?.throwIfAborted();
       }
@@ -172,17 +211,21 @@ export class WorkspaceAppRuntime {
         const deadline = Date.now() + readinessTimeoutMs;
         while (!(await isReady(service))) {
           signal?.throwIfAborted();
-          if (session.status === "failed" || this.sessions.get(issueId) !== session) throw new Error(session.error ?? "Launch stopped.");
+          if (session.status === "failed" || this.sessions.get(issueId) !== session)
+            throw new Error(session.error ?? "Launch stopped.");
           if (Date.now() >= deadline) throw new Error(`${service.id} was not ready within ${readinessTimeoutMs / 1000}s.`);
           await delay(250, undefined, { signal });
         }
       }
-      if (session.status === "failed" || this.sessions.get(issueId) !== session) throw new Error(session.error ?? "Launch stopped.");
+      if (session.status === "failed" || this.sessions.get(issueId) !== session)
+        throw new Error(session.error ?? "Launch stopped.");
       session.status = "ready";
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
       signal?.throwIfAborted();
-    } finally { signal?.removeEventListener("abort", abort); }
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
     return this.status(issueId);
   }
 }

@@ -6,7 +6,16 @@ import { getSetting } from "../core/settings.js";
 import { selectWorkspaceBranch, WorkspaceChoiceRequired } from "./branchSelection.js";
 import { assertNoMerge } from "./workspaceIntegration.js";
 import { sendEvent } from "../core/events.js";
-import { cloneWorkspace, fetchRepo, pushBranch, removeWorkspaceMarker, workspacePath, defaultBranch, remoteBranches, git } from "../repositories/git.js";
+import {
+  cloneWorkspace,
+  fetchRepo,
+  pushBranch,
+  removeWorkspaceMarker,
+  workspacePath,
+  defaultBranch,
+  remoteBranches,
+  git,
+} from "../repositories/git.js";
 import { fetchLinearIssue, linkedPullRequests } from "../integrations/linear.js";
 import { commitAll, hasUncommitted, hasUnpushed } from "./workspaceFiles.js";
 import { Workspace } from "../models/Workspace.js";
@@ -42,7 +51,7 @@ export async function getWorkspace(issueId: string) {
 }
 
 export async function getWorkspaceGitStatus(issueId: string): Promise<WorkspaceGitStatus | null> {
-  if (!await Workspace.findByPk(issueId)) return null;
+  if (!(await Workspace.findByPk(issueId))) return null;
   const [uncommitted, unpushed] = await Promise.all([hasUncommitted(issueId), hasUnpushed(issueId)]);
   return { uncommitted, unpushed };
 }
@@ -69,27 +78,44 @@ async function createWorkspaceLocked(linear: LinearClient, issueId: string, sele
   const repo = await getSetting("githubRepo");
   if (!token || !repo) throw new Error("Connect GitHub and set a repository first");
   const numbers = await linkedPullRequests(linear, issue.id, repo);
-  const pulls = await Promise.all(numbers.map(number => getPullRequest(token, repo, number)));
+  const pulls = await Promise.all(numbers.map((number) => getPullRequest(token, repo, number)));
   const branches = await remoteBranches();
   const exactPr = branches.includes(issue.branchName) ? await findPullRequest(token, repo, issue.branchName) : null;
   const exact = exactPr ? await getPullRequest(token, repo, exactPr.number) : null;
   const selected = selectWorkspaceBranch(issue.branchName, await defaultBranch(), branches, pulls, exact, selection);
   if (selected.pull && selected.pull.headRepo?.toLowerCase() !== repo.toLowerCase()) {
-    throw new WorkspaceChoiceRequired([selected.pull], "Resuming a PR from a fork is not supported; choose a fresh branch instead");
+    throw new WorkspaceChoiceRequired(
+      [selected.pull],
+      "Resuming a PR from a fork is not supported; choose a fresh branch instead",
+    );
   }
-  if (selected.pull && !branches.includes(selected.branch)) throw new WorkspaceChoiceRequired([selected.pull], "The PR branch was deleted; choose a fresh branch instead");
+  if (selected.pull && !branches.includes(selected.branch))
+    throw new WorkspaceChoiceRequired([selected.pull], "The PR branch was deleted; choose a fresh branch instead");
   await cloneWorkspace(issue.id, selected.branch, selected.target, selected.reuse);
   let row: Workspace;
   try {
     const initialHead = (await git(["-C", workspacePath(issue.id), "rev-parse", "HEAD"])).trim();
-    row = await Workspace.create({ issueId: issue.id, context: {
-      branch: selected.branch,
-      initialHead, targetBranch: selected.target,
-      sourcePr: selected.pull ? { number: selected.pull.number, url: selected.pull.url, state: selected.pull.state,
-        title: selected.pull.title, body: selected.pull.body } : null,
-    } });
+    row = await Workspace.create({
+      issueId: issue.id,
+      context: {
+        branch: selected.branch,
+        initialHead,
+        targetBranch: selected.target,
+        sourcePr: selected.pull
+          ? {
+              number: selected.pull.number,
+              url: selected.pull.url,
+              state: selected.pull.state,
+              title: selected.pull.title,
+              body: selected.pull.body,
+            }
+          : null,
+      },
+    });
   } catch (err) {
-    await removeSandbox(issue.id).catch(cleanupErr => console.error("Removing workspace volumes after a failed save:", cleanupErr));
+    await removeSandbox(issue.id).catch((cleanupErr) =>
+      console.error("Removing workspace volumes after a failed save:", cleanupErr),
+    );
     await removeWorkspaceMarker(issue.id).catch((cleanupErr) =>
       console.error("Removing the workspace marker after a failed save failed:", cleanupErr),
     );
@@ -109,7 +135,8 @@ export async function deleteWorkspace(issueId: string) {
 async function deleteWorkspaceLocked(issueId: string) {
   const row = await Workspace.findByPk(issueId);
   if (!row) return false;
-  if (isForgeRunning(issueId) || workspaceApps.starting(issueId)) throw new Error("The workspace is still in use by a Forge or app launch");
+  if (isForgeRunning(issueId) || workspaceApps.starting(issueId))
+    throw new Error("The workspace is still in use by a Forge or app launch");
   await workspaceApps.stop(issueId);
   await stopForgeProcesses(issueId);
   await removeSandbox(issueId);
@@ -140,9 +167,15 @@ export async function commitAndPush(
     return trustedGit(workspacePath(issueId), () => commitAndPushLocked(issueId, message));
   });
 }
-async function commitAndPushLocked(issueId: string, message: string): Promise<{ workspace: WorkspaceResponse } | { status: number; error: string }> {
-  try { await assertNoMerge(issueId); }
-  catch (error) { return { status: 409, error: String(error) }; }
+async function commitAndPushLocked(
+  issueId: string,
+  message: string,
+): Promise<{ workspace: WorkspaceResponse } | { status: number; error: string }> {
+  try {
+    await assertNoMerge(issueId);
+  } catch (error) {
+    return { status: 409, error: String(error) };
+  }
   const workspace = await getWorkspaceWithStatus(issueId);
   if (!workspace) return { status: 404, error: "This issue has no workspace" };
   const text = message.trim();

@@ -50,7 +50,18 @@ test("chat identity comes from a revocable user session", async (t) => {
 
     await t.test("missing, unknown, and legacy username cookies cannot open chats", async () => {
       for (const cookie of ["", "username=forged-user", "access_token=unknown-token"]) {
-        for (const route of ["/api/users/me", "/api/project-lead/threads", "/api/forge/approvals", "/api/health", "/api/events", "/api/settings", "/api/integrations", "/api/workspaces", "/api/evals", "/api/chatgpt"]) {
+        for (const route of [
+          "/api/users/me",
+          "/api/project-lead/threads",
+          "/api/forge/approvals",
+          "/api/health",
+          "/api/events",
+          "/api/settings",
+          "/api/integrations",
+          "/api/workspaces",
+          "/api/evals",
+          "/api/chatgpt",
+        ]) {
           const response = await fetch(base + route, { headers: { cookie } });
           assert.equal(response.status, 401, `${route}: ${cookie}`);
         }
@@ -58,7 +69,11 @@ test("chat identity comes from a revocable user session", async (t) => {
     });
 
     await t.test("only POST login bypasses the central gate", async () => {
-      for (const [route, method] of [["/api/users/login", "GET"], ["/api/users/logout", "POST"], ["/api/users/login/extra", "POST"]]) {
+      for (const [route, method] of [
+        ["/api/users/login", "GET"],
+        ["/api/users/logout", "POST"],
+        ["/api/users/login/extra", "POST"],
+      ]) {
         const response = await fetch(base + route, { method });
         assert.equal(response.status, 401);
       }
@@ -128,7 +143,7 @@ test("chat identity comes from a revocable user session", async (t) => {
       assert.equal(repeated.status, 401);
     });
   } finally {
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     checkpointer.db.close();
     await sequelize.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

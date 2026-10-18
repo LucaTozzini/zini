@@ -26,15 +26,17 @@ test("batch logs keep full output while the live and restored tails stay bounded
     assert.equal(restored.tail.at(-1), "cleanup complete");
     writeFileSync(file, "");
     assert.deepEqual(readConsoleTail(file), []);
-  } finally { rmSync(folder, { recursive: true, force: true }); }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test("stdout and stderr retain separate partial lines and decode split UTF-8", async () => {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const lines: string[] = [];
-  followConsole(stdout, line => lines.push(line));
-  followConsole(stderr, line => lines.push(line));
+  followConsole(stdout, (line) => lines.push(line));
+  followConsole(stderr, (line) => lines.push(line));
   const done = Promise.all([finished(stdout), finished(stderr)]);
   const unicode = Buffer.from("✓");
   stdout.write(Buffer.concat([Buffer.from("out "), unicode.subarray(0, 1)]));

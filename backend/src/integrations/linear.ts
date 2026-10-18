@@ -35,10 +35,9 @@ const ISSUES_QUERY = `
 
 export async function fetchLinearIssues(client: LinearClient, statusTypes: StatusType[]) {
   const filter = statusTypes.length ? { state: { type: { in: statusTypes } } } : undefined;
-  const { data } = await client.client.rawRequest<
-    { issues: { nodes: LinearIssue[] } },
-    { filter?: object }
-  >(ISSUES_QUERY, { filter });
+  const { data } = await client.client.rawRequest<{ issues: { nodes: LinearIssue[] } }, { filter?: object }>(ISSUES_QUERY, {
+    filter,
+  });
   return data!.issues.nodes;
 }
 
@@ -57,10 +56,9 @@ const SEARCH_QUERY = `
 // Linear's own full-text search over issue titles and descriptions (not comments),
 // like the search box in the Linear app. Up to 50 results.
 export async function searchLinearIssues(client: LinearClient, query: string) {
-  const { data } = await client.client.rawRequest<
-    { searchIssues: { nodes: LinearIssue[] } },
-    { term: string }
-  >(SEARCH_QUERY, { term: query });
+  const { data } = await client.client.rawRequest<{ searchIssues: { nodes: LinearIssue[] } }, { term: string }>(SEARCH_QUERY, {
+    term: query,
+  });
   return data!.searchIssues.nodes;
 }
 
@@ -91,10 +89,7 @@ type IssueWithCommentNodes = Omit<LinearIssueDetails, "comments" | "attachments"
 // Accepts the internal id or the identifier, e.g. "ENG-123". Throws
 // InvalidInputLinearError if there's no such issue.
 export async function fetchLinearIssue(client: LinearClient, id: string): Promise<LinearIssueDetails> {
-  const { data } = await client.client.rawRequest<{ issue: IssueWithCommentNodes }, { id: string }>(
-    ISSUE_QUERY,
-    { id },
-  );
+  const { data } = await client.client.rawRequest<{ issue: IssueWithCommentNodes }, { id: string }>(ISSUE_QUERY, { id });
   const { comments, attachments, relations, inverseRelations, ...issue } = data!.issue;
   const oldestFirst = [...comments.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return {
@@ -113,12 +108,16 @@ export async function setLinearBlocker(client: LinearClient, issueId: string, bl
   if (issue.id === blocker.id) throw new Error("An issue can't block itself");
   const existing = issue.blockedBy.find((entry) => entry.id === blocker.id);
   if (blocked && !existing) {
-    await client.client.rawRequest(`mutation AddBlocker($input: IssueRelationCreateInput!) {
+    await client.client.rawRequest(
+      `mutation AddBlocker($input: IssueRelationCreateInput!) {
       issueRelationCreate(input: $input) { success }
-    }`, { input: { issueId: blocker.id, relatedIssueId: issue.id, type: "blocks" } });
+    }`,
+      { input: { issueId: blocker.id, relatedIssueId: issue.id, type: "blocks" } },
+    );
   } else if (!blocked && existing) {
-    await client.client.rawRequest(`mutation RemoveBlocker($id: String!) { issueRelationDelete(id: $id) { success } }`,
-      { id: existing.relationId });
+    await client.client.rawRequest(`mutation RemoveBlocker($id: String!) { issueRelationDelete(id: $id) { success } }`, {
+      id: existing.relationId,
+    });
   }
   return (await fetchLinearIssue(client, issue.id)).blockedBy;
 }
@@ -129,18 +128,26 @@ export async function linkedPullRequests(client: LinearClient, id: string, repo:
   const numbers = new Set<number>();
   let after: string | null = null;
   do {
-    const result: { data?: { issue: { attachments: Attachments } } } = await client.client.rawRequest<{
-      issue: { attachments: Attachments };
-    }, { id: string; after: string | null }>(`query IssuePullRequests($id: String!, $after: String) {
+    const result: { data?: { issue: { attachments: Attachments } } } = await client.client.rawRequest<
+      {
+        issue: { attachments: Attachments };
+      },
+      { id: string; after: string | null }
+    >(
+      `query IssuePullRequests($id: String!, $after: String) {
       issue(id: $id) { attachments(first: 100, after: $after) { nodes { url } pageInfo { hasNextPage endCursor } } }
-    }`, { id, after });
+    }`,
+      { id, after },
+    );
     const attachments: Attachments = result.data!.issue.attachments;
     for (const { url } of attachments.nodes) {
       try {
         const parsed = new URL(url);
         const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)\/?$/.exec(parsed.pathname);
         if (parsed.hostname === "github.com" && match?.[1]?.toLowerCase() === repo.toLowerCase()) numbers.add(Number(match[2]));
-      } catch { /* Other attachment URLs are not PRs. */ }
+      } catch {
+        /* Other attachment URLs are not PRs. */
+      }
     }
     after = attachments.pageInfo.hasNextPage ? attachments.pageInfo.endCursor : null;
   } while (after);
@@ -182,9 +189,7 @@ export async function fetchLinearTeams(client: LinearClient) {
       key: team.key,
       name: team.name,
       statuses: team.states.nodes.map(({ name, type }) => ({ name, type })),
-      members: team.members.nodes
-        .filter((member) => member.active)
-        .map(({ name, email }) => ({ name, email })),
+      members: team.members.nodes.filter((member) => member.active).map(({ name, email }) => ({ name, email })),
     })),
   };
 }
@@ -206,19 +211,16 @@ async function resolveFields(client: LinearClient, teamId: string, fields: Reada
   const ids: { stateId?: string; assigneeId?: string } = {};
   if (!fields.status && !fields.assignee) return ids;
 
-  const { data } = await client.client.rawRequest<
-    { team: Pick<Team, "states" | "members"> },
-    { id: string }
-  >(TEAM_QUERY, { id: teamId });
+  const { data } = await client.client.rawRequest<{ team: Pick<Team, "states" | "members"> }, { id: string }>(TEAM_QUERY, {
+    id: teamId,
+  });
   const { states, members } = data!.team;
 
   if (fields.status) {
     const status = fields.status.toLowerCase();
     const state = states.nodes.find((s) => s.name.toLowerCase() === status);
     if (!state) {
-      throw new Error(
-        `No status "${fields.status}" in this team. Options: ${states.nodes.map((s) => s.name).join(", ")}`,
-      );
+      throw new Error(`No status "${fields.status}" in this team. Options: ${states.nodes.map((s) => s.name).join(", ")}`);
     }
     ids.stateId = state.id;
   }
@@ -250,10 +252,7 @@ type NewLinearIssue = ReadableFields & {
   priority?: number;
 };
 
-export async function createLinearIssue(
-  client: LinearClient,
-  { status, assignee, ...input }: NewLinearIssue,
-) {
+export async function createLinearIssue(client: LinearClient, { status, assignee, ...input }: NewLinearIssue) {
   const ids = await resolveFields(client, input.teamId, { status, assignee });
   const { data } = await client.client.rawRequest<
     { issueCreate: { issue: { identifier: string; url: string } } },
@@ -276,19 +275,14 @@ type LinearIssueChanges = Partial<Pick<NewLinearIssue, "title" | "description" |
   assignee?: string | null;
 };
 
-export async function updateLinearIssue(
-  client: LinearClient,
-  id: string,
-  { status, assignee, ...input }: LinearIssueChanges,
-) {
+export async function updateLinearIssue(client: LinearClient, id: string, { status, assignee, ...input }: LinearIssueChanges) {
   // Statuses and members belong to the issue's team.
-  let ids: { stateId?: string; assigneeId?: string | null } =
-    assignee === null ? { assigneeId: null } : {};
+  let ids: { stateId?: string; assigneeId?: string | null } = assignee === null ? { assigneeId: null } : {};
   if (status || assignee) {
-    const { data } = await client.client.rawRequest<
-      { issue: { team: { id: string } } },
-      { id: string }
-    >(`query IssueTeam($id: String!) { issue(id: $id) { team { id } } }`, { id });
+    const { data } = await client.client.rawRequest<{ issue: { team: { id: string } } }, { id: string }>(
+      `query IssueTeam($id: String!) { issue(id: $id) { team { id } } }`,
+      { id },
+    );
     ids = { ...ids, ...(await resolveFields(client, data!.issue.team.id, { status, assignee: assignee ?? undefined })) };
   }
 

@@ -12,7 +12,15 @@ import type {
   PipelineWaiting,
 } from "shared";
 import { z } from "zod";
-import { checkpointer, modelRetry, modelStamp, repairToolCalls, streamConfig, threadConfig, toolErrors } from "../agents/agents.js";
+import {
+  checkpointer,
+  modelRetry,
+  modelStamp,
+  repairToolCalls,
+  streamConfig,
+  threadConfig,
+  toolErrors,
+} from "../agents/agents.js";
 import { compactionMiddleware } from "../agents/compaction.js";
 import { npmTools } from "../agents/npmTools.js";
 import { isRunning, runStatus } from "../agents/runs.js";
@@ -80,15 +88,18 @@ const oneAtATime = createMiddleware({
   name: "OneAtATime",
   afterModel: (state) => {
     const last = state.messages.at(-1);
-    const calls = AIMessage.isInstance(last) ? last.tool_calls ?? [] : [];
+    const calls = AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
     if (calls.length < 2 || !calls.some((call) => SEQUENTIAL.has(call.name))) return;
     return {
-      messages: calls.map((call) => new ToolMessage({
-        tool_call_id: call.id!,
-        name: call.name,
-        status: "error",
-        content: `${[...SEQUENTIAL].join(", ")} must each be called alone, not with other tools. Call them one at a time.`,
-      })),
+      messages: calls.map(
+        (call) =>
+          new ToolMessage({
+            tool_call_id: call.id!,
+            name: call.name,
+            status: "error",
+            content: `${[...SEQUENTIAL].join(", ")} must each be called alone, not with other tools. Call them one at a time.`,
+          }),
+      ),
     };
   },
 });
@@ -115,119 +126,191 @@ function leadTools(issueId: string, need: () => Run) {
     return state.plan;
   };
   return [
-    tool(async ({ steps, qaChecklist }, config) => {
-      const runtime = runtimeOf(config);
-      const plan = draftPlan(runtime.state.plan, steps, qaChecklist);
-      const reply = interrupt<PipelineWaiting, PipelineResume>({ kind: "approve_plan", plan });
-      if ("feedback" in reply) return `The user didn't approve this plan. Their feedback:\n\n${reply.feedback}`;
-      return updating(runtime, "write_plan", `The user approved the plan:\n\n${planText(plan)}`,
-        { plan, planApproved: true, finished: false });
-    }, {
-      name: "write_plan",
-      description: "Propose the whole plan (or a change to it): the user approves it or answers with feedback. " +
-        "Steps and checks whose text is unchanged keep their status. Nothing can be built until a plan is approved.",
-      schema: z.object({
-        steps: z.array(z.string().min(1)).describe("Concrete implementation steps, in order, each naming the files it touches"),
-        qaChecklist: z.array(z.string().min(1)).min(1).describe("Testable conditions the Reviewer verifies, including code checks"),
-      }),
-    }),
-    tool(async ({ updates }, config) => {
-      const runtime = runtimeOf(config);
-      const plan = approved(runtime.state);
-      const unknown = updates.filter(({ id }) => !plan.steps.some((step) => step.id === id));
-      if (unknown.length) throw new Error(`No such step: ${unknown.map(({ id }) => id).join(", ")}`);
-      const statuses = new Map(updates.map(({ id, status }) => [id, status]));
-      const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };
-      return updating(runtime, "update_steps", planText(next), { plan: next });
-    }, {
-      name: "update_steps",
-      description: "Mark plan steps todo, in-progress or complete. Doesn't need approval.",
-      schema: z.object({ updates: z.array(z.object({
-        id: z.string().describe("The step's id, e.g. S1"),
-        status: z.enum(["todo", "in-progress", "complete"]),
-      })).min(1) }),
-    }),
-    tool(async ({ questions }) => {
-      const { answers } = interrupt<PipelineWaiting, { answers: string[] }>({ kind: "questions", questions });
-      return questions.map((question, i) => `Q: ${question}\nA: ${answers[i] ?? ""}`).join("\n\n");
-    }, {
-      name: "ask_user",
-      description: "Ask the user questions you can't decide without, and wait for their answers.",
-      schema: z.object({ questions: z.array(z.string().min(1)).min(1) }),
-    }),
-    tool(async ({ brief }, config) => {
-      const runtime = runtimeOf(config);
-      const plan = approved(runtime.state);
-      const run = need();
-      await emitForgeEvent(issueId, { type: "stage_started", role: "coder" });
-      const { steps, ...report } = await runWorker(run, await coderWorker(run, await issue(), plan), brief,
-        { thread: workerThreadId(issueId, "coder", runtime.toolCallId) });
-      const changes = await workspaceChanges(issueId, true);
-      const statuses = new Map(steps.map(({ id, status }) => [id, status]));
-      const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };
-      return updating(runtime, "delegate_coder", JSON.stringify({ ...report, uncommittedChanges: changes.map(({ path }) => path),
-        steps: next.steps.map(({ id, status }) => `${id}: ${status}`) }), { plan: next });
-    }, {
-      name: "delegate_coder",
-      description: "Have the Coder carry out a brief: edit the code (or resolve merge conflicts) and run what it needs to. " +
-        "It sees the approved plan's steps and marks the ones it completes. Returns its report, the step statuses and the uncommitted changed files.",
-      schema: z.object({ brief: z.string().min(1).describe("Which steps to do, and anything the plan doesn't say: approach, findings to fix, what you learned") }),
-    }),
-    tool(async ({ brief }, config) => {
-      const runtime = runtimeOf(config);
-      const plan = approved(runtime.state);
-      if (await hasUncommitted(issueId)) throw new Error("Commit the changes first: the Reviewer tests committed code");
-      const run = need();
-      await emitForgeEvent(issueId, { type: "stage_started", role: "reviewer" });
-      const reviewedRevision = await workspaceRevision(issueId);
-      let review;
-      try { review = await runWorker(run, await reviewerWorker(run, await issue(), plan), brief,
-        { thread: workerThreadId(issueId, "reviewer", runtime.toolCallId) }); }
-      finally { await stopForgeProcesses(issueId); run.notify(); }
-      const results = new Map(review.checks.map((check) => [check.id, check]));
-      const next = { ...plan, qaChecklist: plan.qaChecklist.map((check) => {
-        const result = results.get(check.id);
-        return result ? { ...check, status: result.status, note: result.note } : check;
-      }) };
-      return updating(runtime, "delegate_reviewer", JSON.stringify({ ...review, checklist: planText(next) }), { plan: next, reviewedRevision });
-    }, {
-      name: "delegate_reviewer",
-      description: "Have the Reviewer test the committed code against the QA checklist. It marks every check and reports " +
-        "findings outside the checklist. Commit first.",
-      schema: z.object({ brief: z.string().min(1).describe("What changed since its last review and what to focus on") }),
-    }),
-    tool(async ({ message }, config) => {
-      const runtime = runtimeOf(config);
-      const { committed, integration } = await commitAndIntegrate(issueId, message ?? "", need().refreshUpstream);
-      const changed = committed || integration.status !== "current";
-      const plan = changed && runtime.state.plan ? resetChecks(runtime.state.plan) : runtime.state.plan;
-      const result = integration.status === "conflicts"
-        ? `Merging the latest ${integration.targetBranch} stopped on conflicts in: ${integration.conflicts.join(", ")}. ` +
-          "Have the Coder resolve them, then commit again to complete the merge."
-        : `${committed ? "Committed. " : "Nothing to commit. "}` +
-          `${integration.status === "merged" ? `Merged the latest ${integration.targetBranch}.` : `Up to date with ${integration.targetBranch}.`}`;
-      return updating(runtime, "commit", `${result}${changed ? " The QA checks are back to todo." : ""}`,
-        { integration, plan, ...(changed ? { finished: false } : {}) });
-    }, {
-      name: "commit",
-      description: "Commit all changes with your message, then merge the latest default branch. Sets every QA check back to todo when the code changed.",
-      schema: z.object({ message: z.string().optional().describe("Commit message: a short summary line, then a blank line and the details. Needed when there are changes") }),
-    }),
-    tool(async ({ summary }, config) => {
-      const runtime = runtimeOf(config);
-      const problems = unfinishedPlan(runtime.state.plan, runtime.state.planApproved);
-      if (!(await isUpToDate(issueId, need().refreshUpstream)))
-        problems.push("The workspace isn't committed on top of the latest default branch: call commit, then review again.");
-      else if (await workspaceRevision(issueId) !== runtime.state.reviewedRevision)
-        problems.push("The code changed since the Reviewer's last review: review it again.");
-      if (problems.length) throw new Error(`Can't finish yet:\n- ${problems.join("\n- ")}`);
-      return updating(runtime, "finish", `Finished. Tell the user: ${summary}`, { finished: true });
-    }, {
-      name: "finish",
-      description: "Hand the work over. Refused unless every step is complete, every QA check passed or was skipped on the current code, " +
-        "and everything is committed on top of the latest default branch.",
-      schema: z.object({ summary: z.string().min(1).describe("What was done, for the user") }),
-    }),
+    tool(
+      async ({ steps, qaChecklist }, config) => {
+        const runtime = runtimeOf(config);
+        const plan = draftPlan(runtime.state.plan, steps, qaChecklist);
+        const reply = interrupt<PipelineWaiting, PipelineResume>({ kind: "approve_plan", plan });
+        if ("feedback" in reply) return `The user didn't approve this plan. Their feedback:\n\n${reply.feedback}`;
+        return updating(runtime, "write_plan", `The user approved the plan:\n\n${planText(plan)}`, {
+          plan,
+          planApproved: true,
+          finished: false,
+        });
+      },
+      {
+        name: "write_plan",
+        description:
+          "Propose the whole plan (or a change to it): the user approves it or answers with feedback. " +
+          "Steps and checks whose text is unchanged keep their status. Nothing can be built until a plan is approved.",
+        schema: z.object({
+          steps: z.array(z.string().min(1)).describe("Concrete implementation steps, in order, each naming the files it touches"),
+          qaChecklist: z
+            .array(z.string().min(1))
+            .min(1)
+            .describe("Testable conditions the Reviewer verifies, including code checks"),
+        }),
+      },
+    ),
+    tool(
+      async ({ updates }, config) => {
+        const runtime = runtimeOf(config);
+        const plan = approved(runtime.state);
+        const unknown = updates.filter(({ id }) => !plan.steps.some((step) => step.id === id));
+        if (unknown.length) throw new Error(`No such step: ${unknown.map(({ id }) => id).join(", ")}`);
+        const statuses = new Map(updates.map(({ id, status }) => [id, status]));
+        const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };
+        return updating(runtime, "update_steps", planText(next), { plan: next });
+      },
+      {
+        name: "update_steps",
+        description: "Mark plan steps todo, in-progress or complete. Doesn't need approval.",
+        schema: z.object({
+          updates: z
+            .array(
+              z.object({
+                id: z.string().describe("The step's id, e.g. S1"),
+                status: z.enum(["todo", "in-progress", "complete"]),
+              }),
+            )
+            .min(1),
+        }),
+      },
+    ),
+    tool(
+      async ({ questions }) => {
+        const { answers } = interrupt<PipelineWaiting, { answers: string[] }>({ kind: "questions", questions });
+        return questions.map((question, i) => `Q: ${question}\nA: ${answers[i] ?? ""}`).join("\n\n");
+      },
+      {
+        name: "ask_user",
+        description: "Ask the user questions you can't decide without, and wait for their answers.",
+        schema: z.object({ questions: z.array(z.string().min(1)).min(1) }),
+      },
+    ),
+    tool(
+      async ({ brief }, config) => {
+        const runtime = runtimeOf(config);
+        const plan = approved(runtime.state);
+        const run = need();
+        await emitForgeEvent(issueId, { type: "stage_started", role: "coder" });
+        const { steps, ...report } = await runWorker(run, await coderWorker(run, await issue(), plan), brief, {
+          thread: workerThreadId(issueId, "coder", runtime.toolCallId),
+        });
+        const changes = await workspaceChanges(issueId, true);
+        const statuses = new Map(steps.map(({ id, status }) => [id, status]));
+        const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };
+        return updating(
+          runtime,
+          "delegate_coder",
+          JSON.stringify({
+            ...report,
+            uncommittedChanges: changes.map(({ path }) => path),
+            steps: next.steps.map(({ id, status }) => `${id}: ${status}`),
+          }),
+          { plan: next },
+        );
+      },
+      {
+        name: "delegate_coder",
+        description:
+          "Have the Coder carry out a brief: edit the code (or resolve merge conflicts) and run what it needs to. " +
+          "It sees the approved plan's steps and marks the ones it completes. Returns its report, the step statuses and the uncommitted changed files.",
+        schema: z.object({
+          brief: z
+            .string()
+            .min(1)
+            .describe("Which steps to do, and anything the plan doesn't say: approach, findings to fix, what you learned"),
+        }),
+      },
+    ),
+    tool(
+      async ({ brief }, config) => {
+        const runtime = runtimeOf(config);
+        const plan = approved(runtime.state);
+        if (await hasUncommitted(issueId)) throw new Error("Commit the changes first: the Reviewer tests committed code");
+        const run = need();
+        await emitForgeEvent(issueId, { type: "stage_started", role: "reviewer" });
+        const reviewedRevision = await workspaceRevision(issueId);
+        let review;
+        try {
+          review = await runWorker(run, await reviewerWorker(run, await issue(), plan), brief, {
+            thread: workerThreadId(issueId, "reviewer", runtime.toolCallId),
+          });
+        } finally {
+          await stopForgeProcesses(issueId);
+          run.notify();
+        }
+        const results = new Map(review.checks.map((check) => [check.id, check]));
+        const next = {
+          ...plan,
+          qaChecklist: plan.qaChecklist.map((check) => {
+            const result = results.get(check.id);
+            return result ? { ...check, status: result.status, note: result.note } : check;
+          }),
+        };
+        return updating(runtime, "delegate_reviewer", JSON.stringify({ ...review, checklist: planText(next) }), {
+          plan: next,
+          reviewedRevision,
+        });
+      },
+      {
+        name: "delegate_reviewer",
+        description:
+          "Have the Reviewer test the committed code against the QA checklist. It marks every check and reports " +
+          "findings outside the checklist. Commit first.",
+        schema: z.object({ brief: z.string().min(1).describe("What changed since its last review and what to focus on") }),
+      },
+    ),
+    tool(
+      async ({ message }, config) => {
+        const runtime = runtimeOf(config);
+        const { committed, integration } = await commitAndIntegrate(issueId, message ?? "", need().refreshUpstream);
+        const changed = committed || integration.status !== "current";
+        const plan = changed && runtime.state.plan ? resetChecks(runtime.state.plan) : runtime.state.plan;
+        const result =
+          integration.status === "conflicts"
+            ? `Merging the latest ${integration.targetBranch} stopped on conflicts in: ${integration.conflicts.join(", ")}. ` +
+              "Have the Coder resolve them, then commit again to complete the merge."
+            : `${committed ? "Committed. " : "Nothing to commit. "}` +
+              `${integration.status === "merged" ? `Merged the latest ${integration.targetBranch}.` : `Up to date with ${integration.targetBranch}.`}`;
+        return updating(runtime, "commit", `${result}${changed ? " The QA checks are back to todo." : ""}`, {
+          integration,
+          plan,
+          ...(changed ? { finished: false } : {}),
+        });
+      },
+      {
+        name: "commit",
+        description:
+          "Commit all changes with your message, then merge the latest default branch. Sets every QA check back to todo when the code changed.",
+        schema: z.object({
+          message: z
+            .string()
+            .optional()
+            .describe("Commit message: a short summary line, then a blank line and the details. Needed when there are changes"),
+        }),
+      },
+    ),
+    tool(
+      async ({ summary }, config) => {
+        const runtime = runtimeOf(config);
+        const problems = unfinishedPlan(runtime.state.plan, runtime.state.planApproved);
+        if (!(await isUpToDate(issueId, need().refreshUpstream)))
+          problems.push("The workspace isn't committed on top of the latest default branch: call commit, then review again.");
+        else if ((await workspaceRevision(issueId)) !== runtime.state.reviewedRevision)
+          problems.push("The code changed since the Reviewer's last review: review it again.");
+        if (problems.length) throw new Error(`Can't finish yet:\n- ${problems.join("\n- ")}`);
+        return updating(runtime, "finish", `Finished. Tell the user: ${summary}`, { finished: true });
+      },
+      {
+        name: "finish",
+        description:
+          "Hand the work over. Refused unless every step is complete, every QA check passed or was skipped on the current code, " +
+          "and everything is committed on top of the latest default branch.",
+        schema: z.object({ summary: z.string().min(1).describe("What was done, for the user") }),
+      },
+    ),
   ];
 }
 
@@ -252,10 +335,13 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
     middleware: [
       createMiddleware({
         name: "DrainForgeTools",
-        wrapToolCall: (request, handler) => run ? run.execution.track(async () => {
-          run.signal?.throwIfAborted();
-          return handler(request);
-        }) : handler(request),
+        wrapToolCall: (request, handler) =>
+          run
+            ? run.execution.track(async () => {
+                run.signal?.throwIfAborted();
+                return handler(request);
+              })
+            : handler(request),
       }),
       modelRetry,
       ...(log ? [logTo(log)] : []),
@@ -285,18 +371,24 @@ async function readLead(issueId: string) {
 async function runLead(run: Run, input: unknown, describe: string, signal?: AbortSignal) {
   run.signal = signal;
   const { setup, issueId } = run;
-  const prompt = `${LEAD_PROMPT}\n\n# The Linear issue\n\n${issueText(await fetchLinearIssue(setup.linear, issueId))}` +
+  const prompt =
+    `${LEAD_PROMPT}\n\n# The Linear issue\n\n${issueText(await fetchLinearIssue(setup.linear, issueId))}` +
     `\n\n# Workspace starting point\n\n${JSON.stringify(await workspaceContext(issueId))}`;
   const log = await openRunLog(issueId, "lead");
   await log.write({ event: "start", role: "lead", model: setup.model, prompt, input: describe });
   const wasFinished = Boolean((await readLead(issueId)).values.finished);
   const agent = leadAgent(issueId, run, forgeModel(setup), prompt, log);
   const source = agent.stream(input as never, streamConfig(forgeThreadId(issueId), 2_000, signal));
-  return pipelineEvents(Promise.resolve(logged(log, run.execution.stream(source))), async (): Promise<ForgeLifecycleEvent | null> => {
-    const { values, waiting } = await readLead(issueId);
-    if (values.finished && !wasFinished) return { type: "completed", plan: values.plan ?? null };
-    return waiting ? { type: "waiting", waiting } : null;
-  }, (event) => emitForgeEvent(issueId, event), signal);
+  return pipelineEvents(
+    Promise.resolve(logged(log, run.execution.stream(source))),
+    async (): Promise<ForgeLifecycleEvent | null> => {
+      const { values, waiting } = await readLead(issueId);
+      if (values.finished && !wasFinished) return { type: "completed", plan: values.plan ?? null };
+      return waiting ? { type: "waiting", waiting } : null;
+    },
+    (event) => emitForgeEvent(issueId, event),
+    signal,
+  );
 }
 
 async function* logged<T>(log: RunLog, source: AsyncIterable<T>) {
@@ -393,9 +485,7 @@ export async function pendingApprovals(): Promise<PendingApproval[]> {
   const pipelines = await Promise.all(
     workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getPipeline(issueId)).waiting })),
   );
-  return pipelines.flatMap(({ issueId, waiting }) =>
-    waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : [],
-  );
+  return pipelines.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
 }
 
 // Stops what the workers started in the issue's workspace: their processes and browser.
@@ -409,7 +499,8 @@ export async function stopForgeProcesses(issueId: string) {
 export async function deleteConversation(issueId: string) {
   const thread = forgeThreadId(issueId);
   await loadForgeHistory(checkpointer, thread); // Creates the tables on a fresh database.
-  const threads = checkpointer.db.prepare("SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id = ? OR thread_id LIKE ?")
+  const threads = checkpointer.db
+    .prepare("SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id = ? OR thread_id LIKE ?")
     .all(thread, `${thread}:%`) as { thread_id: string }[];
   for (const { thread_id } of threads) await checkpointer.deleteThread(thread_id);
 }

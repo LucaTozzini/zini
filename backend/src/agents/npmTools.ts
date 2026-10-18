@@ -1,11 +1,6 @@
 import { tool } from "langchain";
 import { z } from "zod";
-import {
-  listPackageFiles,
-  packageVersions,
-  readPackageFile,
-  searchPackage,
-} from "../repositories/npmPackages.js";
+import { listPackageFiles, packageVersions, readPackageFile, searchPackage } from "../repositories/npmPackages.js";
 
 // Tools for reading npm packages (see npmPackages.ts), the same for every agent: the
 // repo's files never include node_modules, so this is how an agent reads a
@@ -21,8 +16,7 @@ const PACKAGE = z
 export const npmTools = [
   tool(async ({ name }) => packageVersions(name), {
     name: "npm_package_versions",
-    description:
-      "A package's description, tags (e.g. latest) and most recent versions, from npm.",
+    description: "A package's description, tags (e.g. latest) and most recent versions, from npm.",
     schema: z.object({ name: z.string().describe('e.g. "langchain"') }),
   }),
   tool(async ({ package: spec, path }) => listPackageFiles(spec, path ?? ""), {
@@ -32,22 +26,18 @@ export const npmTools = [
       "published. Omit path for the package's root.",
     schema: z.object({ package: PACKAGE, path: z.string().optional() }),
   }),
-  tool(
-    async ({ package: spec, path, startLine, endLine }) =>
-      readPackageFile(spec, path, startLine, endLine),
-    {
-      name: "npm_read_file",
-      description:
-        "Read a file in an npm package, with line numbers. Long files are cut off with a " +
-        "note saying which startLine to read on from.",
-      schema: z.object({
-        package: PACKAGE,
-        path: z.string().describe('e.g. "dist/index.d.ts"'),
-        startLine: z.number().int().min(1).optional(),
-        endLine: z.number().int().min(1).optional(),
-      }),
-    },
-  ),
+  tool(async ({ package: spec, path, startLine, endLine }) => readPackageFile(spec, path, startLine, endLine), {
+    name: "npm_read_file",
+    description:
+      "Read a file in an npm package, with line numbers. Long files are cut off with a " +
+      "note saying which startLine to read on from.",
+    schema: z.object({
+      package: PACKAGE,
+      path: z.string().describe('e.g. "dist/index.d.ts"'),
+      startLine: z.number().int().min(1).optional(),
+      endLine: z.number().int().min(1).optional(),
+    }),
+  }),
   tool(async ({ package: spec, query }) => searchPackage(spec, query), {
     name: "npm_search",
     description:

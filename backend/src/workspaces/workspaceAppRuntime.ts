@@ -1,5 +1,12 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { existingSandbox, ensureSandbox, sandboxPaused, sandboxRequest, workspaceRequest, type Sandbox } from "./workspaceSandbox.js";
+import {
+  existingSandbox,
+  ensureSandbox,
+  sandboxPaused,
+  sandboxRequest,
+  workspaceRequest,
+  type Sandbox,
+} from "./workspaceSandbox.js";
 import { validateAppLaunchPlan, type AppLaunchPlan } from "./localAppRuntime.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
 import { closePreview } from "../browser/previewBrowser.js";
@@ -10,14 +17,27 @@ export type { AppLaunchPlan, AppCommand, AppService } from "./localAppRuntime.js
 export const previewPage = (issueId: string) => `/issues/${encodeURIComponent(issueId)}/preview`;
 export const availableAppPort = async (issueId: string) => workspaceRequest<number>(issueId, "port");
 // url is the app's address inside the workspace container, where its preview browser runs.
-type Status = { status: "stopped" | "starting" | "ready" | "failed"; url?: string | null; previewUrl?: string | null; error?: string | null; output?: string; plan?: AppLaunchPlan | null };
-const withPreview = (issueId: string, state: Status): Status =>
-  ({ ...state, previewUrl: state.status === "ready" ? previewPage(issueId) : null });
+type Status = {
+  status: "stopped" | "starting" | "ready" | "failed";
+  url?: string | null;
+  previewUrl?: string | null;
+  error?: string | null;
+  output?: string;
+  plan?: AppLaunchPlan | null;
+};
+const withPreview = (issueId: string, state: Status): Status => ({
+  ...state,
+  previewUrl: state.status === "ready" ? previewPage(issueId) : null,
+});
 export class WorkspaceAppRuntime {
   private sessions = new Map<string, { sandbox: Sandbox; state: Status }>();
   private refreshing = new Map<string, Promise<Status>>();
-  status(issueId: string): Status { return this.sessions.get(issueId)?.state ?? { status: "stopped" }; }
-  starting(issueId: string) { return this.status(issueId).status === "starting"; }
+  status(issueId: string): Status {
+    return this.sessions.get(issueId)?.state ?? { status: "stopped" };
+  }
+  starting(issueId: string) {
+    return this.status(issueId).status === "starting";
+  }
   refresh(issueId: string) {
     let pending = this.refreshing.get(issueId);
     if (!pending) {
@@ -35,38 +55,64 @@ export class WorkspaceAppRuntime {
       for (let n = 0; n < 40; n++) {
         sandbox = await existingSandbox(issueId);
         if (sandbox) break;
-        if (!await sandboxPaused(issueId)) { sandbox = await existingSandbox(issueId); break; }
+        if (!(await sandboxPaused(issueId))) {
+          sandbox = await existingSandbox(issueId);
+          break;
+        }
         sandbox = this.sessions.get(issueId)?.sandbox ?? null;
         if (sandbox) break;
         await delay(250);
       }
-      if (!sandbox) { this.sessions.delete(issueId); return this.status(issueId); }
+      if (!sandbox) {
+        this.sessions.delete(issueId);
+        return this.status(issueId);
+      }
       const state = withPreview(issueId, await sandboxRequest<Status>(sandbox, "appStatus"));
-      this.sessions.set(issueId, { sandbox, state }); return state;
-    } catch (error) { this.sessions.delete(issueId); throw error; }
+      this.sessions.set(issueId, { sandbox, state });
+      return state;
+    } catch (error) {
+      this.sessions.delete(issueId);
+      throw error;
+    }
   }
   async stop(issueId: string) {
     await closePreview(issueId);
     const sandbox = await existingSandbox(issueId);
     if (sandbox) await sandboxRequest(sandbox, "appStop");
-    this.sessions.delete(issueId); return { status: "stopped" as const };
+    this.sessions.delete(issueId);
+    return { status: "stopped" as const };
   }
-  async stopAll() { await Promise.all([...this.sessions.keys()].map(issue => this.stop(issue))); }
+  async stopAll() {
+    await Promise.all([...this.sessions.keys()].map((issue) => this.stop(issue)));
+  }
   async launch(issueId: string, plan: AppLaunchPlan, signal?: AbortSignal, readinessTimeoutMs = 60000, revision?: string) {
-    validateAppLaunchPlan(plan); signal?.throwIfAborted();
+    validateAppLaunchPlan(plan);
+    signal?.throwIfAborted();
     const sandbox = await ensureSandbox(issueId);
     return withWorkspaceLock(issueId, async () => {
-      if (revision && await workspaceRevision(issueId) !== revision) throw new Error("Workspace changed since inspection. Read the changed files and propose a fresh plan.");
+      if (revision && (await workspaceRevision(issueId)) !== revision)
+        throw new Error("Workspace changed since inspection. Read the changed files and propose a fresh plan.");
       const current = await this.refresh(issueId);
       if (current.status === "ready" || current.status === "starting") return current;
       this.sessions.set(issueId, { sandbox, state: { status: "starting", plan } });
-      const abort = () => { void sandboxRequest(sandbox, "appStop").catch(() => {}); };
+      const abort = () => {
+        void sandboxRequest(sandbox, "appStop").catch(() => {});
+      };
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        const state = withPreview(issueId, await sandboxRequest<Status>(sandbox, "appLaunch", { plan, timeout: readinessTimeoutMs }, signal));
-        this.sessions.set(issueId, { sandbox, state }); return state;
-      } catch (error) { await this.stop(issueId); signal?.throwIfAborted(); throw error; }
-      finally { signal?.removeEventListener("abort", abort); }
+        const state = withPreview(
+          issueId,
+          await sandboxRequest<Status>(sandbox, "appLaunch", { plan, timeout: readinessTimeoutMs }, signal),
+        );
+        this.sessions.set(issueId, { sandbox, state });
+        return state;
+      } catch (error) {
+        await this.stop(issueId);
+        signal?.throwIfAborted();
+        throw error;
+      } finally {
+        signal?.removeEventListener("abort", abort);
+      }
     });
   }
 }

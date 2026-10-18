@@ -49,28 +49,20 @@ function EmptyDocs({
       </Typography>
       <Stack spacing={2}>
         <Typography color="text.secondary">
-          Generate architecture docs for the connected repo. Zini researches the
-          codebase and writes a linked wiki, then opens a pull request with it.
-          The Project Lead and the ForgeThe Project Lead and the Forge&apos;s planner use the wiki to orientapos;s agents use the wiki to orient
-          themselves before planning.
+          Generate architecture docs for the connected repo. Zini researches the codebase and writes a linked wiki, then opens a
+          pull request with it. The Project Lead and the ForgeThe Project Lead and the Forge&apos;s planner use the wiki to
+          orientapos;s agents use the wiki to orient themselves before planning.
         </Typography>
-        {failedError && (
-          <Alert severity="error">The last scan failed: {failedError}</Alert>
-        )}
+        {failedError && <Alert severity="error">The last scan failed: {failedError}</Alert>}
         {scanError && <Alert severity="error">{scanError}</Alert>}
         <Stack direction="row">
-          <Button
-            variant="contained"
-            loading={scanning}
-            disabled={scanning}
-            onClick={onScan}
-          >
+          <Button variant="contained" loading={scanning} disabled={scanning} onClick={onScan}>
             {failedError ? "Try again" : "Generate docs"}
           </Button>
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          The scan runs in the background and can take a while on a big repo.
-          Docs are generated with the OpenWiki model from Settings.
+          The scan runs in the background and can take a while on a big repo. Docs are generated with the OpenWiki model from
+          Settings.
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Merged the docs PR? Pull the latest main to see them here.
@@ -137,9 +129,7 @@ function GeneratingDocs({
         )}
         {ignoreUsed && (
           <Typography variant="body2" color="text.secondary">
-            {ignoreUsed === "repo"
-              ? "Using the repo's .openwikiignore."
-              : "Using zini's default ignore rules."}
+            {ignoreUsed === "repo" ? "Using the repo's .openwikiignore." : "Using zini's default ignore rules."}
           </Typography>
         )}
         <Typography variant="body2" color="text.secondary">
@@ -158,11 +148,7 @@ function ServeStatusRow() {
   const { commit, mainCommit } = serve.data;
   const upToDate = Boolean(commit && mainCommit && commit === mainCommit);
   return (
-    <Stack
-      direction="row"
-      spacing={2}
-      sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}
-    >
+    <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
       <Typography variant="body2" color="text.secondary">
         Showing docs from main at {shortHash(commit)}
         {upToDate ? " · up to date" : ` · main is at ${shortHash(mainCommit)}`}
@@ -209,18 +195,11 @@ function WikiSearch({ onOpenPage }: { onOpenPage: (page: string) => void }) {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search the docs"
         />
-        <Button
-          type="submit"
-          variant="outlined"
-          loading={search.isPending}
-          disabled={!query.trim()}
-        >
+        <Button type="submit" variant="outlined" loading={search.isPending} disabled={!query.trim()}>
           Search
         </Button>
       </Stack>
-      {search.isError && (
-        <Alert severity="error">{errorMessage(search.error)}</Alert>
-      )}
+      {search.isError && <Alert severity="error">{errorMessage(search.error)}</Alert>}
       {search.isSuccess && search.data.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           No sections matched.
@@ -242,11 +221,7 @@ function WikiSearch({ onOpenPage }: { onOpenPage: (page: string) => void }) {
                 primary={r.section || r.page}
                 secondary={
                   <>
-                    <Typography
-                      component="span"
-                      variant="body2"
-                      color="text.secondary"
-                    >
+                    <Typography component="span" variant="body2" color="text.secondary">
                       {r.page}
                     </Typography>
                     {r.excerpt && ` — ${r.excerpt}`}
@@ -295,11 +270,7 @@ function ReadyDocs({
   return (
     <Container maxWidth="lg" sx={{ my: 4 }}>
       <Stack spacing={2}>
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}
-        >
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
           <Typography variant="h4" component="h1" sx={{ flexGrow: 1 }}>
             Docs
           </Typography>
@@ -308,43 +279,24 @@ function ReadyDocs({
               Last docs PR
             </Link>
           )}
-          <Button
-            variant="outlined"
-            size="small"
-            loading={scanning}
-            disabled={running || scanning}
-            onClick={onScan}
-          >
+          <Button variant="outlined" size="small" loading={scanning} disabled={running || scanning} onClick={onScan}>
             Regenerate docs (opens a PR)
           </Button>
         </Stack>
         {running && (
           <Alert severity="info">
-            Regenerating docs in the background — this page keeps showing the
-            current version until the new one lands.
+            Regenerating docs in the background — this page keeps showing the current version until the new one lands.
             {progress && <div>{progressText(progress)}</div>}
           </Alert>
         )}
         {scanError && <Alert severity="error">{scanError}</Alert>}
         <ServeStatusRow />
         <WikiSearch onOpenPage={setSelectedPage} />
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={2}
-          sx={{ alignItems: "flex-start" }}
-        >
-          <Card
-            variant="outlined"
-            sx={{ width: { xs: "100%", md: 280 }, flexShrink: 0 }}
-          >
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: "flex-start" }}>
+          <Card variant="outlined" sx={{ width: { xs: "100%", md: 280 }, flexShrink: 0 }}>
             <List disablePadding sx={{ maxHeight: 600, overflow: "auto" }}>
               {pageList.map((p) => (
-                <ListItemButton
-                  key={p}
-                  selected={p === activePage}
-                  onClick={() => setSelectedPage(p)}
-                  sx={{ borderRadius: 1 }}
-                >
+                <ListItemButton key={p} selected={p === activePage} onClick={() => setSelectedPage(p)} sx={{ borderRadius: 1 }}>
                   <ListItemText
                     primary={p}
                     slotProps={{
@@ -365,12 +317,8 @@ function ReadyDocs({
                   <CircularProgress size={24} />
                 </Box>
               )}
-              {page.isError && (
-                <Alert severity="error">{errorMessage(page.error)}</Alert>
-              )}
-              {page.data !== undefined && (
-                <MarkdownText>{page.data}</MarkdownText>
-              )}
+              {page.isError && <Alert severity="error">{errorMessage(page.error)}</Alert>}
+              {page.data !== undefined && <MarkdownText>{page.data}</MarkdownText>}
             </CardContent>
           </Card>
         </Stack>
@@ -422,11 +370,7 @@ function DocsPage() {
     }
     return (
       <EmptyDocs
-        failedError={
-          status.data?.state === "failed"
-            ? (status.data.error ?? "Unknown error")
-            : null
-        }
+        failedError={status.data?.state === "failed" ? (status.data.error ?? "Unknown error") : null}
         onScan={handleScan}
         scanning={scanning || running}
         scanError={scanError}

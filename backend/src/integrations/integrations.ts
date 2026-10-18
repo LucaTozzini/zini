@@ -13,14 +13,11 @@ const SERVICES: Record<Provider, { name: string; testKey: (apiKey: string) => Pr
   github: { name: "GitHub", testKey: testGitHubKey },
 };
 
-export const isProvider = (value: string): value is Provider =>
-  (PROVIDERS as readonly string[]).includes(value);
+export const isProvider = (value: string): value is Provider => (PROVIDERS as readonly string[]).includes(value);
 
 export async function getIntegrations() {
   const rows = await Integration.findAll({ where: { provider: [...PROVIDERS] } });
-  const integrations = Object.fromEntries(
-    PROVIDERS.map((provider) => [provider, { connected: false }]),
-  ) as Integrations;
+  const integrations = Object.fromEntries(PROVIDERS.map((provider) => [provider, { connected: false }])) as Integrations;
   for (const row of rows) {
     integrations[row.provider as Provider] = { connected: true, keyHint: row.apiKey.slice(-3) };
   }

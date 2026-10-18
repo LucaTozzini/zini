@@ -1,10 +1,4 @@
-import {
-  Typography,
-  Box,
-  Card,
-  Grid,
-  Dialog,
-} from "@mui/material";
+import { Typography, Box, Card, Grid, Dialog } from "@mui/material";
 import { useState, type Ref } from "react";
 import type { ChatMessage } from "shared";
 import MarkdownText from "../MarkdownText.tsx";
@@ -24,46 +18,49 @@ const MessageImages = ({ images }: { images?: string[] }) => {
 
   return (
     <>
-    <Grid
-      container
-      spacing={1}
-      sx={{
-        width: "80%",
-        alignSelf: "flex-end",
-        justifyContent: "flex-end",
-        mb: 1,
-      }}
-    >
-      {images.map((src, i) => (
-        <Grid
-          key={i}
-          size={{ xs: 6, sm: 4, md: 3 }}
-          component="img"
-          src={src}
-          alt={`Attached image ${i + 1}`}
-          onClick={() => setOpen(src)}
-          sx={{
-            cursor: "pointer",
-            objectFit: "cover",
-            borderRadius: 1,
-            aspectRatio: 5 / 4,
-          }}
-        />
-      ))}
-    </Grid>
-    <Dialog open={open !== null} onClose={() => setOpen(null)} maxWidth={false}>
-      {open && <Box component="img" src={open} alt="Attached image" onClick={() => setOpen(null)}
-        sx={{ display: "block", maxWidth: "90vw", maxHeight: "90vh" }} />}
-    </Dialog>
+      <Grid
+        container
+        spacing={1}
+        sx={{
+          width: "80%",
+          alignSelf: "flex-end",
+          justifyContent: "flex-end",
+          mb: 1,
+        }}
+      >
+        {images.map((src, i) => (
+          <Grid
+            key={i}
+            size={{ xs: 6, sm: 4, md: 3 }}
+            component="img"
+            src={src}
+            alt={`Attached image ${i + 1}`}
+            onClick={() => setOpen(src)}
+            sx={{
+              cursor: "pointer",
+              objectFit: "cover",
+              borderRadius: 1,
+              aspectRatio: 5 / 4,
+            }}
+          />
+        ))}
+      </Grid>
+      <Dialog open={open !== null} onClose={() => setOpen(null)} maxWidth={false}>
+        {open && (
+          <Box
+            component="img"
+            src={open}
+            alt="Attached image"
+            onClick={() => setOpen(null)}
+            sx={{ display: "block", maxWidth: "90vw", maxHeight: "90vh" }}
+          />
+        )}
+      </Dialog>
     </>
   );
 };
 
-export function HumanMessage({
-  message,
-  ref,
-  lineLimit = 12,
-}: HumanMessageProps) {
+export function HumanMessage({ message, ref, lineLimit = 12 }: HumanMessageProps) {
   const { data: user } = useUserMe();
 
   const username = user?.username;
@@ -72,17 +69,9 @@ export function HumanMessage({
   const color = ownMessage ? "primary.contrastText" : "secondary.contrastText";
 
   return (
-    <Box
-      ref={ref}
-      data-chat-message=""
-      sx={{ display: "flex", flexDirection: "column" }}
-    >
+    <Box ref={ref} data-chat-message="" sx={{ display: "flex", flexDirection: "column" }}>
       {message.username && (
-        <Typography
-          variant={"caption"}
-          align={"right"}
-          sx={{ mb: 0, color: "text.secondary" }}
-        >
+        <Typography variant={"caption"} align={"right"} sx={{ mb: 0, color: "text.secondary" }}>
           @{message.username}
         </Typography>
       )}
@@ -101,11 +90,7 @@ export function HumanMessage({
             p: 1,
           }}
         >
-          <LineLimit
-            key={message.content}
-            lineLimit={lineLimit}
-            fadeColor={bgcolor}
-          >
+          <LineLimit key={message.content} lineLimit={lineLimit} fadeColor={bgcolor}>
             <MarkdownText>{message.content}</MarkdownText>
           </LineLimit>
         </Card>

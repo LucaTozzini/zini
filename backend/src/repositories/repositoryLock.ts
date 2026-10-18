@@ -9,8 +9,11 @@ export function withRepositoryLock<T>(work: () => Promise<T>): Promise<T> {
   const run = tail.then(() => {
     const scope = { active: true };
     return held.run(scope, async () => {
-      try { return await work(); }
-      finally { scope.active = false; }
+      try {
+        return await work();
+      } finally {
+        scope.active = false;
+      }
     });
   });
   tail = run.catch(() => {});

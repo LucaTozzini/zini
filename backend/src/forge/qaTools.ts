@@ -19,31 +19,41 @@ function localUrl(value: string) {
   return url;
 }
 
-export function commandTools(issueId: string, { productOnly = false, completedChecks = [] }: { productOnly?: boolean; completedChecks?: string[] } = {}) {
+export function commandTools(
+  issueId: string,
+  { productOnly = false, completedChecks = [] }: { productOnly?: boolean; completedChecks?: string[] } = {},
+) {
   return [
-    tool(async ({ command, timeoutSeconds, quietSeconds }, config) => {
-      if (productOnly && completedChecks.some((check) => check.trim() === command.trim()))
-        throw new Error("This deterministic check already has recorded results. Use that evidence and exercise product behavior instead.");
-      return runCommand(issueId, command, timeoutSeconds, config.signal, quietSeconds ?? QUIET_SECONDS);
-    }, {
-      name: "run_command",
-      description:
-        (productOnly ? "Use only to exercise the delivered CLI/library interface and diagnose runtime failures. Reviewer already ran deterministic checks. Report environment blockers to Reviewer using environmentFailures. " : "For installs, builds, linters and tests. ") +
-        "Run a shell command in the workspace folder and wait for it to finish: its exit " +
-        "code and the end of its output. Start " +
-        "servers with start_process instead. Commands execute inside the Docker workspace.",
-      schema: z.object({
-        command: z.string().min(1),
-        timeoutSeconds: z
-          .number()
-          .int()
-          .min(1)
-          .max(1800)
-          .optional()
-          .describe("Optional time limit in seconds. Omit to run until completion or cancellation."),
-        quietSeconds,
-      }),
-    }),
+    tool(
+      async ({ command, timeoutSeconds, quietSeconds }, config) => {
+        if (productOnly && completedChecks.some((check) => check.trim() === command.trim()))
+          throw new Error(
+            "This deterministic check already has recorded results. Use that evidence and exercise product behavior instead.",
+          );
+        return runCommand(issueId, command, timeoutSeconds, config.signal, quietSeconds ?? QUIET_SECONDS);
+      },
+      {
+        name: "run_command",
+        description:
+          (productOnly
+            ? "Use only to exercise the delivered CLI/library interface and diagnose runtime failures. Reviewer already ran deterministic checks. Report environment blockers to Reviewer using environmentFailures. "
+            : "For installs, builds, linters and tests. ") +
+          "Run a shell command in the workspace folder and wait for it to finish: its exit " +
+          "code and the end of its output. Start " +
+          "servers with start_process instead. Commands execute inside the Docker workspace.",
+        schema: z.object({
+          command: z.string().min(1),
+          timeoutSeconds: z
+            .number()
+            .int()
+            .min(1)
+            .max(1800)
+            .optional()
+            .describe("Optional time limit in seconds. Omit to run until completion or cancellation."),
+          quietSeconds,
+        }),
+      },
+    ),
     tool(async ({ command }) => `Started ${await startProcess(issueId, command)}: read its output with read_output.`, {
       name: "start_process",
       description:

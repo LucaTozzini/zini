@@ -1,14 +1,4 @@
-import {
-  Alert,
-  Box,
-  ButtonBase,
-  Container,
-  Dialog,
-  Divider,
-  IconButton,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, ButtonBase, Container, Dialog, Divider, IconButton, Tooltip, Typography } from "@mui/material";
 import ConstructionOutlinedIcon from "@mui/icons-material/ConstructionOutlined";
 import OpenInBrowserIcon from "@mui/icons-material/OpenInBrowser";
 import PreviewView from "../components/preview/PreviewView.tsx";
@@ -89,13 +79,7 @@ const Header = ({
           </Tooltip>
         )}
         {linearUrl && (
-          <IconButton
-            size="small"
-            href={linearUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Open in Linear"
-          >
+          <IconButton size="small" href={linearUrl} target="_blank" rel="noopener noreferrer" aria-label="Open in Linear">
             <LinearIcon sx={{ color: "text.primary", fontSize: 17 }} />
           </IconButton>
         )}
@@ -130,19 +114,38 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
         identifier={issue.data.identifier}
         title={issue.data.title}
         linearUrl={issue.data.url}
-        link={view === "preview"
-          ? { to: `/issues/${issue.data.id}`, label: "Open the Forge", icon: <ConstructionOutlinedIcon sx={{ fontSize: 19 }} /> }
-          : workspace.data ? { to: `/issues/${issue.data.id}/preview`, label: "Open the app's preview", icon: <OpenInBrowserIcon sx={{ fontSize: 19 }} /> }
-          : undefined}
+        link={
+          view === "preview"
+            ? {
+                to: `/issues/${issue.data.id}`,
+                label: "Open the Forge",
+                icon: <ConstructionOutlinedIcon sx={{ fontSize: 19 }} />,
+              }
+            : workspace.data
+              ? {
+                  to: `/issues/${issue.data.id}/preview`,
+                  label: "Open the app's preview",
+                  icon: <OpenInBrowserIcon sx={{ fontSize: 19 }} />,
+                }
+              : undefined
+        }
         actions={view === "forge" && <ForgeDocuments issueId={issue.data.id} />}
         handleShowDetails={() => setShowDetails(true)}
       />
-      {view === "forge" && issue.data.blockedBy.some(isActiveBlocker) && <Alert severity="warning" sx={{ borderRadius: 0 }}>
-        Blocked by {issue.data.blockedBy.filter(isActiveBlocker)
-          .map((blocker) => `${blocker.identifier} ${blocker.title} (${blocker.state.name})`).join(", ")}
-      </Alert>}
-      {view === "preview" ? <PreviewView key={issue.data.id} issueId={issue.data.id} />
-        : <ForgeView key={issue.data.id} issueId={issue.data.id} />}
+      {view === "forge" && issue.data.blockedBy.some(isActiveBlocker) && (
+        <Alert severity="warning" sx={{ borderRadius: 0 }}>
+          Blocked by{" "}
+          {issue.data.blockedBy
+            .filter(isActiveBlocker)
+            .map((blocker) => `${blocker.identifier} ${blocker.title} (${blocker.state.name})`)
+            .join(", ")}
+        </Alert>
+      )}
+      {view === "preview" ? (
+        <PreviewView key={issue.data.id} issueId={issue.data.id} />
+      ) : (
+        <ForgeView key={issue.data.id} issueId={issue.data.id} />
+      )}
       <Dialog
         open={showDetails}
         onClose={() => setShowDetails(false)}
@@ -150,13 +153,7 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
         fullWidth
         slotProps={{ paper: { "aria-label": "Issue details" } }}
       >
-        {showDetails && (
-          <IssuePanel
-            key={issue.data.id}
-            issueId={issue.data.id}
-            onClose={() => setShowDetails(false)}
-          />
-        )}
+        {showDetails && <IssuePanel key={issue.data.id} issueId={issue.data.id} onClose={() => setShowDetails(false)} />}
       </Dialog>
     </Box>
   );

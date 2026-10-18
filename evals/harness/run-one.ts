@@ -3,13 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFil
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PipelineResume, PipelineWaiting } from "shared";
-import {
-  getPipeline,
-  pipelineRun,
-  resumePipeline,
-  startPipeline,
-  stopForgeProcesses,
-} from "../../backend/src/forge/forge.js";
+import { getPipeline, pipelineRun, resumePipeline, startPipeline, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { checklistVerdict } from "../../backend/src/forge/plan.js";
 import { initDb } from "../../backend/src/db.js";
 import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
@@ -100,13 +94,18 @@ async function main() {
   };
   const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
     refreshes++;
-    const patch = refreshes === 2 && scenario.upstreamAfterCoderPatch ? scenario.upstreamAfterCoderPatch
-      : !advanced && scenario.upstreamAfterReviewPatch && reviewed() ? scenario.upstreamAfterReviewPatch : null;
+    const patch =
+      refreshes === 2 && scenario.upstreamAfterCoderPatch
+        ? scenario.upstreamAfterCoderPatch
+        : !advanced && scenario.upstreamAfterReviewPatch && reviewed()
+          ? scenario.upstreamAfterReviewPatch
+          : null;
     if (patch) {
       advanced = true;
       const source = join(dataDir, "source");
       git(["apply", join(scenarioDir, patch)], source);
-      git(["add", "-A"], source); git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
+      git(["add", "-A"], source);
+      git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
     }
     git(["fetch", "--quiet", "--prune", "origin"], join(dataDir, "repo.git"));
   });
@@ -142,20 +141,37 @@ async function main() {
   const runGit = (args: string[]) => workspaceGit(["-C", workspacePath(issueId), ...args]);
   const finalHead = (await runGit(["rev-parse", "HEAD"])).trim();
   writeFileSync(join(runDir, "zini.diff.patch"), await runGit(["diff", initialHead, "HEAD"]));
-  const pendingMerge = await runGit(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]).then(() => true).catch(() => false);
+  const pendingMerge = await runGit(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
+    .then(() => true)
+    .catch(() => false);
   const dirty = (await runGit(["status", "--porcelain"])).trim();
   if (pipeline.finished && (pendingMerge || dirty)) error = "Completed pipeline left uncommitted changes or a pending merge";
-  writeFileSync(join(runDir, "git.json"), JSON.stringify({ initialHead, finalHead, commits: await runGit(["log", "--format=%H %s", `${initialHead}..HEAD`]),
-    integration: pipeline.integration, upstreamRefreshes: refreshes, pendingMerge, dirty }, null, 2));
+  writeFileSync(
+    join(runDir, "git.json"),
+    JSON.stringify(
+      {
+        initialHead,
+        finalHead,
+        commits: await runGit(["log", "--format=%H %s", `${initialHead}..HEAD`]),
+        integration: pipeline.integration,
+        upstreamRefreshes: refreshes,
+        pendingMerge,
+        dirty,
+      },
+      null,
+      2,
+    ),
+  );
 
   let check: RunMetrics["check"] = null;
   const checkFile = join(scenarioDir, "check.ts");
   if (existsSync(checkFile) && !isModelRateLimit(error)) {
     console.log("Running the hidden check…");
     const { default: runCheck } = (await import(pathToFileURL(checkFile).href)) as { default: Check };
-    check = await runCheck(checkContext(issueId)).catch(
-      (err: unknown) => ({ passed: false, details: `The check failed to run: ${String(err)}` }),
-    );
+    check = await runCheck(checkContext(issueId)).catch((err: unknown) => ({
+      passed: false,
+      details: `The check failed to run: ${String(err)}`,
+    }));
     console.log(`${check.passed ? "✓" : "✗"} check: ${check.details}`);
   }
 

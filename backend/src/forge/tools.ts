@@ -21,8 +21,7 @@ export function workspaceFilesystem(issueId: string, writable = false, notify?: 
 }
 
 // The files whose diffs start in a diff ("diff --git a/<path> b/<path>" lines).
-const filesIn = (diff: string) =>
-  new Set([...diff.matchAll(/^diff --git a\/(.+) b\/\1$/gm)].map((match) => match[1]));
+const filesIn = (diff: string) => new Set([...diff.matchAll(/^diff --git a\/(.+) b\/\1$/gm)].map((match) => match[1]));
 
 const changeList = (changes: Awaited<ReturnType<typeof workspaceChanges>>) =>
   changes
@@ -36,11 +35,7 @@ const changeList = (changes: Awaited<ReturnType<typeof workspaceChanges>>) =>
 // passes MAX_DIFF_FOR_MODEL, with a note naming the files left out, so they can be
 // asked for by path. With a path: just that file's (or folder's) diff. With
 // uncommitted: only the changes since the last commit.
-export async function diffForModel(
-  issueId: string,
-  path?: string,
-  { uncommitted = false } = {},
-) {
+export async function diffForModel(issueId: string, path?: string, { uncommitted = false } = {}) {
   if (path) {
     const { diff } = await workspaceDiff(issueId, path);
     if (!diff) return `No changes in ${path}.`;
@@ -71,28 +66,45 @@ export async function diffForModel(
 // The subagents' git_diff: without a path, only the list of changed files, so they ask
 // for the diffs they need by path instead of carrying the whole patch in every call.
 export const diffTool = (issueId: string) =>
-  tool(async ({ path }) => {
-    if (path) return diffForModel(issueId, path);
-    const changes = await workspaceChanges(issueId);
-    return changes.length ? `Changed files:\n${changeList(changes)}` : "No changes.";
-  }, {
-    name: "git_diff",
-    description:
-      "Every change in the workspace since it branched (during a merge, compared with the " +
-      "branch being merged in), new files included. Without a path: the list of changed " +
-      "files with their added/removed line counts. With a path: that file's (or folder's) " +
-      "unified diff.",
-    schema: z.object({ path: z.string().optional() }),
-  });
+  tool(
+    async ({ path }) => {
+      if (path) return diffForModel(issueId, path);
+      const changes = await workspaceChanges(issueId);
+      return changes.length ? `Changed files:\n${changeList(changes)}` : "No changes.";
+    },
+    {
+      name: "git_diff",
+      description:
+        "Every change in the workspace since it branched (during a merge, compared with the " +
+        "branch being merged in), new files included. Without a path: the list of changed " +
+        "files with their added/removed line counts. With a path: that file's (or folder's) " +
+        "unified diff.",
+      schema: z.object({ path: z.string().optional() }),
+    },
+  );
 
 export function conflictTools(issueId: string, writable = false) {
-  return [tool(async ({ path }) => path ? inspectConflicts(issueId, path) : (await inspectConflicts(issueId)).map(file => file.path), {
-    name: "inspect_conflicts", description: "Inspect unresolved conflict paths and base/ours/theirs contents. Deleted and binary sides are explicit. Pass one path for full per-file context.",
-    schema: z.object({ path: z.string().optional() }),
-  }), ...(writable ? [tool(({ path }) => resolveConflict(issueId, path), {
-    name: "resolve_conflict", description: "After editing a conflicted file (or deleting it), record its resolution. All conflict markers must be removed. Infrastructure completes the merge after submission.",
-    schema: z.object({ path: z.string() }),
-  })] : [])];
+  return [
+    tool(
+      async ({ path }) => (path ? inspectConflicts(issueId, path) : (await inspectConflicts(issueId)).map((file) => file.path)),
+      {
+        name: "inspect_conflicts",
+        description:
+          "Inspect unresolved conflict paths and base/ours/theirs contents. Deleted and binary sides are explicit. Pass one path for full per-file context.",
+        schema: z.object({ path: z.string().optional() }),
+      },
+    ),
+    ...(writable
+      ? [
+          tool(({ path }) => resolveConflict(issueId, path), {
+            name: "resolve_conflict",
+            description:
+              "After editing a conflicted file (or deleting it), record its resolution. All conflict markers must be removed. Infrastructure completes the merge after submission.",
+            schema: z.object({ path: z.string() }),
+          }),
+        ]
+      : []),
+  ];
 }
 
 // notify runs after each change, so the webapp's diff follows the coder's work.
@@ -106,8 +118,7 @@ export function writeTools(issueId: string, notify: () => void) {
     };
   return [
     tool(
-      changing(async ({ path }: { path: string }) =>
-        deleteWorkspaceFile(issueId, path)),
+      changing(async ({ path }: { path: string }) => deleteWorkspaceFile(issueId, path)),
       {
         name: "delete_file",
         description: "Delete a file.",
@@ -115,8 +126,7 @@ export function writeTools(issueId: string, notify: () => void) {
       },
     ),
     tool(
-      changing(async ({ from, to }: { from: string; to: string }) =>
-        moveWorkspaceFile(issueId, from, to)),
+      changing(async ({ from, to }: { from: string; to: string }) => moveWorkspaceFile(issueId, from, to)),
       {
         name: "move_file",
         description:

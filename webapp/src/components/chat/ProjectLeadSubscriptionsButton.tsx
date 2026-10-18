@@ -19,41 +19,19 @@ import { useThread } from "../../api/projectLead.ts";
 import { useLinearIssue } from "../../api/integrations.ts";
 import { errorMessage } from "../../api/client.ts";
 
-function Subscription({
-  issueId,
-  onClose,
-}: {
-  issueId: string;
-  onClose: () => void;
-}) {
+function Subscription({ issueId, onClose }: { issueId: string; onClose: () => void }) {
   const issue = useLinearIssue(issueId);
   return (
-    <ListItemButton
-      component={Link}
-      to={`/issues/${issueId}`}
-      onClick={onClose}
-    >
+    <ListItemButton component={Link} to={`/issues/${issueId}`} onClick={onClose}>
       <ListItemText
-        primary={
-          issue.data ? `${issue.data.identifier}: ${issue.data.title}` : issueId
-        }
-        secondary={
-          issue.isLoading
-            ? "Loading issue…"
-            : issue.error
-              ? "Issue details unavailable"
-              : "Subscribed to Forge updates"
-        }
+        primary={issue.data ? `${issue.data.identifier}: ${issue.data.title}` : issueId}
+        secondary={issue.isLoading ? "Loading issue…" : issue.error ? "Issue details unavailable" : "Subscribed to Forge updates"}
       />
     </ListItemButton>
   );
 }
 
-export default function ProjectLeadSubscriptionsButton({
-  threadId,
-}: {
-  threadId?: string;
-}) {
+export default function ProjectLeadSubscriptionsButton({ threadId }: { threadId?: string }) {
   const [open, setOpen] = useState(false);
   const thread = useThread(threadId);
   const subscriptions = thread.data?.subscriptions ?? [];
@@ -62,12 +40,7 @@ export default function ProjectLeadSubscriptionsButton({
     <>
       <Tooltip title="Forge subscriptions">
         <span>
-          <IconButton
-            size="small"
-            aria-label="Forge subscriptions"
-            disabled={!threadId}
-            onClick={() => setOpen(true)}
-          >
+          <IconButton size="small" aria-label="Forge subscriptions" disabled={!threadId} onClick={() => setOpen(true)}>
             <NotificationsActiveIcon />
           </IconButton>
         </span>
@@ -81,11 +54,7 @@ export default function ProjectLeadSubscriptionsButton({
           }}
         >
           Forge subscriptions
-          <IconButton
-            size="small"
-            aria-label="Close Forge subscriptions"
-            onClick={close}
-          >
+          <IconButton size="small" aria-label="Close Forge subscriptions" onClick={close}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </DialogTitle>
@@ -98,23 +67,13 @@ export default function ProjectLeadSubscriptionsButton({
             <>
               {subscriptions.length ? (
                 <List disablePadding>
-                  {open &&
-                    subscriptions.map((issueId) => (
-                      <Subscription
-                        key={issueId}
-                        issueId={issueId}
-                        onClose={close}
-                      />
-                    ))}
+                  {open && subscriptions.map((issueId) => <Subscription key={issueId} issueId={issueId} onClose={close} />)}
                 </List>
               ) : (
-                <Typography color="textSecondary">
-                  This chat is not subscribed to any Forges.
-                </Typography>
+                <Typography color="textSecondary">This chat is not subscribed to any Forges.</Typography>
               )}
               <Typography variant="body2" color="textSecondary" sx={{ mt: 2 }}>
-                Ask the Project Lead to follow or unfollow a Forge. Subscriptions
-                last until the backend restarts.
+                Ask the Project Lead to follow or unfollow a Forge. Subscriptions last until the backend restarts.
               </Typography>
             </>
           )}

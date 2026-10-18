@@ -4,8 +4,7 @@ import { getIntegrations, isProvider, removeKey, saveKeys } from "../integration
 import { InvalidInputLinearError } from "@linear/sdk";
 import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
 
-const isStatusType = (s: string): s is StatusType =>
-  (STATUS_TYPES as readonly string[]).includes(s);
+const isStatusType = (s: string): s is StatusType => (STATUS_TYPES as readonly string[]).includes(s);
 
 export const integrations = Router();
 

@@ -7,7 +7,9 @@ const settingsListeners = new Set<(changes: SettingsChanges) => void>();
 
 export function onSettingsSaved(listener: (changes: SettingsChanges) => void) {
   settingsListeners.add(listener);
-  return () => { settingsListeners.delete(listener); };
+  return () => {
+    settingsListeners.delete(listener);
+  };
 }
 
 // The settings that exist. Each is a row in the settings table once saved.
@@ -22,11 +24,9 @@ export const SETTING_KEYS: SettingKey[] = [
   "conductorEnabled",
 ];
 
-export const isSettingKey = (key: string): key is SettingKey =>
-  (SETTING_KEYS as string[]).includes(key);
+export const isSettingKey = (key: string): key is SettingKey => (SETTING_KEYS as string[]).includes(key);
 
-export const isOptionalSetting = (key: SettingKey) =>
-  (OPTIONAL_SETTINGS as readonly string[]).includes(key);
+export const isOptionalSetting = (key: SettingKey) => (OPTIONAL_SETTINGS as readonly string[]).includes(key);
 
 export async function getSetting(key: SettingKey) {
   const row = await Setting.findByPk(key);
@@ -47,9 +47,7 @@ export async function getSettings() {
 // An empty value clears the setting.
 export async function saveSettings(changes: Partial<Record<SettingKey, string>>) {
   await Promise.all(
-    Object.entries(changes).map(([key, value]) =>
-      value ? Setting.upsert({ key, value }) : Setting.destroy({ where: { key } }),
-    ),
+    Object.entries(changes).map(([key, value]) => (value ? Setting.upsert({ key, value }) : Setting.destroy({ where: { key } }))),
   );
   for (const listener of settingsListeners) listener(changes);
 }

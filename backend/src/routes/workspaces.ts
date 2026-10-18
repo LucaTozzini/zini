@@ -24,11 +24,21 @@ import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js
 
 export const workspaces = Router();
 workspaces.post("/:issueId/sync", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
-  if (req.body?.merge !== undefined && typeof req.body.merge !== "boolean") { res.status(400).json({ error: "merge must be boolean" }); return; }
-  if (!await getWorkspace(issueId)) { res.status(404).json({ error: "Workspace not found" }); return; }
-  try { res.json(await syncWorkspace(issueId, req.body?.merge === true)); }
-  catch (error) { res.status(409).json({ error: lastLine(error) }); }
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  if (req.body?.merge !== undefined && typeof req.body.merge !== "boolean") {
+    res.status(400).json({ error: "merge must be boolean" });
+    return;
+  }
+  if (!(await getWorkspace(issueId))) {
+    res.status(404).json({ error: "Workspace not found" });
+    return;
+  }
+  try {
+    res.json(await syncWorkspace(issueId, req.body?.merge === true));
+  } catch (error) {
+    res.status(409).json({ error: lastLine(error) });
+  }
 });
 
 // The issue id from the URL or body, or null after sending a 400.
@@ -39,8 +49,7 @@ function readIssueId(value: unknown, res: Response) {
 }
 
 // A failed git command's message ends with its "fatal: ..." line.
-const lastLine = (err: unknown) =>
-  err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
+const lastLine = (err: unknown) => (err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err));
 
 // The issue's workspace, or null if it doesn't have one yet.
 workspaces.get("/:issueId", async (req, res) => {
@@ -56,26 +65,37 @@ workspaces.get("/:issueId", async (req, res) => {
 
 // The user's app in the workspace, for its preview page.
 workspaces.get("/:issueId/app", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
   try {
     const { status, error } = await workspaceApps.refresh(issueId);
     res.json({ status, error: error ?? null } satisfies WorkspaceAppState);
-  } catch (error) { res.status(500).json({ error: `Couldn't read the app: ${lastLine(error)}` }); }
+  } catch (error) {
+    res.status(500).json({ error: `Couldn't read the app: ${lastLine(error)}` });
+  }
 });
 
 // A file the preview's page downloaded.
 workspaces.get("/:issueId/preview/downloads/:id", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
   const download = await previewDownload(issueId, req.params.id);
-  if (!download) { res.status(404).json({ error: "That download is no longer available" }); return; }
+  if (!download) {
+    res.status(404).json({ error: "That download is no longer available" });
+    return;
+  }
   res.download(download.path, download.name);
 });
 
 // Expensive live Git reads are independent of the issue panel metadata request.
 workspaces.get("/:issueId/git-status", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res); if (!issueId) return;
-  try { res.json(await getWorkspaceGitStatus(issueId)); }
-  catch (error) { res.status(500).json({ error: `Couldn't read Git status: ${lastLine(error)}` }); }
+  const issueId = readIssueId(req.params.issueId, res);
+  if (!issueId) return;
+  try {
+    res.json(await getWorkspaceGitStatus(issueId));
+  } catch (error) {
+    res.status(500).json({ error: `Couldn't read Git status: ${lastLine(error)}` });
+  }
 });
 
 // Everything changed in the workspace since it branched, as a unified diff (see
@@ -147,7 +167,11 @@ workspaces.post("/:issueId/pull-request", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;
   const { title, body } = (req.body ?? {}) as { title?: unknown; body?: unknown };
-  const result = await openWorkspacePullRequest(issueId, typeof title === "string" ? title : "", typeof body === "string" ? body : "");
+  const result = await openWorkspacePullRequest(
+    issueId,
+    typeof title === "string" ? title : "",
+    typeof body === "string" ? body : "",
+  );
   if ("error" in result) res.status(result.status).json({ error: result.error });
   else res.status(201).json(result.pullRequest);
 });
@@ -157,11 +181,7 @@ workspaces.post("/", async (req, res) => {
   const issueId = readIssueId((req.body as { issueId?: unknown } | undefined)?.issueId, res);
   if (!issueId) return;
 
-  const [linear, githubToken, repo] = await Promise.all([
-    getLinearClient(),
-    getKey("github"),
-    getSetting("githubRepo"),
-  ]);
+  const [linear, githubToken, repo] = await Promise.all([getLinearClient(), getKey("github"), getSetting("githubRepo")]);
   if (!linear) {
     res.status(409).json({ error: "Linear isn't connected" });
     return;
@@ -173,14 +193,21 @@ workspaces.post("/", async (req, res) => {
 
   try {
     const selection = { pullRequest: req.body?.pullRequest, fresh: req.body?.fresh };
-    if ((selection.pullRequest !== undefined && (!Number.isSafeInteger(selection.pullRequest) || selection.pullRequest <= 0)) ||
-        (selection.fresh !== undefined && typeof selection.fresh !== "boolean") || (selection.fresh && selection.pullRequest)) {
-      res.status(400).json({ error: "Choose a pull request number or fresh branch" }); return;
+    if (
+      (selection.pullRequest !== undefined && (!Number.isSafeInteger(selection.pullRequest) || selection.pullRequest <= 0)) ||
+      (selection.fresh !== undefined && typeof selection.fresh !== "boolean") ||
+      (selection.fresh && selection.pullRequest)
+    ) {
+      res.status(400).json({ error: "Choose a pull request number or fresh branch" });
+      return;
     }
     const { workspace, created } = await createWorkspace(linear, issueId, selection);
     res.status(created ? 201 : 200).json(workspace);
   } catch (err) {
-    if (err instanceof WorkspaceChoiceRequired) { res.status(409).json({ error: err.message, choices: err.choices }); return; }
+    if (err instanceof WorkspaceChoiceRequired) {
+      res.status(409).json({ error: err.message, choices: err.choices });
+      return;
+    }
     if (err instanceof InvalidInputLinearError) {
       res.status(404).json({ error: "Issue not found" });
       return;

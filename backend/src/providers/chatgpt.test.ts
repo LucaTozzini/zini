@@ -6,8 +6,15 @@ const { chatGptAccessToken, signOutChatGpt, CHATGPT_API } = await import("./chat
 const { OAuthConnection } = await import("../models/OAuthConnection.js");
 
 function connection() {
-  return OAuthConnection.build({ provider: "chatgpt", clientId: "test-client", accessToken: "old-access",
-    refreshToken: "old-refresh", idToken: "id-token", expiresAt: new Date(0), email: null });
+  return OAuthConnection.build({
+    provider: "chatgpt",
+    clientId: "test-client",
+    accessToken: "old-access",
+    refreshToken: "old-refresh",
+    idToken: "id-token",
+    expiresAt: new Date(0),
+    email: null,
+  });
 }
 
 test("concurrent requests share a refresh with the correct resource and rotate credentials", async (t) => {
@@ -15,7 +22,9 @@ test("concurrent requests share a refresh with the correct resource and rotate c
   t.mock.method(OAuthConnection, "findByPk", async () => row);
   t.mock.method(row, "update", async (values: object) => Object.assign(row, values));
   let release!: () => void;
-  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   let requests = 0;
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     requests++;
@@ -24,8 +33,12 @@ test("concurrent requests share a refresh with the correct resource and rotate c
     assert.equal(form.get("refresh_token"), "old-refresh");
     assert.equal(form.get("client_id"), "test-client");
     await waiting;
-    return Response.json({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600,
-      earliest_refresh_at: 2_000_000_000 });
+    return Response.json({
+      access_token: "new-access",
+      refresh_token: "new-refresh",
+      expires_in: 3600,
+      earliest_refresh_at: 2_000_000_000,
+    });
   });
   const first = chatGptAccessToken();
   const second = chatGptAccessToken();
@@ -43,7 +56,9 @@ test("near-expiry access tokens remain usable during the persisted cooldown", as
   row.expiresAt = new Date(Date.now() + 120_000);
   row.earliestRefreshAt = new Date(Date.now() + 60_000);
   t.mock.method(OAuthConnection, "findByPk", async () => row);
-  const requested = t.mock.method(globalThis, "fetch", async () => { throw new Error("must not refresh"); });
+  const requested = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("must not refresh");
+  });
   assert.equal(await chatGptAccessToken(), "old-access");
   assert.equal(await chatGptAccessToken(), "old-access");
   assert.equal(requested.mock.callCount(), 0);
@@ -54,7 +69,9 @@ test("an expired access token is never used during cooldown and credentials are 
   row.earliestRefreshAt = new Date(Date.now() + 60_000);
   t.mock.method(OAuthConnection, "findByPk", async () => row);
   const destroyed = t.mock.method(row, "destroy", async () => {});
-  const requested = t.mock.method(globalThis, "fetch", async () => { throw new Error("must not refresh"); });
+  const requested = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("must not refresh");
+  });
   await assert.rejects(chatGptAccessToken(), /access token has expired/);
   assert.equal(requested.mock.callCount(), 0);
   assert.equal(destroyed.mock.callCount(), 0);
@@ -67,9 +84,15 @@ test("a cooldown rejection retains tokens and suppresses subsequent refresh requ
   t.mock.method(row, "update", async (values: object) => Object.assign(row, values));
   const destroyed = t.mock.method(row, "destroy", async () => {});
   const retryAt = Math.ceil((Date.now() + 90_000) / 1000);
-  const requested = t.mock.method(globalThis, "fetch", async () => Response.json({
-    error: "refresh_cooldown", earliest_refresh_at: retryAt,
-  }, { status: 400, headers: { "Retry-After": "90" } }));
+  const requested = t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      {
+        error: "refresh_cooldown",
+        earliest_refresh_at: retryAt,
+      },
+      { status: 400, headers: { "Retry-After": "90" } },
+    ),
+  );
   assert.equal(await chatGptAccessToken(), "old-access");
   assert.ok(row.earliestRefreshAt!.getTime() >= retryAt * 1000);
   assert.equal(await chatGptAccessToken(), "old-access");
@@ -98,8 +121,15 @@ test("a client configuration error retains credentials", async (t) => {
 test("startup adds cooldown storage to an existing database without losing its connection", async () => {
   const { sequelize, initDb } = await import("../db.js");
   await OAuthConnection.sync();
-  await OAuthConnection.create({ provider: "chatgpt", clientId: "saved-client", accessToken: "saved-access",
-    refreshToken: "saved-refresh", idToken: "saved-id", expiresAt: new Date(Date.now() + 3600_000), email: null });
+  await OAuthConnection.create({
+    provider: "chatgpt",
+    clientId: "saved-client",
+    accessToken: "saved-access",
+    refreshToken: "saved-refresh",
+    idToken: "saved-id",
+    expiresAt: new Date(Date.now() + 3600_000),
+    email: null,
+  });
   await sequelize.getQueryInterface().removeColumn("oauth_connections", "earliestRefreshAt");
   await initDb();
   await initDb();
@@ -137,9 +167,11 @@ test("sign-out revokes the renewable session before deleting local credentials",
 test("failed revocation retains credentials for retry", async (t) => {
   t.mock.method(OAuthConnection, "findByPk", async () => connection());
   const destroyed = t.mock.method(OAuthConnection, "destroy", async () => 1);
-  t.mock.method(globalThis, "fetch", async (url: string) => url.endsWith("openid-configuration")
-    ? Response.json({ revocation_endpoint: "https://auth.openai.com/revoke" })
-    : new Response(null, { status: 503 }));
+  t.mock.method(globalThis, "fetch", async (url: string) =>
+    url.endsWith("openid-configuration")
+      ? Response.json({ revocation_endpoint: "https://auth.openai.com/revoke" })
+      : new Response(null, { status: 503 }),
+  );
   await assert.rejects(signOutChatGpt(), /couldn't revoke/);
   assert.equal(destroyed.mock.callCount(), 0);
 });

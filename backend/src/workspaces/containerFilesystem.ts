@@ -10,8 +10,12 @@ export function containerFilesystem(issueId: string, writable = false, notify: (
     return result;
   };
   return {
-    read: (...args) => request("read", args), readRaw: (...args) => request("readRaw", args),
-    ls: (...args) => request("ls", args), glob: (...args) => request("glob", args), grep: (...args) => request("grep", args),
-    write: (...args) => change("write", args), edit: (...args) => change("edit", args),
+    read: (...args) => request("read", args),
+    readRaw: (...args) => request("readRaw", args),
+    ls: (...args) => request("ls", args),
+    glob: (...args) => request("glob", args),
+    grep: (...args) => request("grep", args),
+    write: (...args) => change("write", args),
+    edit: (...args) => change("edit", args),
   };
 }

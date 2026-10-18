@@ -33,11 +33,7 @@ function FileDiff({ file }: { file: FileData }) {
 
   return (
     <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{ alignItems: "center", px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}
-      >
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
         <Typography variant="body2" sx={{ fontFamily: "monospace", flex: 1, overflowWrap: "anywhere" }}>
           {file.type === "rename" ? `${file.oldPath} → ${file.newPath}` : path}
         </Typography>

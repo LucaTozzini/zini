@@ -10,9 +10,12 @@ type LineLimitProps = {
 
 // Accept palette paths as well as literal CSS colors, using CSS variables when available.
 function resolveFadeColor(theme: Theme, color: string) {
-  const value = color.split(".").reduce<unknown>((current, key) =>
-    current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined,
-    (theme.vars || theme).palette);
+  const value = color
+    .split(".")
+    .reduce<unknown>(
+      (current, key) => (current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined),
+      (theme.vars || theme).palette,
+    );
   return typeof value === "string" ? value : color;
 }
 
@@ -42,19 +45,36 @@ export default function LineLimit({ children, lineLimit = 12, fadeColor }: LineL
 
   return (
     <Box sx={{ position: "relative", overflow: "hidden", minWidth: 0 }}>
-      <Box id={contentId} ref={previewRef} sx={{
-        typography: "body1", overflow: "hidden", maxHeight: expanded ? "none" : `${lines}lh`,
-      }}>
+      <Box
+        id={contentId}
+        ref={previewRef}
+        sx={{
+          typography: "body1",
+          overflow: "hidden",
+          maxHeight: expanded ? "none" : `${lines}lh`,
+        }}
+      >
         <Box ref={contentRef}>{children}</Box>
       </Box>
       {overflows && (
-        <Box sx={{
-          background: (theme) => `linear-gradient(transparent, ${resolveFadeColor(theme, fadeColor ?? "background.default")})`,
-          position: expanded ? "relative" : "absolute", bottom: 0, left: 0, right: 0,
-          pt: expanded ? 2 : 15,
-        }}>
-          <Button fullWidth size="small" color="inherit" aria-expanded={expanded}
-            aria-controls={contentId} onClick={() => setExpanded((value) => !value)}>
+        <Box
+          sx={{
+            background: (theme) => `linear-gradient(transparent, ${resolveFadeColor(theme, fadeColor ?? "background.default")})`,
+            position: expanded ? "relative" : "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            pt: expanded ? 2 : 15,
+          }}
+        >
+          <Button
+            fullWidth
+            size="small"
+            color="inherit"
+            aria-expanded={expanded}
+            aria-controls={contentId}
+            onClick={() => setExpanded((value) => !value)}
+          >
             {expanded ? "Show less" : "Show more"}
           </Button>
         </Box>

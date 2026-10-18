@@ -9,7 +9,9 @@ const listeners = new Set<(event: ServerEvent) => void>();
 
 export function onServerEvent(listener: (event: ServerEvent) => void) {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function sendEvent(event: ServerEvent) {

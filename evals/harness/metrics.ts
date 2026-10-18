@@ -27,9 +27,14 @@ const emptyRole = (): RoleMetrics => ({
 // Each role's metrics, from the logs in logDir (named <time>-<role>.jsonl).
 export function roleMetrics(logDir: string) {
   const roles: Record<string, RoleMetrics> = {};
-  const files = readdirSync(logDir).filter((file) => file.endsWith(".jsonl")).sort();
+  const files = readdirSync(logDir)
+    .filter((file) => file.endsWith(".jsonl"))
+    .sort();
   for (const file of files) {
-    const role = file.replace(/\.jsonl$/, "").split("-").at(-1)!;
+    const role = file
+      .replace(/\.jsonl$/, "")
+      .split("-")
+      .at(-1)!;
     const events = readFileSync(join(logDir, file), "utf8")
       .split("\n")
       .filter(Boolean)

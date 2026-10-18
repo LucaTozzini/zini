@@ -1,13 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Container,
-  Snackbar,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, Container, Snackbar, Stack, TextField, Typography } from "@mui/material";
 import ZiniIcon from "../components/icons/ZiniIcon";
 import { useUserLogin } from "../api/users";
 import { useState } from "react";
@@ -24,11 +15,7 @@ const LoginPage = () => {
         onClose={() => setShowError(false)}
         anchorOrigin={{ vertical: "top", horizontal: "center" }}
       >
-        <Alert
-          severity="error"
-          onClose={() => setShowError(false)}
-          sx={{ width: "100%" }}
-        >
+        <Alert severity="error" onClose={() => setShowError(false)} sx={{ width: "100%" }}>
           Unable to login. Check username and password
         </Alert>
       </Snackbar>
@@ -66,21 +53,8 @@ const LoginPage = () => {
           );
         }}
       >
-        <TextField
-          label="Username"
-          id="username"
-          name="username"
-          required
-          disabled={login.isPending}
-        />
-        <TextField
-          label="Password"
-          id="password"
-          name="password"
-          type="password"
-          required
-          disabled={login.isPending}
-        />
+        <TextField label="Username" id="username" name="username" required disabled={login.isPending} />
+        <TextField label="Password" id="password" name="password" type="password" required disabled={login.isPending} />
         <Button variant="contained" type="submit" loading={login.isPending}>
           Login
         </Button>

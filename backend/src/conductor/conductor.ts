@@ -1,11 +1,5 @@
 import { startRun } from "../agents/runs.js";
-import {
-  forgeThreadId,
-  getPipeline,
-  loadSetup,
-  pipelineRun,
-  startPipeline,
-} from "../forge/forge.js";
+import { forgeThreadId, getPipeline, loadSetup, pipelineRun, startPipeline } from "../forge/forge.js";
 import { fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
 import { createWorkspace } from "../workspaces/workspaces.js";
 import { isConductorEnabled, onSettingsSaved } from "../core/settings.js";
@@ -36,11 +30,7 @@ async function conductorIteration(isEnabled: () => boolean) {
       await createWorkspace(client, issue.id);
       if (!isEnabled()) return;
       const run = pipelineRun(setup, issue.id, "Conductor");
-      const start = await startRun(
-        forgeThreadId(issue.id),
-        (signal) => startPipeline(run, "", signal),
-        run.notify,
-      );
+      const start = await startRun(forgeThreadId(issue.id), (signal) => startPipeline(run, "", signal), run.notify);
 
       if (!start) throw new Error("Conductor: Unable to run forge " + issue.id);
       console.log("Conductor: started forge for " + issue.id);
@@ -61,6 +51,12 @@ export async function startConductor() {
   try {
     const enabled = await isConductorEnabled();
     if (!changed) controller.setEnabled(enabled);
-  } catch (error) { unsubscribe(); throw error; }
-  return () => { unsubscribe(); controller.setEnabled(false); };
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
+  return () => {
+    unsubscribe();
+    controller.setEnabled(false);
+  };
 }

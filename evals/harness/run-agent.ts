@@ -58,7 +58,10 @@ const toMessage = (m: HistoryMessage): BaseMessage =>
   m.role === "user"
     ? new HumanMessage(m.content)
     : m.role === "assistant"
-      ? new AIMessage({ content: m.content, tool_calls: (m.tool_calls ?? []).map((call) => ({ ...call, type: "tool_call" as const })) })
+      ? new AIMessage({
+          content: m.content,
+          tool_calls: (m.tool_calls ?? []).map((call) => ({ ...call, type: "tool_call" as const })),
+        })
       : new ToolMessage({ content: m.content, tool_call_id: m.tool_call_id!, name: m.name });
 
 const readJson = <T>(file: string) => JSON.parse(readFileSync(join(testDir, file), "utf8")) as T;
@@ -107,12 +110,17 @@ async function main() {
     console.log("Running the check…");
     const log = existsSync(logDir)
       ? readdirSync(logDir).flatMap((file) =>
-          readFileSync(join(logDir, file), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as RunLogEvent))
+          readFileSync(join(logDir, file), "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as RunLogEvent),
+        )
       : [];
     const { default: runCheck } = (await import(pathToFileURL(checkFile).href)) as { default: AgentCheck };
-    check = await runCheck({ ...checkContext(issueId), log, document }).catch(
-      (err: unknown) => ({ passed: false, details: `The check failed to run: ${String(err)}` }),
-    );
+    check = await runCheck({ ...checkContext(issueId), log, document }).catch((err: unknown) => ({
+      passed: false,
+      details: `The check failed to run: ${String(err)}`,
+    }));
     console.log(`${check.passed ? "✓" : "✗"} check: ${check.details}`);
   }
 

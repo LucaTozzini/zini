@@ -48,19 +48,28 @@ const ChatInput = ({
       setImageError(`Attach up to ${MAX_CHAT_IMAGES} images.`);
       return;
     }
-    if (files.some((file) => !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type) || file.size > MAX_CHAT_IMAGE_BYTES)) {
+    if (
+      files.some(
+        (file) => !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type) || file.size > MAX_CHAT_IMAGE_BYTES,
+      )
+    ) {
       setImageError("Use PNG, JPEG, WebP or GIF images up to 5 MB each.");
       return;
     }
     setReading(true);
     try {
-      const added = await Promise.all(files.map((file) => new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error("Could not read image."));
-        reader.onabort = () => reject(new Error("Could not read image."));
-        reader.readAsDataURL(file);
-      })));
+      const added = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = () => reject(new Error("Could not read image."));
+              reader.onabort = () => reject(new Error("Could not read image."));
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
       onImagesChange([...images, ...added]);
     } catch {
       setImageError("Could not read image. Try again.");
@@ -70,20 +79,40 @@ const ChatInput = ({
   }
 
   return (
-    <Paper sx={{borderRadius: 2}} variant="outlined">
-
-      <input ref={fileInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,image/gif"
-        onChange={(e) => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-      {imageError && <Alert severity="error" onClose={() => setImageError(null)}>{imageError}</Alert>}
+    <Paper sx={{ borderRadius: 2 }} variant="outlined">
+      <input
+        ref={fileInput}
+        type="file"
+        hidden
+        multiple
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(e) => {
+          void addImages(Array.from(e.target.files ?? []));
+          e.target.value = "";
+        }}
+      />
+      {imageError && (
+        <Alert severity="error" onClose={() => setImageError(null)}>
+          {imageError}
+        </Alert>
+      )}
       {images.length > 0 && (
         <Stack direction="row" spacing={1} sx={{ p: 1, overflowX: "auto" }}>
           {images.map((src, i) => (
             <Box key={i} sx={{ position: "relative", flexShrink: 0 }}>
-              <Box component="img" src={src} alt={`Attached image ${i + 1}`}
-                sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 1 }} />
-              <IconButton size="small" aria-label={`Remove image ${i + 1}`} disabled={disabled || loading || reading}
+              <Box
+                component="img"
+                src={src}
+                alt={`Attached image ${i + 1}`}
+                sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 1 }}
+              />
+              <IconButton
+                size="small"
+                aria-label={`Remove image ${i + 1}`}
+                disabled={disabled || loading || reading}
                 onClick={() => onImagesChange(images.filter((_, index) => index !== i))}
-                sx={{ position: "absolute", top: 0, right: 0, bgcolor: "background.paper" }}>
+                sx={{ position: "absolute", top: 0, right: 0, bgcolor: "background.paper" }}
+              >
                 <CloseIcon fontSize="small" />
               </IconButton>
             </Box>
@@ -92,7 +121,10 @@ const ChatInput = ({
       )}
       <TextField
         component="form"
-        onSubmit={(e) => { e.preventDefault(); if (!reading) onSubmit(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!reading) onSubmit();
+        }}
         fullWidth
         variant="outlined"
         multiline
@@ -100,10 +132,17 @@ const ChatInput = ({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (reading && e.key === "Enter" && !e.shiftKey) e.preventDefault(); else handleKeyDown(e); }}
+        onKeyDown={(e) => {
+          if (reading && e.key === "Enter" && !e.shiftKey) e.preventDefault();
+          else handleKeyDown(e);
+        }}
         onPaste={(e) => {
-          const files = Array.from(e.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-            .flatMap((item) => { const file = item.getAsFile(); return file ? [file] : []; });
+          const files = Array.from(e.clipboardData.items)
+            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            .flatMap((item) => {
+              const file = item.getAsFile();
+              return file ? [file] : [];
+            });
           if (files.length) {
             if (!e.clipboardData.getData("text/plain")) e.preventDefault();
             void addImages(files);
@@ -131,8 +170,16 @@ const ChatInput = ({
             startAdornment: (
               <InputAdornment position="start" sx={{ alignSelf: "flex-end" }}>
                 <Tooltip title="Upload images">
-                  <span><IconButton size="small" aria-label="Upload images" disabled={disabled || loading || reading}
-                    onClick={() => fileInput.current?.click()}><AddIcon fontSize="small" /></IconButton></span>
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="Upload images"
+                      disabled={disabled || loading || reading}
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               </InputAdornment>
             ),
@@ -153,7 +200,7 @@ const ChatInput = ({
                       ":hover": {
                         background: (theme) => (theme.vars || theme).palette.primary.light,
                       },
-                      color: "primary.contrastText"
+                      color: "primary.contrastText",
                     }}
                   >
                     <StopRounded fontSize="small" />
@@ -169,7 +216,7 @@ const ChatInput = ({
                       ":hover": {
                         background: (theme) => (theme.vars || theme).palette.primary.light,
                       },
-                      color: "primary.contrastText"
+                      color: "primary.contrastText",
                     }}
                   >
                     <ArrowUpwardIcon fontSize="small" />

@@ -36,12 +36,9 @@ function parseSpec(spec: string) {
   const at = spec.indexOf("@", 1);
   const name = at === -1 ? spec : spec.slice(0, at);
   const version = at === -1 ? "latest" : spec.slice(at + 1);
-  if (!NAME.test(name) || name.includes(".."))
-    throw new Error(`${name} isn't a valid npm package name`);
+  if (!NAME.test(name) || name.includes("..")) throw new Error(`${name} isn't a valid npm package name`);
   if (!EXACT_VERSION.test(version) && !TAG.test(version)) {
-    throw new Error(
-      `${version} isn't an exact version (e.g. 1.2.3) or a tag (e.g. latest)`,
-    );
+    throw new Error(`${version} isn't an exact version (e.g. 1.2.3) or a tag (e.g. latest)`);
   }
   return { name, version };
 }
@@ -49,8 +46,7 @@ function parseSpec(spec: string) {
 async function registryJson(path: string, notFound: string) {
   const res = await fetch(`${REGISTRY}/${path}`);
   if (res.status === 404) throw new Error(notFound);
-  if (!res.ok)
-    throw new Error(`The npm registry answered ${res.status} for ${path}`);
+  if (!res.ok) throw new Error(`The npm registry answered ${res.status} for ${path}`);
   return res.json();
 }
 
@@ -59,10 +55,7 @@ type Manifest = { version: string; dist: { tarball: string } };
 // One version's package.json as published, with its tarball's URL. version
 // can be a tag.
 const fetchManifest = (name: string, version: string) =>
-  registryJson(
-    `${name}/${version}`,
-    `No version or tag ${version} of ${name} on npm`,
-  ) as Promise<Manifest>;
+  registryJson(`${name}/${version}`, `No version or tag ${version} of ${name} on npm`) as Promise<Manifest>;
 
 // A package's tags, and its most recent versions with their publish dates, newest first.
 export async function packageVersions(name: string) {
@@ -74,19 +67,13 @@ export async function packageVersions(name: string) {
     time?: Record<string, string>;
   };
   const time = doc.time ?? {};
-  const versions = Object.keys(doc.versions).sort((a, b) =>
-    (time[b] ?? "").localeCompare(time[a] ?? ""),
-  );
-  const tags = Object.entries(doc["dist-tags"]).map(
-    ([tag, version]) => `${tag} ${version}`,
-  );
+  const versions = Object.keys(doc.versions).sort((a, b) => (time[b] ?? "").localeCompare(time[a] ?? ""));
+  const tags = Object.entries(doc["dist-tags"]).map(([tag, version]) => `${tag} ${version}`);
   return [
     `${name}${doc.description ? `: ${doc.description}` : ""}`,
     `Tags: ${tags.join(", ")}`,
     `Latest ${Math.min(MAX_VERSIONS, versions.length)} of ${versions.length} versions, newest first:`,
-    ...versions
-      .slice(0, MAX_VERSIONS)
-      .map((v) => `${v}${time[v] ? `  ${time[v].slice(0, 10)}` : ""}`),
+    ...versions.slice(0, MAX_VERSIONS).map((v) => `${v}${time[v] ? `  ${time[v].slice(0, 10)}` : ""}`),
   ].join("\n");
 }
 
@@ -98,20 +85,14 @@ const downloads = new Map<string, Promise<void>>();
 // leaves a half-unpacked package behind.
 async function download(name: string, manifest: Manifest, dir: string) {
   const res = await fetch(manifest.dist.tarball);
-  if (!res.ok || !res.body)
-    throw new Error(
-      `Downloading ${name}@${manifest.version} failed: ${res.status}`,
-    );
+  if (!res.ok || !res.body) throw new Error(`Downloading ${name}@${manifest.version} failed: ${res.status}`);
 
   const partial = `${dir}.partial`;
   await rm(partial, { recursive: true, force: true });
   await mkdir(partial, { recursive: true });
   try {
     // A tarball's files are all in one top folder, usually package/.
-    await pipeline(
-      Readable.fromWeb(res.body),
-      extract({ cwd: partial, strip: 1 }),
-    );
+    await pipeline(Readable.fromWeb(res.body), extract({ cwd: partial, strip: 1 }));
     await rename(partial, dir);
   } catch (err) {
     await rm(partial, { recursive: true, force: true });
@@ -132,17 +113,12 @@ async function openPackage(spec: string) {
   if (!existsSync(dir)) {
     let pending = downloads.get(dir);
     if (!pending) {
-      pending = download(name, manifest, dir).finally(() =>
-        downloads.delete(dir),
-      );
+      pending = download(name, manifest, dir).finally(() => downloads.delete(dir));
       downloads.set(dir, pending);
     }
     await pending;
   }
-  const note =
-    version === manifest.version
-      ? ""
-      : `[${name}@${version} is ${manifest.version}]\n`;
+  const note = version === manifest.version ? "" : `[${name}@${version} is ${manifest.version}]\n`;
   return { dir, note };
 }
 
@@ -151,8 +127,7 @@ async function openPackage(spec: string) {
 function resolveIn(dir: string, path: string) {
   const full = resolve(dir, cleanPath(path));
   const rel = relative(dir, full);
-  if (rel.startsWith("..") || isAbsolute(rel))
-    throw new Error(`${path} is outside the package`);
+  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${path} is outside the package`);
   return { full, rel: rel.split(sep).join("/") };
 }
 
@@ -169,19 +144,12 @@ export async function listPackageFiles(spec: string, path = "") {
 }
 
 // A file's lines, numbered, from startLine to endLine (see numberedLines).
-export async function readPackageFile(
-  spec: string,
-  path: string,
-  startLine?: number,
-  endLine?: number,
-) {
+export async function readPackageFile(spec: string, path: string, startLine?: number, endLine?: number) {
   const { dir, note } = await openPackage(spec);
   const { full, rel } = resolveIn(dir, path);
   if (!existsSync(full)) throw new Error(`No file at ${rel}`);
   if ((await stat(full)).isDirectory()) throw new Error(`${rel} is a folder`);
-  return (
-    note + numberedLines(rel, await readFile(full, "utf8"), startLine, endLine)
-  );
+  return note + numberedLines(rel, await readFile(full, "utf8"), startLine, endLine);
 }
 
 // Lines containing query (plain text, any case), as "path:line:text", skipping source
@@ -190,22 +158,7 @@ export async function searchPackage(spec: string, query: string) {
   const { dir, note } = await openPackage(spec);
   // The folder isn't a git repo: --no-index searches it as plain files.
   const out = await git(
-    [
-      "-C",
-      dir,
-      "grep",
-      "--no-index",
-      "-n",
-      "-I",
-      "-i",
-      "-F",
-      "-e",
-      query,
-      "--",
-      ".",
-      ":(exclude)*.map",
-      ":(exclude)*.min.js",
-    ],
+    ["-C", dir, "grep", "--no-index", "-n", "-I", "-i", "-F", "-e", query, "--", ".", ":(exclude)*.map", ":(exclude)*.min.js"],
     undefined,
     { exit1Ok: true },
   );

@@ -31,13 +31,9 @@ function PipelineReplyDetails({ action }: { action: PendingAction }) {
         <Stack component="ol" sx={{ m: 0, pl: 3 }}>
           {decisions.map((decision, i) => (
             <li key={i}>
-              {action.questions?.[i] && (
-                <Typography sx={{ fontFamily: "monospace" }}>{action.questions[i]}</Typography>
-              )}
+              {action.questions?.[i] && <Typography sx={{ fontFamily: "monospace" }}>{action.questions[i]}</Typography>}
               <Typography color="text.secondary">
-                {decision.type === "approve"
-                  ? "Run it"
-                  : `Don't run it${decision.message ? `: ${decision.message}` : ""}`}
+                {decision.type === "approve" ? "Run it" : `Don't run it${decision.message ? `: ${decision.message}` : ""}`}
               </Typography>
             </li>
           ))}
@@ -68,10 +64,23 @@ function CommitDetails({ action }: { action: PendingAction }) {
 
 // One pull_request_create, pull_request_comment or pull_request_resolve_thread call.
 function PullRequestDetails({ action }: { action: PendingAction }) {
-  const args = action.args as { issueId?: string; number?: number; title?: string; body?: string; replyTo?: number; threadId?: string; resolved?: boolean };
-  const heading = action.name === "pull_request_create" ? `Open a pull request for ${args.issueId}`
-    : action.name === "pull_request_comment" ? (args.replyTo ? `Reply to review comment ${args.replyTo} on #${args.number}` : `Comment on #${args.number}`)
-    : `${args.resolved === false ? "Reopen" : "Resolve"} review thread ${args.threadId} on #${args.number}`;
+  const args = action.args as {
+    issueId?: string;
+    number?: number;
+    title?: string;
+    body?: string;
+    replyTo?: number;
+    threadId?: string;
+    resolved?: boolean;
+  };
+  const heading =
+    action.name === "pull_request_create"
+      ? `Open a pull request for ${args.issueId}`
+      : action.name === "pull_request_comment"
+        ? args.replyTo
+          ? `Reply to review comment ${args.replyTo} on #${args.number}`
+          : `Comment on #${args.number}`
+        : `${args.resolved === false ? "Reopen" : "Resolve"} review thread ${args.threadId} on #${args.number}`;
   return (
     <Stack spacing={0.5}>
       <Typography variant="subtitle2">{heading}</Typography>
@@ -86,22 +95,28 @@ function ActionDetails({ action }: { action: PendingAction }) {
   if (action.name === "reply_to_pipeline") return <PipelineReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
   if (action.name.startsWith("pull_request_")) return <PullRequestDetails action={action} />;
-  if (action.name === "set_blocker") return (
-    <Typography variant="subtitle2">
-      {action.args.blocked === false
-        ? `Remove ${String(action.args.blockerId)} as a blocker of ${String(action.args.issueId)}`
-        : `Mark ${String(action.args.blockerId)} as blocking ${String(action.args.issueId)}`}
-    </Typography>
-  );
+  if (action.name === "set_blocker")
+    return (
+      <Typography variant="subtitle2">
+        {action.args.blocked === false
+          ? `Remove ${String(action.args.blockerId)} as a blocker of ${String(action.args.issueId)}`
+          : `Mark ${String(action.args.blockerId)} as blocking ${String(action.args.issueId)}`}
+      </Typography>
+    );
   if (action.name === "start_app_services") {
-    const { issueId, plan } = action.args as { issueId: string; plan: {
-      setup: { command: string; cwd: string }[];
-      services: { id: string; command: string; cwd: string; port: number }[];
-    } };
+    const { issueId, plan } = action.args as {
+      issueId: string;
+      plan: {
+        setup: { command: string; cwd: string }[];
+        services: { id: string; command: string; cwd: string; port: number }[];
+      };
+    };
     return (
       <Stack spacing={1}>
         <Typography variant="subtitle2">Launch the workspace app for {issueId}</Typography>
-        <Typography color="text.secondary">Prepare the environment, then start these services. They stay running until stopped.</Typography>
+        <Typography color="text.secondary">
+          Prepare the environment, then start these services. They stay running until stopped.
+        </Typography>
         {plan.setup.map((entry, i) => (
           <Stack key={`setup-${i}`}>
             <Typography variant="caption">Setup · {entry.cwd}</Typography>
@@ -110,7 +125,9 @@ function ActionDetails({ action }: { action: PendingAction }) {
         ))}
         {plan.services.map((entry) => (
           <Stack key={entry.id}>
-            <Typography variant="caption">{entry.id} · {entry.cwd} · port {entry.port}</Typography>
+            <Typography variant="caption">
+              {entry.id} · {entry.cwd} · port {entry.port}
+            </Typography>
             <Typography sx={{ fontFamily: "monospace", overflowWrap: "anywhere" }}>{entry.command}</Typography>
           </Stack>
         ))}
@@ -127,19 +144,11 @@ function ActionDetails({ action }: { action: PendingAction }) {
   };
   return (
     <Stack spacing={0.5}>
-      <Typography variant="subtitle2">
-        {action.name === "update_issue" ? `Update ${id}` : "Create issue"}
-      </Typography>
+      <Typography variant="subtitle2">{action.name === "update_issue" ? `Update ${id}` : "Create issue"}</Typography>
       {title && <Typography>{title}</Typography>}
-      {priority !== undefined && (
-        <Typography color="text.secondary">
-          Priority: {PRIORITY_NAMES[priority] ?? priority}
-        </Typography>
-      )}
+      {priority !== undefined && <Typography color="text.secondary">Priority: {PRIORITY_NAMES[priority] ?? priority}</Typography>}
       {status && <Typography color="text.secondary">Status: {status}</Typography>}
-      {assignee !== undefined && (
-        <Typography color="text.secondary">Assignee: {assignee ?? "Unassigned"}</Typography>
-      )}
+      {assignee !== undefined && <Typography color="text.secondary">Assignee: {assignee ?? "Unassigned"}</Typography>}
       {description && <MarkdownText color="text.secondary">{description}</MarkdownText>}
     </Stack>
   );
@@ -172,19 +181,13 @@ function ApprovalCard({
             onChange={(e) => setNote(e.target.value)}
           />
           <Stack direction="row" spacing={1}>
-            <Button
-              variant="contained"
-              loading={loading}
-              onClick={() => onDecide({ type: "approve" })}
-            >
+            <Button variant="contained" loading={loading} onClick={() => onDecide({ type: "approve" })}>
               Approve
             </Button>
             <Button
               color="error"
               disabled={loading}
-              onClick={() =>
-                onDecide({ type: "reject", message: note.trim() || undefined })
-              }
+              onClick={() => onDecide({ type: "reject", message: note.trim() || undefined })}
             >
               Reject
             </Button>

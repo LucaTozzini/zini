@@ -1,55 +1,55 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { EvalBatch, EvalKind, EvalScenario, EvalStatus } from 'shared'
-import { api } from './client.ts'
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { EvalBatch, EvalKind, EvalScenario, EvalStatus } from "shared";
+import { api } from "./client.ts";
 
-export const evalsKey = ['evals']
-const statusKey = [...evalsKey, 'status']
+export const evalsKey = ["evals"];
+const statusKey = [...evalsKey, "status"];
 
 // The scenarios, or the agent tests.
 export function useEvalScenarios(kind: EvalKind) {
   return useQuery({
-    queryKey: [...evalsKey, 'scenarios', kind],
-    queryFn: () => api.get('evals/scenarios', { searchParams: { kind } }).json<EvalScenario[]>(),
-  })
+    queryKey: [...evalsKey, "scenarios", kind],
+    queryFn: () => api.get("evals/scenarios", { searchParams: { kind } }).json<EvalScenario[]>(),
+  });
 }
 
 // The eval going on and its output, kept up to date by useServerEvents (eval.updated).
 export function useEvalStatus() {
   return useQuery({
     queryKey: statusKey,
-    queryFn: () => api.get('evals/status').json<EvalStatus>(),
-  })
+    queryFn: () => api.get("evals/status").json<EvalStatus>(),
+  });
 }
 
 // Every batch of results, newest first; refetched with the status, so a finished run
 // shows up.
 export function useEvalBatches(kind: EvalKind) {
   return useQuery({
-    queryKey: [...evalsKey, 'batches', kind],
-    queryFn: () => api.get('evals/batches', { searchParams: { kind } }).json<EvalBatch[]>(),
-  })
+    queryKey: [...evalsKey, "batches", kind],
+    queryFn: () => api.get("evals/batches", { searchParams: { kind } }).json<EvalBatch[]>(),
+  });
 }
 
 // What one run changed, fetched while enabled (e.g. its diff is open).
 export function useEvalRunDiff(kind: EvalKind, scenario: string, batch: string, run: string, enabled: boolean) {
   return useQuery({
-    queryKey: [...evalsKey, 'diff', kind, scenario, batch, run],
+    queryKey: [...evalsKey, "diff", kind, scenario, batch, run],
     queryFn: () => api.get(`evals/batches/${scenario}/${batch}/${run}/diff`, { searchParams: { kind } }).text(),
     enabled,
-  })
+  });
 }
 
 // Starting answers once the eval has started; its progress comes through events.
 export function useStartEval() {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (start: { kind: EvalKind; scenario: string; repeat: number }) => api.post('evals/runs', { json: start }),
+    mutationFn: (start: { kind: EvalKind; scenario: string; repeat: number }) => api.post("evals/runs", { json: start }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: statusKey }),
-  })
+  });
 }
 
 export function useStopEval() {
   return useMutation({
-    mutationFn: () => api.post('evals/stop'),
-  })
+    mutationFn: () => api.post("evals/stop"),
+  });
 }

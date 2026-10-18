@@ -47,7 +47,8 @@ async function launch(key: string): Promise<Session> {
     if (key.startsWith("project-lead:")) browser = await chromium.launch();
     else browser = await connectWorkspaceBrowser(key);
   } catch (err) {
-    if (!key.startsWith("project-lead:")) throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
+    if (!key.startsWith("project-lead:"))
+      throw new Error(`The QA browser could not start in the Docker workspace. ${String(err)}`);
     throw new Error(
       "The agent's browser couldn't start. If it isn't installed, run `npx playwright install " +
         `chromium --only-shell\` in zini's backend folder (npm install does it). ${String(err)}`,
@@ -99,13 +100,15 @@ async function launch(key: string): Promise<Session> {
   // Closed, or crashed: the next browser tool opens a new one.
   browser.on("disconnected", () => {
     const pending = sessions.get(key);
-    void pending?.then((current) => {
-      if (current === session && sessions.get(key) === pending) {
-        sessions.delete(key);
-        urls.delete(key);
-        sessionIds.delete(key);
-      }
-    }).catch(() => {});
+    void pending
+      ?.then((current) => {
+        if (current === session && sessions.get(key) === pending) {
+          sessions.delete(key);
+          urls.delete(key);
+          sessionIds.delete(key);
+        }
+      })
+      .catch(() => {});
     endViewers(session);
   });
   return session;

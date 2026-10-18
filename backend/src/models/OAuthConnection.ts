@@ -1,18 +1,10 @@
-import {
-  DataTypes,
-  Model,
-  type InferAttributes,
-  type InferCreationAttributes,
-} from "sequelize";
+import { DataTypes, Model, type InferAttributes, type InferCreationAttributes } from "sequelize";
 import { sequelize } from "../db.js";
 
 // A service zini is signed in to with OAuth, e.g. "chatgpt": the client id the service
 // issued zini, and the current tokens. Each refresh replaces both tokens. API keys you
 // paste are integrations instead (see Integration).
-export class OAuthConnection extends Model<
-  InferAttributes<OAuthConnection>,
-  InferCreationAttributes<OAuthConnection>
-> {
+export class OAuthConnection extends Model<InferAttributes<OAuthConnection>, InferCreationAttributes<OAuthConnection>> {
   declare provider: string;
   declare clientId: string;
   declare accessToken: string;

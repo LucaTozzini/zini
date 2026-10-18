@@ -8,6 +8,11 @@ export function withWorkspaceLock<T>(issueId: string, work: () => Promise<T>): P
   const previous = queues.get(issueId) ?? Promise.resolve();
   const execute = () => held.run(new Set([...(held.getStore() ?? []), issueId]), work);
   const run = previous.then(execute, execute);
-  const tail = run.catch(() => {}).finally(() => { if (queues.get(issueId) === tail) queues.delete(issueId); });
-  queues.set(issueId, tail); return run;
+  const tail = run
+    .catch(() => {})
+    .finally(() => {
+      if (queues.get(issueId) === tail) queues.delete(issueId);
+    });
+  queues.set(issueId, tail);
+  return run;
 }

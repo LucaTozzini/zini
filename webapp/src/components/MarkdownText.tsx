@@ -12,26 +12,15 @@ import {
 import type { ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import LaunchIcon from '@mui/icons-material/Launch';
+import LaunchIcon from "@mui/icons-material/Launch";
 
 // A markdown element as MUI Typography, so it follows the theme's type scale. The
 // variants are a step or two smaller than the tags': the text sits in a chat bubble
 // or a card, not a page. Typography has no margins, so they're set here.
 const text =
-  (
-    variant: TypographyProps["variant"],
-    component: "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p",
-  ) =>
-  ({
-    node: _node,
-    ...props
-  }: ComponentProps<typeof component> & ExtraProps) => (
-    <Typography
-      variant={variant}
-      component={component}
-      {...props}
-      sx={component === "p" ? { mb: 1 } : { mt: 2, mb: 1 }}
-    />
+  (variant: TypographyProps["variant"], component: "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p") =>
+  ({ node: _node, ...props }: ComponentProps<typeof component> & ExtraProps) => (
+    <Typography variant={variant} component={component} {...props} sx={component === "p" ? { mb: 1 } : { mt: 2, mb: 1 }} />
   );
 
 const markdownComponents: Components = {
@@ -51,24 +40,12 @@ const markdownComponents: Components = {
   tbody: ({ node: _node, ...props }) => <TableBody {...props} />,
   tr: ({ node: _node, ...props }) => <TableRow {...props} />,
   th: ({ node: _node, align, ...props }) => (
-    <TableCell
-      component="th"
-      {...props}
-      align={align === "char" ? undefined : align}
-      sx={{ fontWeight: 600 }}
-    />
+    <TableCell component="th" {...props} align={align === "char" ? undefined : align} sx={{ fontWeight: 600 }} />
   ),
-  td: ({ node: _node, align, ...props }) => (
-    <TableCell component="td" {...props} align={align === "char" ? undefined : align} />
-  ),
+  td: ({ node: _node, align, ...props }) => <TableCell component="td" {...props} align={align === "char" ? undefined : align} />,
   // Inline code, and the code in a fenced block.
   code: ({ node: _node, ...props }) => (
-    <Typography
-      variant="body2"
-      component="code"
-      {...props}
-      sx={{ color: "inherit", fontFamily: "monospace" }}
-    />
+    <Typography variant="body2" component="code" {...props} sx={{ color: "inherit", fontFamily: "monospace" }} />
   ),
   // A fenced block scrolls sideways for its long lines, instead of running out of the
   // bubble.
@@ -88,14 +65,8 @@ const markdownComponents: Components = {
   // Links open in a new tab instead of replacing the chat. noreferrer also stops the
   // new page from reaching back into this one through window.opener.
   a: ({ node: _node, ...props }) => (
-    <Typography
-      component={"a"}
-      {...props}
-      target="_blank"
-      rel="noreferrer"
-      sx={{color: "DarkSeaGreen"}}
-    >
-      <LaunchIcon sx={{fontSize: 12, mx: .3}}/>
+    <Typography component={"a"} {...props} target="_blank" rel="noreferrer" sx={{ color: "DarkSeaGreen" }}>
+      <LaunchIcon sx={{ fontSize: 12, mx: 0.3 }} />
       {props.children}
     </Typography>
   ),
@@ -103,10 +74,7 @@ const markdownComponents: Components = {
 
 // Markdown text (an agent's reply, an issue description), without its outer
 // paragraph margins.
-function MarkdownText({
-  children,
-  ...props
-}: { children: string } & TypographyProps<"div">) {
+function MarkdownText({ children, ...props }: { children: string } & TypographyProps<"div">) {
   return (
     <Typography
       component="div"

@@ -17,7 +17,11 @@ function PullRequestCard({ issueId }: { issueId: string }) {
 
   if (!shipped) return null;
   if (status.isError) {
-    return <Alert severity="error" sx={{ mt: 2 }}>{errorMessage(status.error)}</Alert>;
+    return (
+      <Alert severity="error" sx={{ mt: 2 }}>
+        {errorMessage(status.error)}
+      </Alert>
+    );
   }
   if (!status.data?.pushed) return null;
 

@@ -100,8 +100,14 @@ export async function dockerRunning() {
 
 // Builds the common workspace image, then runs a trusted host harness. Credentials
 // go only to that harness; sandbox commands receive their own minimal environment.
-export function runInDocker(kind: EvalKind, scenario: string, repeat: number, { connection, model }: { connection: ModelConnection; model: string },
-  onLine: (line: string) => void, batch = new Date().toISOString().replace(/[:.]/g, "-")) {
+export function runInDocker(
+  kind: EvalKind,
+  scenario: string,
+  repeat: number,
+  { connection, model }: { connection: ModelConnection; model: string },
+  onLine: (line: string) => void,
+  batch = new Date().toISOString().replace(/[:.]/g, "-"),
+) {
   let child: ChildProcess | null = null;
   let stopped = false;
   let credentials: Awaited<ReturnType<typeof createEvalCredentials>> | null = null;
@@ -113,33 +119,81 @@ export function runInDocker(kind: EvalKind, scenario: string, repeat: number, { 
     if (stopped) return { ok: false, error: "Stopped" };
     if (connection.provider === "chatgpt") credentials = await createEvalCredentials(connection.token, () => stop());
     mkdirSync(RESULTS, { recursive: true });
-    const credential: Record<string, string> = connection.provider === "chatgpt"
-      ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: join(credentials!.directory, "access-token") }
-      : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
-    const code = await new Promise<number | null>(done => {
-      child = spawn(process.execPath, ["--import", "tsx", join(EVALS, "run.ts"), ...(kind === "agents" ? ["--agents"] : []), scenario, "--repeat", String(repeat)], {
-        cwd: ROOT, windowsHide: true, detached: process.platform !== "win32",
-        env: { ...process.env, ...credential, EVAL_MODEL: model, EVAL_BATCH: batch, EVAL_WORK: work, EVAL_RESULTS: RESULTS, EVAL_CONSOLE_CAPTURED: "1" },
-      });
+    const credential: Record<string, string> =
+      connection.provider === "chatgpt"
+        ? { EVAL_PROVIDER: "chatgpt", CHATGPT_TOKEN_FILE: join(credentials!.directory, "access-token") }
+        : { EVAL_PROVIDER: "openrouter", OPENROUTER_API_KEY: connection.key };
+    const code = await new Promise<number | null>((done) => {
+      child = spawn(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          join(EVALS, "run.ts"),
+          ...(kind === "agents" ? ["--agents"] : []),
+          scenario,
+          "--repeat",
+          String(repeat),
+        ],
+        {
+          cwd: ROOT,
+          windowsHide: true,
+          detached: process.platform !== "win32",
+          env: {
+            ...process.env,
+            ...credential,
+            EVAL_MODEL: model,
+            EVAL_BATCH: batch,
+            EVAL_WORK: work,
+            EVAL_RESULTS: RESULTS,
+            EVAL_CONSOLE_CAPTURED: "1",
+          },
+        },
+      );
       if (child.stdout) followConsole(child.stdout, onLine);
       if (child.stderr) followConsole(child.stderr, onLine);
-      child.on("error", error => { onLine(String(error)); done(null); });
+      child.on("error", (error) => {
+        onLine(String(error));
+        done(null);
+      });
       child.on("close", done);
     });
-    return { ok: code === 0 && !stopped, error: stopped ? "Stopped" : code === 2 ? "Model rate limit reached; remaining runs were not started" : code === 0 ? null : "Some eval runs failed; inspect the run metrics" };
+    return {
+      ok: code === 0 && !stopped,
+      error: stopped
+        ? "Stopped"
+        : code === 2
+          ? "Model rate limit reached; remaining runs were not started"
+          : code === 0
+            ? null
+            : "Some eval runs failed; inspect the run metrics",
+    };
   };
-  const stop = () => { stopped = true; if (child) killTree(child); };
-  const done = execute().catch(error => ({ ok: false, error: String(error) })).finally(async () => {
-    await credentials?.close();
-    // Also clean containers after timeout or interruption of the trusted harness.
-    const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
-    function ids(folder: string): { id: string; storage: string }[] {
-      if (!existsSync(folder)) return [];
-      return readdirSync(folder, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
-        ? entry.name === "workspaces" ? readdirSync(join(folder, entry.name)).filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => ({ id, storage: join(folder, "zini.sqlite") })) : ids(join(folder, entry.name)) : []);
-    }
-    for (const { id, storage } of ids(work)) await removeSandbox(id, storage).catch(error => onLine(`Eval sandbox cleanup failed: ${error}`));
-  });
+  const stop = () => {
+    stopped = true;
+    if (child) killTree(child);
+  };
+  const done = execute()
+    .catch((error) => ({ ok: false, error: String(error) }))
+    .finally(async () => {
+      await credentials?.close();
+      // Also clean containers after timeout or interruption of the trusted harness.
+      const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
+      function ids(folder: string): { id: string; storage: string }[] {
+        if (!existsSync(folder)) return [];
+        return readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
+          entry.isDirectory()
+            ? entry.name === "workspaces"
+              ? readdirSync(join(folder, entry.name))
+                  .filter((id) => /^[0-9a-f-]{36}$/.test(id))
+                  .map((id) => ({ id, storage: join(folder, "zini.sqlite") }))
+              : ids(join(folder, entry.name))
+            : [],
+        );
+      }
+      for (const { id, storage } of ids(work))
+        await removeSandbox(id, storage).catch((error) => onLine(`Eval sandbox cleanup failed: ${error}`));
+    });
   return { done, stop };
 }
 // ---- The webapp's eval: one at a time ------------------------------------------------
@@ -162,7 +216,11 @@ export function evalStatus(): EvalStatus {
   if (!restoredOutput) {
     restoredOutput = true;
     const latest = (["scenarios", "agents"] as const)
-      .flatMap((kind) => listBatches(kind).filter((batch) => batch.hasLog).map((batch) => ({ ...batch, folder: join(results(kind), batch.scenario, batch.id) })))
+      .flatMap((kind) =>
+        listBatches(kind)
+          .filter((batch) => batch.hasLog)
+          .map((batch) => ({ ...batch, folder: join(results(kind), batch.scenario, batch.id) })),
+      )
       .sort((a, b) => b.id.localeCompare(a.id))[0];
     if (latest) {
       const folder = latest.folder;
@@ -171,7 +229,11 @@ export function evalStatus(): EvalStatus {
       if (existsSync(result)) ended = JSON.parse(readFileSync(result, "utf8")) as EvalStatus["ended"];
     }
   }
-  return { running: running && { kind: running.kind, scenario: running.scenario, repeat: running.repeat, startedAt: running.startedAt }, output, ended };
+  return {
+    running: running && { kind: running.kind, scenario: running.scenario, repeat: running.repeat, startedAt: running.startedAt },
+    output,
+    ended,
+  };
 }
 
 // Starts repeat runs of a scenario or agent test; answers once it's started, or with why
@@ -191,10 +253,17 @@ export async function startEval(kind: EvalKind, scenario: string, repeat: number
   restoredOutput = true;
   output = log.tail;
   ended = null;
-  const { done, stop } = runInDocker(kind, scenario, repeat, settings, (line) => {
-    log.append(line);
-    notify();
-  }, batch);
+  const { done, stop } = runInDocker(
+    kind,
+    scenario,
+    repeat,
+    settings,
+    (line) => {
+      log.append(line);
+      notify();
+    },
+    batch,
+  );
   running = { kind, scenario, repeat, startedAt: new Date().toISOString(), stop };
   notify();
   void done.then((result) => {

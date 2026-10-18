@@ -13,13 +13,18 @@ test("message input accepts text, images with text, and images alone", () => {
 });
 
 test("message input rejects empty, malformed, unsupported and oversized attachments", () => {
-  for (const body of [null, {}, { message: " " }, { message: "", images: "invalid" },
+  for (const body of [
+    null,
+    {},
+    { message: " " },
+    { message: "", images: "invalid" },
     { message: "", images: ["https://example.com/image.png"] },
     { message: "", images: ["data:image/svg+xml;base64,PHN2Zz4="] },
     { message: "", images: ["data:image/png;base64,abc"] },
     { message: "", images: Array(5).fill(image) },
     { message: "", images: [`data:image/png;base64,${Buffer.alloc(MAX_CHAT_IMAGE_BYTES + 1).toString("base64")}`] },
-  ]) assert.throws(() => parseMessageInput(body));
+  ])
+    assert.throws(() => parseMessageInput(body));
 });
 
 test("sender prefix preserves images and both providers receive image inputs", async (t) => {
@@ -32,12 +37,20 @@ test("sender prefix preserves images and both providers receive image inputs", a
     requests.push(JSON.parse(init.body as string));
     return Response.json({ error: { message: "Captured request" } }, { status: 400 });
   });
-  await assert.rejects(chatModel({ provider: "openrouter", key: "test" }, "test", { maxRetries: 0 }).invoke([named]), /Captured request/);
+  await assert.rejects(
+    chatModel({ provider: "openrouter", key: "test" }, "test", { maxRetries: 0 }).invoke([named]),
+    /Captured request/,
+  );
   assert.deepEqual(requests[0]?.messages?.[0]?.content, [
-    { type: "text", text: "[alice]: describe" }, { type: "image_url", image_url: { url: image } },
+    { type: "text", text: "[alice]: describe" },
+    { type: "image_url", image_url: { url: image } },
   ]);
-  await assert.rejects(chatModel({ provider: "chatgpt", token: async () => "test" }, "test", { maxRetries: 0 }).invoke([named]), /Captured request/);
+  await assert.rejects(
+    chatModel({ provider: "chatgpt", token: async () => "test" }, "test", { maxRetries: 0 }).invoke([named]),
+    /Captured request/,
+  );
   assert.deepEqual(requests[1]?.input?.[0]?.content, [
-    { type: "input_text", text: "[alice]: describe" }, { type: "input_image", image_url: image },
+    { type: "input_text", text: "[alice]: describe" },
+    { type: "input_image", image_url: image },
   ]);
 });
