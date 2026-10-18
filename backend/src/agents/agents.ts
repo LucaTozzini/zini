@@ -124,6 +124,16 @@ export const modelStamp = (model: string) => createMiddleware({
   },
 });
 
+// The images (data URLs) attached to a user's message.
+export function messageImages(message: BaseMessage): string[] {
+  if (!Array.isArray(message.content)) return [];
+  return message.content.flatMap((block) => {
+    if (typeof block === "string" || block.type !== "image_url") return [];
+    const image = block.image_url;
+    return typeof image === "string" ? [image] : image && typeof image === "object" && "url" in image && typeof image.url === "string" ? [image.url] : [];
+  });
+}
+
 // The user's messages, the agent's written replies and its tool calls, each with its
 // result's status, and a marker where each compaction happened, with its summary.
 // Results themselves stay out: they can be whole files. live: the conversation is
@@ -147,11 +157,7 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
         {
           role: "user",
           content: message.text,
-          ...(Array.isArray(message.content) && { images: message.content.flatMap((block) => {
-            if (typeof block === "string" || block.type !== "image_url") return [];
-            const image = block.image_url;
-            return typeof image === "string" ? [image] : image && typeof image === "object" && "url" in image && typeof image.url === "string" ? [image.url] : [];
-          }) }),
+          ...(Array.isArray(message.content) && { images: messageImages(message) }),
           ...(typeof username === "string" && { username }),
         },
       ];

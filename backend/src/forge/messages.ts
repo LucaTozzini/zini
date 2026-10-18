@@ -1,6 +1,7 @@
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
 import type { AgentRole, ForgeMessage } from "shared";
+import { messageImages } from "../agents/agents.js";
 import { isSummary, summaryText } from "../agents/compaction.js";
 
 // The workers' doc tools: their calls show as "Report submitted." rather than a tool call.
@@ -36,8 +37,9 @@ export function forgeMessages(threads: { agent: AgentRole; checkpoint?: Checkpoi
       }
       if (message.type === "human") {
         const username = message.additional_kwargs.username;
-        if (message.text.trim()) items.push({ id: key, t, agent, kind: "message", message: { role: "user", content: message.text,
-          username: typeof username === "string" ? username : "Forge" } });
+        const images = messageImages(message);
+        if (message.text.trim() || images.length) items.push({ id: key, t, agent, kind: "message", message: { role: "user", content: message.text,
+          username: typeof username === "string" ? username : "Forge", ...(images.length && { images }) } });
         continue;
       }
       if (!AIMessage.isInstance(message)) continue;

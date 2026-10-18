@@ -3,8 +3,9 @@ import {
   Box,
   Card,
   Grid,
+  Dialog,
 } from "@mui/material";
-import type { Ref } from "react";
+import { useState, type Ref } from "react";
 import type { ChatMessage } from "shared";
 import MarkdownText from "../MarkdownText.tsx";
 import LineLimit from "../LineLimit.tsx";
@@ -16,10 +17,13 @@ type HumanMessageProps = {
   lineLimit?: number;
 };
 
+// The message's images; clicking one opens it full size in a dialog.
 const MessageImages = ({ images }: { images?: string[] }) => {
+  const [open, setOpen] = useState<string | null>(null);
   if (!images?.length) return null;
 
   return (
+    <>
     <Grid
       container
       spacing={1}
@@ -37,7 +41,9 @@ const MessageImages = ({ images }: { images?: string[] }) => {
           component="img"
           src={src}
           alt={`Attached image ${i + 1}`}
+          onClick={() => setOpen(src)}
           sx={{
+            cursor: "pointer",
             objectFit: "cover",
             borderRadius: 1,
             aspectRatio: 5 / 4,
@@ -45,6 +51,11 @@ const MessageImages = ({ images }: { images?: string[] }) => {
         />
       ))}
     </Grid>
+    <Dialog open={open !== null} onClose={() => setOpen(null)} maxWidth={false}>
+      {open && <Box component="img" src={open} alt="Attached image" onClick={() => setOpen(null)}
+        sx={{ display: "block", maxWidth: "90vw", maxHeight: "90vh" }} />}
+    </Dialog>
+    </>
   );
 };
 

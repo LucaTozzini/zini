@@ -62,3 +62,13 @@ test("compaction and reports show as markers, and results saved as pending write
   assert.deepEqual(items.flatMap((item) => item.kind === "tool" ? [[item.call.name, item.call.status, item.result]] : []),
     [["read_file", "done", "Live result"]]);
 });
+
+test("the user's messages keep their images, image-only ones too", () => {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const items = forgeMessages([{ agent: "lead", checkpoint: saved("forge:x", 1, { messages: [
+    new HumanMessage({ id: "with-text", content: [{ type: "text", text: "Like this" }, { type: "image_url", image_url: { url: image } }] }),
+    new HumanMessage({ id: "image-only", content: [{ type: "text", text: "" }, { type: "image_url", image_url: { url: image } }] }),
+  ] }) }], null);
+  assert.deepEqual(items.map((item) => item.kind === "message" && item.message.role === "user" && [item.message.content, item.message.images]),
+    [["Like this", [image]], ["", [image]]]);
+});
