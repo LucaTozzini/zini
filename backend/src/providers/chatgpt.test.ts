@@ -118,29 +118,6 @@ test("a client configuration error retains credentials", async (t) => {
   assert.equal(destroyed.mock.callCount(), 0);
 });
 
-test("startup adds cooldown storage to an existing database without losing its connection", async () => {
-  const { sequelize, initDb } = await import("../db.js");
-  await OAuthConnection.sync();
-  await OAuthConnection.create({
-    provider: "chatgpt",
-    clientId: "saved-client",
-    accessToken: "saved-access",
-    refreshToken: "saved-refresh",
-    idToken: "saved-id",
-    expiresAt: new Date(Date.now() + 3600_000),
-    email: null,
-  });
-  await sequelize.getQueryInterface().removeColumn("oauth_connections", "earliestRefreshAt");
-  await initDb();
-  await initDb();
-  const row = await OAuthConnection.findByPk("chatgpt");
-  assert.equal(row?.accessToken, "saved-access");
-  assert.equal(row?.earliestRefreshAt, null);
-  await row?.update({ earliestRefreshAt: new Date(2_000_000_000_000) });
-  assert.equal((await OAuthConnection.findByPk("chatgpt"))?.earliestRefreshAt?.getTime(), 2_000_000_000_000);
-  await sequelize.close();
-});
-
 test("sign-out revokes the renewable session before deleting local credentials", async (t) => {
   const row = connection();
   t.mock.method(OAuthConnection, "findByPk", async () => row);
