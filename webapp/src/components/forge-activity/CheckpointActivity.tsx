@@ -17,7 +17,7 @@ import { groupMessages, type GroupedMessage } from "./groupMessages.ts";
 
 const titles = { coder: "Coder", reviewer: "Reviewer" };
 
-// Which worker conversation is open: the Reviewer's, or the Coder's run for one call.
+// Which worker run is open: the one for a Lead's delegate_coder or delegate_reviewer call.
 type Opened = { worker: "coder" | "reviewer"; delegation?: string; working: boolean };
 
 // One agent's conversation: its messages and tool calls, with delegations to workers as
@@ -45,12 +45,12 @@ function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "d
   const status = call.status === "pending" ? "working" : call.status === "done" ? "done"
     : call.status === "error" ? "failed" : "didn't finish";
   return <Paper variant="outlined">
-    <ButtonBase onClick={() => onOpen?.({ worker: item.worker, delegation: item.worker === "coder" ? item.tool.callId : undefined,
+    <ButtonBase onClick={() => onOpen?.({ worker: item.worker, delegation: item.tool.callId,
       working: call.status === "pending" })} sx={{ display: "block", width: "100%", textAlign: "left", p: 1.5 }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 0.5 }}>
         {call.status === "pending" && <CircularProgress size={12} />}
         <Typography variant="subtitle2">{titles[item.worker]} · {status}</Typography>
-        <Typography variant="caption" color="text.secondary">{item.worker === "coder" ? "Open this run" : "Open its conversation"}</Typography>
+        <Typography variant="caption" color="text.secondary">Open this run</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
         {brief}
@@ -59,7 +59,7 @@ function Delegation({ item, onOpen }: { item: Extract<GroupedMessage, { kind: "d
   </Paper>;
 }
 
-// A worker's conversation: the Coder's run for one brief, or the Reviewer's every review.
+// A worker's run for one of the Lead's briefs.
 // Opens at its end and follows new activity while scrolled to the bottom, like the
 // Lead's and the Project Lead's chats.
 function WorkerConversation({ issueId, opened, busy }: { issueId: string; opened: Opened; busy: boolean }) {
@@ -103,7 +103,7 @@ export default function CheckpointActivity({ issueId, pipeline, onContentChange 
         <IconButton aria-label="Close" onClick={() => setOpen(null)} sx={{ position: "absolute", right: 12, top: 12 }}><CloseIcon /></IconButton>
       </DialogTitle>
       {open && <WorkerConversation key={`${open.worker}:${open.delegation ?? ""}`} issueId={issueId} opened={open}
-        busy={pipeline.running === open.worker && (open.worker === "reviewer" || open.working)} />}
+        busy={pipeline.running === open.worker && open.working} />}
     </Dialog>
   </Stack>;
 }

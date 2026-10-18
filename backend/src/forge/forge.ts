@@ -181,7 +181,8 @@ function leadTools(issueId: string, need: () => Run) {
       await emitForgeEvent(issueId, { type: "stage_started", role: "reviewer" });
       const reviewedRevision = await workspaceRevision(issueId);
       let review;
-      try { review = await runWorker(run, await reviewerWorker(run, await issue(), plan), brief); }
+      try { review = await runWorker(run, await reviewerWorker(run, await issue(), plan), brief,
+        { thread: workerThreadId(issueId, "reviewer", runtime.toolCallId) }); }
       finally { await stopForgeProcesses(issueId); run.notify(); }
       const results = new Map(review.checks.map((check) => [check.id, check]));
       const next = { ...plan, qaChecklist: plan.qaChecklist.map((check) => {
@@ -375,11 +376,10 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
   };
 }
 
-// One agent's conversation, for the activity feed: the Lead's, the Reviewer's (every
-// review), or the Coder's run for one of the Lead's delegate_coder calls.
+// One agent's conversation, for the activity feed: the Lead's, or a worker's run for one
+// of the Lead's delegate_coder or delegate_reviewer calls.
 export async function getPipelineMessages(issueId: string, agent: AgentRole = "lead", delegation?: string) {
-  const thread = agent === "lead" ? forgeThreadId(issueId)
-    : workerThreadId(issueId, agent, agent === "coder" ? delegation : undefined);
+  const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent, delegation);
   const { checkpoints } = await loadForgeHistory(checkpointer, thread);
   const checkpoint = checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns);
   const { running } = await getPipeline(issueId);

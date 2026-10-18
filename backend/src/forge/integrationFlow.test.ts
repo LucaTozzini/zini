@@ -127,18 +127,22 @@ test("the Lead plans, delegates, resolves conflicts, reviews and finishes only o
     assert.match(requests.lead[4]!, /S1: complete/, "The Coder marks the steps it completes");
     assert.match(requests.reviewer[0]!, /Q1: file\.txt keeps both behaviors/, "The Reviewer gets the QA checklist");
     assert.match(requests.reviewer[2]!, /Your report was invalid: Give a result for every QA check/);
-    assert.match(requests.reviewer[3]!, /both-behaviors/, "The Reviewer remembers its earlier review");
+    assert.doesNotMatch(requests.reviewer[3]!, /both-behaviors/, "Each review starts a fresh Reviewer");
     assert.equal((await runGit(["status", "--porcelain"])).trim(), "");
     assert.match(await runGit(["show", "HEAD:file.txt"]), /issue behavior\nupstream behavior/);
     assert.equal((await runGit(["show", "HEAD:later.txt"])).trim(), "later upstream behavior");
     const lead = await getPipelineMessages(id, "lead");
-    const delegation = lead.find((item) => item.kind === "tool" && item.call.name === "delegate_coder");
-    assert.ok(delegation?.kind === "tool" && delegation.callId, "The Lead's delegation carries its call id");
-    for (const [agent, feed] of [["lead", lead], ["coder", await getPipelineMessages(id, "coder", delegation.callId)],
-      ["reviewer", await getPipelineMessages(id, "reviewer")]] as const) {
+    const callId = (name: string) => {
+      const item = lead.find((entry) => entry.kind === "tool" && entry.call.name === name);
+      return item?.kind === "tool" ? item.callId : undefined;
+    };
+    assert.ok(callId("delegate_coder") && callId("delegate_reviewer"), "The Lead's delegations carry their call ids");
+    for (const [agent, feed] of [["lead", lead], ["coder", await getPipelineMessages(id, "coder", callId("delegate_coder"))],
+      ["reviewer", await getPipelineMessages(id, "reviewer", callId("delegate_reviewer"))]] as const) {
       assert.ok(feed.length > 0 && feed.every((item) => item.agent === agent), `${agent}'s chat loads on its own`);
     }
     assert.equal((await getPipelineMessages(id, "coder")).length, 0, "The Coder has no shared thread: each brief is its own");
+    assert.equal((await getPipelineMessages(id, "reviewer")).length, 0, "Nor does the Reviewer: each review is its own");
   } finally {
     globalThis.fetch = originalFetch;
     await removeSandbox(id); await removeWorkspaceMarker(id).catch(() => {});

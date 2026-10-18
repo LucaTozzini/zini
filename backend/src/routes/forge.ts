@@ -66,8 +66,8 @@ forge.get("/:issueId", async (req, res) => {
   res.json(await getPipeline(issueId));
 });
 
-// The Lead's conversation, or with ?agent=reviewer, the Reviewer's, or with
-// ?agent=coder&delegation=<call id>, the Coder's run for that delegate_coder call.
+// The Lead's conversation, or with ?agent=coder|reviewer&delegation=<call id>, that
+// worker's run for the Lead's call.
 forge.get("/:issueId/messages", async (req, res) => {
   const issueId = readIssueId(req.params.issueId, res);
   if (!issueId) return;

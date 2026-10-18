@@ -21,11 +21,9 @@ import { CODER_PROMPT, REVIEWER_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem, writeTools } from "./tools.js";
 
 // The Lead's workers: the Coder and the Reviewer. Each brief runs one to its report (see
-// documents.ts), which goes back to the Lead. The Coder starts fresh with every brief, on
-// a thread of its own (the workspace and the plan carry what came before); the Reviewer
-// keeps one conversation across reviews (long ones are compacted), for what it learned
-// about running the app. Each run is logged (see runLog.ts). Commands run in the Docker
-// sandbox.
+// documents.ts), which goes back to the Lead. Both start fresh with every brief, on a
+// thread of their own: the workspace, the plan and the Lead's brief carry what came
+// before. Each run is logged (see runLog.ts). Commands run in the Docker sandbox.
 
 export type Worker<S extends z.ZodObject> = {
   role: "coder" | "reviewer";
@@ -104,7 +102,7 @@ export async function reviewerWorker(run: Pick<Run, "issueId" | "notify">, issue
   };
 }
 
-// Runs a worker on a brief to its report, on thread (the Coder's is the brief's own).
+// Runs a worker on a brief to its report, on thread (the brief's own, for the Lead).
 // history is for agent evals: a conversation to start from.
 export async function runWorker<S extends z.ZodObject>(
   { setup, issueId, notify, signal, execution }: Run,
