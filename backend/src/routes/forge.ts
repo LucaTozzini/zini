@@ -5,6 +5,7 @@ import {
   continueForge,
   getForge,
   getForgeMessages,
+  getToolResult,
   loadSetup as loadForgeSetup,
   messageForge,
   pendingApprovals,
@@ -18,7 +19,7 @@ import { addViewer } from "../browser/agentBrowser.js";
 import { listRunLogs, readRunLog } from "../forge/runLog.js";
 import { Workspace } from "../models/Workspace.js";
 import { beginRun, pauseRun } from "../agents/runs.js";
-import { sendEvent } from "../core/events.js";
+import { notifyForge } from "../forge/run.js";
 import { messageInput } from "../projectLead/messageInput.js";
 import { z } from "zod";
 import { checkIssueId, parse } from "./http.js";
@@ -76,6 +77,19 @@ forge.get("/:issueId/messages", async (req, res) => {
   if (!query) return;
   const { agent, delegation } = query;
   res.json(await getForgeMessages(issueId, agent, delegation));
+});
+
+// One tool call's result in that conversation, as { result }: the feed leaves them out.
+forge.get("/:issueId/messages/:callId/result", async (req, res) => {
+  const query = parse(messagesQuery, req.query, res);
+  if (!query) return;
+  if (!/^[\w-]{1,200}$/.test(req.params.callId)) {
+    res.status(400).json({ error: "Invalid call id" });
+    return;
+  }
+  const result = await getToolResult(req.params.issueId, query.agent, query.delegation, req.params.callId);
+  if (result === undefined) res.status(404).json({ error: "That call has no result" });
+  else res.json({ result });
 });
 
 // Starts the Forge, with an optional note for the Lead. Answers once it's started;
@@ -173,7 +187,7 @@ forge.post("/:issueId/pause", async (req, res) => {
     res.status(409).json({ error: "The Forge isn't running or is already pausing" });
     return;
   }
-  sendEvent({ type: "forge.updated", issueId });
+  notifyForge(issueId);
   res.status(202).end();
 });
 

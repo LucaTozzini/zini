@@ -1,5 +1,5 @@
 import { Typography, Box, Card, Grid, Dialog } from "@mui/material";
-import { useState, type Ref } from "react";
+import { memo, useState, type Ref } from "react";
 import type { ChatMessage } from "shared";
 import MarkdownText from "../MarkdownText.tsx";
 import LineLimit from "../LineLimit.tsx";
@@ -60,7 +60,8 @@ const MessageImages = ({ images }: { images?: string[] }) => {
   );
 };
 
-export function HumanMessage({ message, ref, lineLimit = 12 }: HumanMessageProps) {
+// Memoized: a refetched chat keeps its unchanged messages as the same objects.
+export const HumanMessage = memo(function HumanMessage({ message, ref, lineLimit = 12 }: HumanMessageProps) {
   const { data: user } = useUserMe();
 
   const username = user?.username;
@@ -97,4 +98,4 @@ export function HumanMessage({ message, ref, lineLimit = 12 }: HumanMessageProps
       )}
     </Box>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CloseIcon from "@mui/icons-material/Close";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import {
@@ -17,9 +17,10 @@ import {
   ButtonBase,
 } from "@mui/material";
 import { useChatScroll } from "../../hooks/useChatScroll.ts";
-import type { ForgeMessage, ForgeState } from "shared";
+import type { AgentRole, ForgeMessage, ForgeState } from "shared";
 import { errorMessage } from "../../api/client.ts";
-import { useForgeMessages } from "../../api/forge.ts";
+import { toolResultLoader, useForgeMessages } from "../../api/forge.ts";
+import { ToolResults } from "../chat/toolResults.ts";
 import ThinkingIndicator from "../ThinkingIndicator.tsx";
 import MessageList from "../chat/MessageList.tsx";
 
@@ -32,13 +33,31 @@ const workers: Record<string, "coder" | "reviewer"> = { delegate_coder: "coder",
 
 // A Forge conversation, with the Lead's delegate_coder and delegate_reviewer calls as
 // buttons that open the worker's run.
-function Conversation({ items, busy, onOpen }: { items: ForgeMessage[]; busy: boolean; onOpen?: (opened: Opened) => void }) {
+// Its tool results load when a call is opened.
+function Conversation({
+  issueId,
+  agent,
+  delegation,
+  items,
+  busy,
+  onOpen,
+}: {
+  issueId: string;
+  agent: AgentRole;
+  delegation?: string;
+  items: ForgeMessage[];
+  busy: boolean;
+  onOpen?: (opened: Opened) => void;
+}) {
+  const loadResult = useMemo(() => toolResultLoader(issueId, agent, delegation), [issueId, agent, delegation]);
   return (
-    <MessageList
-      entries={items}
-      busy={busy}
-      renderCall={(call) => workers[call.name] && <Delegation call={call} worker={workers[call.name]} onOpen={onOpen} />}
-    />
+    <ToolResults value={loadResult}>
+      <MessageList
+        entries={items}
+        busy={busy}
+        renderCall={(call) => workers[call.name] && <Delegation call={call} worker={workers[call.name]} onOpen={onOpen} />}
+      />
+    </ToolResults>
   );
 }
 
@@ -111,7 +130,7 @@ function WorkerConversation({ issueId, opened, busy }: { issueId: string; opened
             No activity yet.
           </Typography>
         )}
-        <Conversation items={items} busy={busy} />
+        <Conversation issueId={issueId} agent={opened.worker} delegation={opened.delegation} items={items} busy={busy} />
         {busy && <ThinkingIndicator />}
       </Stack>
       {messagesBelow !== null && (
@@ -149,7 +168,7 @@ export default function CheckpointActivity({
           Activity will appear when the Lead starts.
         </Typography>
       )}
-      <Conversation items={items} busy={busy} onOpen={setOpen} />
+      <Conversation issueId={issueId} agent="lead" items={items} busy={busy} onOpen={setOpen} />
       {busy && forge.running === "lead" && <ThinkingIndicator />}
       <Dialog
         open={open !== null}

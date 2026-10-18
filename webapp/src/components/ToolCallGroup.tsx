@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { Box, ButtonBase, Collapse, Stack } from "@mui/material";
 import type { ChatMessage } from "shared";
@@ -38,4 +38,11 @@ function ToolCallGroup({ calls, busy }: { calls: ToolCall[]; busy: boolean }) {
   );
 }
 
-export default ToolCallGroup;
+// The group is rebuilt on every render, so it's the same when its calls are.
+export default memo(
+  ToolCallGroup,
+  (before, after) =>
+    before.busy === after.busy &&
+    before.calls.length === after.calls.length &&
+    before.calls.every((call, i) => call === after.calls[i]),
+);

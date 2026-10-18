@@ -3,6 +3,17 @@ import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
 import type { AgentRole, ChatEntry, ForgeMessage } from "shared";
 import { toChatEntries } from "../agents/agents.js";
 
+// A thread's whole conversation, compacted messages included. Successful tool writes
+// can be durable before the next full checkpoint, especially when a stop interrupts
+// another tool in the same step, so its pending writes' messages are in it too.
+export function checkpointMessages(checkpoint: CheckpointTuple) {
+  const values = checkpoint.checkpoint.channel_values;
+  const pending = (checkpoint.pendingWrites ?? []).flatMap(([, channel, value]) =>
+    channel === "messages" && Array.isArray(value) ? (value as BaseMessage[]) : [],
+  );
+  return [...((values.compacted ?? []) as BaseMessage[]), ...((values.messages ?? []) as BaseMessage[]), ...pending];
+}
+
 // The workers' doc tools: their calls show as "Report submitted." rather than a tool call.
 const submissions = new Set(["submit_work", "submit_review"]);
 
@@ -17,13 +28,7 @@ export function forgeMessages(
   const items: ForgeMessage[] = [];
   for (const { agent, checkpoint } of threads) {
     if (!checkpoint) continue;
-    const values = checkpoint.checkpoint.channel_values;
-    // Successful tool writes can be durable before the next full checkpoint, especially
-    // when a stop interrupts another tool in the same step.
-    const pending = (checkpoint.pendingWrites ?? []).flatMap(([, channel, value]) =>
-      channel === "messages" && Array.isArray(value) ? (value as BaseMessage[]) : [],
-    );
-    const messages = [...((values.compacted ?? []) as BaseMessage[]), ...((values.messages ?? []) as BaseMessage[]), ...pending];
+    const messages = checkpointMessages(checkpoint);
     // While a worker runs, the Lead's delegation is still going too.
     const live = running === agent || (running !== null && agent === "lead");
     let previous: ChatEntry | undefined;

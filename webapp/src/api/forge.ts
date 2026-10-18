@@ -17,6 +17,13 @@ export function useForgeMessages(issueId: string, agent: AgentRole = "lead", del
   });
 }
 
+// Loads one tool call's result in that conversation: the conversation leaves them out.
+export const toolResultLoader = (issueId: string, agent: AgentRole, delegation?: string) => (callId: string) =>
+  api
+    .get(`forge/${issueId}/messages/${callId}/result`, { searchParams: { agent, ...(delegation ? { delegation } : {}) } })
+    .json<{ result: string }>()
+    .then(({ result }) => result);
+
 // The issue's Forge (one per issue). Its progress comes through
 // useServerEvents, which refetches it (and the workspace diff) on forge.updated.
 export function useForge(issueId: string) {

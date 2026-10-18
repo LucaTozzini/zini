@@ -18,7 +18,7 @@ import {
 } from "../forge/forge.js";
 import { Workspace } from "../models/Workspace.js";
 import { pauseRun, startRun } from "../agents/runs.js";
-import { sendEvent } from "../core/events.js";
+import { notifyForge } from "../forge/run.js";
 import { commitAndPush, createWorkspace } from "../workspaces/workspaces.js";
 import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { listForges } from "../forge/listForges.js";
@@ -126,7 +126,7 @@ export function forgeTools(linear: LinearClient) {
         if (!pauseRun(forgeThreadId(id))) {
           return JSON.stringify({ status: "error", error: "The Forge isn't running or is already pausing" });
         }
-        sendEvent({ type: "forge.updated", issueId: id });
+        notifyForge(id);
         return JSON.stringify({ status: "pausing" });
       },
       {

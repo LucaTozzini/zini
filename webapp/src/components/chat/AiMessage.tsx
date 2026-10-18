@@ -1,5 +1,5 @@
 import { Card } from "@mui/material";
-import type { Ref } from "react";
+import { memo, type Ref } from "react";
 import MarkdownText from "../MarkdownText";
 import LineLimit from "../LineLimit.tsx";
 
@@ -18,4 +18,5 @@ const AiMessage = ({ content, ref, lineLimit }: AiMessageProps) => {
   );
 };
 
-export default AiMessage;
+// Its Markdown is only parsed again when its content changes.
+export default memo(AiMessage);

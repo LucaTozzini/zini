@@ -5,6 +5,7 @@ import { getLinearClient } from "../integrations/linear.js";
 import { chatModel, loadConnection, type ModelConnection } from "../providers/modelProvider.js";
 import { getSetting } from "../core/settings.js";
 import { sendEvent } from "../core/events.js";
+import { runStatus } from "../agents/runs.js";
 import { ForgeExecution } from "./execution.js";
 
 // What every Forge agent needs to run, shared by the Lead (forge.ts) and its workers
@@ -56,8 +57,33 @@ export const forgeRun = (setup: Setup, issueId: string, username?: string, refre
   username,
   refreshUpstream,
   execution: new ForgeExecution(),
-  notify: () => sendEvent({ type: "forge.updated", issueId }),
+  notify: () => notifyForge(issueId),
 });
+
+// A run saves steps and files many times a second, and each forge.updated has every open
+// webapp refetch the Forge, so it's sent at most once every UPDATE_MS per issue. The
+// last change always gets one: one that comes while an event is scheduled is in it.
+// forge.status goes with it when whether the Forge is running or pausing changed.
+const UPDATE_MS = 750;
+const scheduled = new Set<string>();
+const lastSent = new Map<string, number>();
+const lastStatus = new Map<string, string>();
+
+export function notifyForge(issueId: string) {
+  if (scheduled.has(issueId)) return;
+  scheduled.add(issueId);
+  const wait = Math.max(0, (lastSent.get(issueId) ?? 0) + UPDATE_MS - Date.now());
+  setTimeout(() => {
+    scheduled.delete(issueId);
+    lastSent.set(issueId, Date.now());
+    sendEvent({ type: "forge.updated", issueId });
+    const { running, pausing } = runStatus(forgeThreadId(issueId));
+    const status = `${running}:${Boolean(pausing)}`;
+    if (lastStatus.get(issueId) === status) return;
+    lastStatus.set(issueId, status);
+    sendEvent({ type: "forge.status", issueId });
+  }, wait);
+}
 
 // The worker the Lead delegated to, by issue, while it works.
 export const working = new Map<string, AgentRole>();

@@ -16,39 +16,44 @@ import { workspaceKey, workspacesKey } from "./workspaces.ts";
 export function useServerEvents() {
   const queryClient = useQueryClient();
   useEffect(() => {
+    // An event while a refetch it calls for is still loading waits for it, rather than
+    // starting the request over: a busy Forge sends them faster than some requests load.
+    const refetch = (queryKey: readonly unknown[], exact = false) =>
+      queryClient.invalidateQueries({ queryKey, exact }, { cancelRefetch: false });
     const events = new EventSource("/api/events");
     events.onopen = () => {
-      queryClient.invalidateQueries({ queryKey: threadsKey });
-      queryClient.invalidateQueries({ queryKey: subscriptionsKey });
-      queryClient.invalidateQueries({ queryKey: workspacesKey });
-      queryClient.invalidateQueries({ queryKey: ["forge"] });
+      refetch(threadsKey);
+      refetch(subscriptionsKey);
+      refetch(workspacesKey);
+      refetch(["forge"]);
     };
     events.onmessage = (e: MessageEvent<string>) => {
       const event = JSON.parse(e.data) as ServerEvent;
       if (event.type === "thread.updated") {
-        queryClient.invalidateQueries({ queryKey: threadKey(event.threadId) });
-        queryClient.invalidateQueries({ queryKey: threadsKey, exact: true });
-        queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+        refetch(threadKey(event.threadId));
+        refetch(threadsKey, true);
+        refetch(subscriptionsKey);
       } else if (event.type === "workspace.updated") {
-        queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId) });
+        refetch(workspaceKey(event.issueId));
       } else if (event.type === "chatgpt.updated") {
         // Signed in or out: its status, and the plan's models.
-        queryClient.invalidateQueries({ queryKey: chatGptKey });
+        refetch(chatGptKey);
       } else if (event.type === "eval.updated") {
         // The status and its output, and the results, which change as runs end.
-        queryClient.invalidateQueries({ queryKey: evalsKey });
+        refetch(evalsKey);
       } else if (event.type === "openwiki.updated") {
         // The docs scan started, finished or failed: its status, and the wiki
         // pages once they exist.
-        queryClient.invalidateQueries({ queryKey: openwikiKey });
+        refetch(openwikiKey);
       } else if (event.type === "forge.updated") {
-        // The Forge and chat both come from saved checkpoints.
-        queryClient.invalidateQueries({ queryKey: forgeKey(event.issueId), exact: true });
-        queryClient.invalidateQueries({ queryKey: forgeMessagesKey(event.issueId) });
-        // Whether it's waiting for an approval, for the issue lists.
-        queryClient.invalidateQueries({ queryKey: approvalsKey });
-        // The workspace says whether its forge is working (it can't be deleted then).
-        queryClient.invalidateQueries({ queryKey: workspaceKey(event.issueId), exact: true });
+        // The Forge and its conversations both come from saved checkpoints.
+        refetch(forgeKey(event.issueId), true);
+        refetch(forgeMessagesKey(event.issueId));
+      } else if (event.type === "forge.status") {
+        // Whether it's waiting for an approval, for the issue lists, and whether its
+        // workspace can be deleted, which change only as it starts or stops running.
+        refetch(approvalsKey);
+        refetch(workspaceKey(event.issueId), true);
       }
     };
     return () => events.close();

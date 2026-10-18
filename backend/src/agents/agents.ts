@@ -1,5 +1,7 @@
 import { dirname, join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { getRetryable } from "@langchain/core/errors";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { createMiddleware, modelRetryMiddleware, toolErrorMiddleware } from "langchain";
@@ -45,6 +47,42 @@ const { db } = SqliteSaver.fromConnString(join(dirname(storage), "checkpoints.sq
 db.pragma("auto_vacuum = INCREMENTAL");
 export const checkpointer = new LatestCheckpointSaver(db);
 checkpointer.serde = timestampedSerializer(checkpointer.serde);
+
+// For reading conversations for the webapp, never for runs: a thread's latest checkpoint
+// stays parsed, and is reused until a cheap query on its newest rows shows the thread was
+// saved to since. Parsing a long conversation takes a few hundred milliseconds, and
+// blocks the server while it does, and the webapp reads it after every change.
+export class CachedCheckpointReader extends SqliteSaver {
+  private cache = new Map<string, { version: string; tuple: CheckpointTuple | undefined }>();
+
+  async getTuple(config: RunnableConfig) {
+    const { thread_id, checkpoint_ns = "", checkpoint_id } = config.configurable ?? {};
+    if (checkpoint_id || typeof thread_id !== "string") return super.getTuple(config);
+    this.setup();
+    const key = `${thread_id}\0${checkpoint_ns}`;
+    const version = this.version(thread_id, checkpoint_ns);
+    const cached = this.cache.get(key);
+    this.cache.delete(key);
+    const tuple = cached?.version === version ? cached.tuple : await super.getTuple(config);
+    // The most recently read threads, e.g. the Lead's and an open worker run's.
+    this.cache.set(key, { version, tuple });
+    if (this.cache.size > 20) this.cache.delete(this.cache.keys().next().value!);
+    return tuple;
+  }
+
+  // Changes whenever the thread's checkpoint or its pending writes are saved or replaced.
+  private version(threadId: string, namespace: string) {
+    const row = this.db
+      .prepare(
+        `SELECT (SELECT MAX(rowid) FROM checkpoints WHERE thread_id = @thread AND checkpoint_ns = @namespace) AS checkpoint,
+          (SELECT MAX(rowid) || ':' || COUNT(*) FROM writes WHERE thread_id = @thread AND checkpoint_ns = @namespace) AS writes`,
+      )
+      .get({ thread: threadId, namespace }) as { checkpoint: number | null; writes: string | null };
+    return `${row.checkpoint}|${row.writes}`;
+  }
+}
+export const readCheckpointer = new CachedCheckpointReader(db);
+readCheckpointer.serde = checkpointer.serde;
 
 export const threadConfig = (threadId: string) => ({ configurable: { thread_id: threadId } });
 

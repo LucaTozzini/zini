@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   checkpointer,
   modelRetry,
+  readCheckpointer,
   modelStamp,
   repairToolCalls,
   streamConfig,
@@ -25,7 +26,7 @@ import { hasUncommitted, workspaceChanges, workspaceRevision } from "../workspac
 import { commitAndIntegrate, isUpToDate, workspaceContext } from "../workspaces/workspaceIntegration.js";
 import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
 import { loadForgeHistory } from "./history.js";
-import { forgeMessages } from "./messages.js";
+import { checkpointMessages, forgeMessages } from "./messages.js";
 import { draftPlan, issueText, planText, resetChecks, unfinishedPlan } from "./plan.js";
 import { forgeEvents } from "./forgeEvents.js";
 import { stopAllProcesses } from "./qaProcesses.js";
@@ -322,7 +323,8 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
   return createAgent({
     model,
     systemPrompt,
-    checkpointer,
+    // Only reading the Forge, without a run, goes through the cache.
+    checkpointer: run ? checkpointer : readCheckpointer,
     tools: [...leadTools(issueId, need), diffTool(issueId), ...conflictTools(issueId), ...wikiTools, ...npmTools],
     middleware: [
       createMiddleware({
@@ -434,6 +436,10 @@ export function replyFits(waiting: ForgeWaiting | null, reply: ForgeResume) {
 
 // ---- Reading it -------------------------------------------------------------------
 
+// The agent working now, if any: the Lead, or the worker it delegated to.
+const runningAgent = (issueId: string): AgentRole | null =>
+  runStatus(forgeThreadId(issueId)).running ? (working.get(issueId) ?? "lead") : null;
+
 // The issue's Forge, for the webapp.
 export async function getForge(issueId: string): Promise<ForgeState> {
   const threadId = forgeThreadId(issueId);
@@ -446,7 +452,7 @@ export async function getForge(issueId: string): Promise<ForgeState> {
     started: Boolean(snapshot.createdAt),
     pausing: Boolean(pausing),
     canResume: Boolean(snapshot.createdAt && snapshot.next.length && !isRunning(threadId) && !waiting),
-    running: running ? (working.get(issueId) ?? "lead") : null,
+    running: runningAgent(issueId),
     waiting,
     plan: values.plan ?? null,
     planApproved: values.planApproved ?? false,
@@ -459,22 +465,34 @@ export async function getForge(issueId: string): Promise<ForgeState> {
 
 // One agent's conversation, for the activity feed: the Lead's, or a worker's run for one
 // of the Lead's delegate_coder or delegate_reviewer calls.
+// Without tool results, which can be whole files: getToolResult reads one when it's opened.
 export async function getForgeMessages(issueId: string, agent: AgentRole = "lead", delegation?: string) {
-  const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent, delegation);
-  const { checkpoints } = await loadForgeHistory(checkpointer, thread);
-  const checkpoint = checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns);
-  const { running } = await getForge(issueId);
-  return forgeMessages([{ agent, checkpoint }], running);
+  const checkpoint = await readCheckpointer.getTuple(threadConfig(agentThreadId(issueId, agent, delegation)));
+  return forgeMessages([{ agent, checkpoint }], runningAgent(issueId)).map((entry) =>
+    entry.role === "tool" ? { ...entry, result: undefined } : entry,
+  );
 }
+
+// The result of one tool call in that conversation, by the call's id; undefined if it has none.
+export async function getToolResult(issueId: string, agent: AgentRole, delegation: string | undefined, callId: string) {
+  const checkpoint = await readCheckpointer.getTuple(threadConfig(agentThreadId(issueId, agent, delegation)));
+  const result =
+    checkpoint &&
+    checkpointMessages(checkpoint).find((message) => ToolMessage.isInstance(message) && message.tool_call_id === callId);
+  return result?.text;
+}
+
+const agentThreadId = (issueId: string, agent: AgentRole, delegation?: string) =>
+  agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent, delegation);
 
 // The issues whose Forge is waiting for plan approval, for marking them in the webapp's
 // issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
   const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
-  const Forges = await Promise.all(
+  const forges = await Promise.all(
     workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getForge(issueId)).waiting })),
   );
-  return Forges.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
+  return forges.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
 }
 
 // Stops what the workers started in the issue's workspace: their processes and browser.

@@ -186,8 +186,10 @@ export type ChatGptEvent = { type: "chatgpt.updated" };
 // A workspace's setup started, finished or failed: refetch it.
 export type WorkspaceEvent = { type: "workspace.updated"; issueId: string };
 
-// An issue's forge conversation changed: refetch it.
-export type ForgeEvent = { type: "forge.updated"; issueId: string };
+// An issue's Forge changed: its conversation or its state (forge.updated, at most every
+// so often while it runs), or whether it's running or pausing (forge.status), which is
+// all the issue lists and the workspace show of it.
+export type ForgeEvent = { type: "forge.updated" | "forge.status"; issueId: string };
 
 // A line was added to a subagent run's log (a new run starts one): refetch that run,
 // and the issue's list of runs.
