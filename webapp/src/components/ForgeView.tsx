@@ -9,7 +9,6 @@ import { useChatScroll } from "../hooks/useChatScroll.ts";
 import CheckpointActivity from "./forge-activity/CheckpointActivity.tsx";
 import ChatInput from "./chat/ChatInput.tsx";
 import BrowserView from "./pipeline/BrowserView.tsx";
-import CommitCard from "./pipeline/CommitCard.tsx";
 import PipelineRequest from "./pipeline/PipelineRequest.tsx";
 import PullRequestCard from "./pipeline/PullRequestCard.tsx";
 
@@ -53,7 +52,6 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
       </Alert>}
       {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
       {pipeline.finished && <>
-        <CommitCard issueId={issueId} />
         <PullRequestCard issueId={issueId} />
       </>}
       <Box data-chat-message="">

@@ -6,6 +6,8 @@ import { Alert, Dialog, DialogContent, DialogTitle, IconButton, Skeleton, Toolti
 import { errorMessage } from "../../api/client.ts";
 import { useForge } from "../../api/forge.ts";
 import { useWorkspaceDiff } from "../../api/workspaces.ts";
+import GitIcon from "../icons/GitIcon.tsx";
+import CommitCard from "./CommitCard.tsx";
 import DiffView from "./DiffView.tsx";
 import { PlanView } from "./Documents.tsx";
 
@@ -18,14 +20,17 @@ function Changes({ issueId }: { issueId: string }) {
     : <Typography color="text.secondary">No workspace changes yet.</Typography>;
 }
 
-// The Forge's plan and code changes, as header buttons that open them in a dialog.
+// The Forge's plan, code changes and git (commit and push), as header buttons that open
+// them in a dialog. Each loads what it shows only once opened.
 export default function ForgeDocuments({ issueId }: { issueId: string }) {
   const forge = useForge(issueId);
-  const [open, setOpen] = useState<"plan" | "changes" | null>(null);
+  const [open, setOpen] = useState<"plan" | "changes" | "git" | null>(null);
   const plan = forge.data?.plan ?? null;
+  // The Forge commits as it works; pushing waits until it isn't working.
+  const working = Boolean(forge.data?.running || forge.data?.pausing);
   const title = open === "plan"
     ? `Plan${forge.data?.planApproved ? "" : " (not approved yet)"}${forge.data?.finished ? " · finished" : ""}`
-    : "Code changes";
+    : open === "git" ? "Git" : "Code changes";
   return <>
     <Tooltip title={plan ? "Plan" : "No plan yet"}>
       <span><IconButton size="small" aria-label="Plan" disabled={!plan} onClick={() => setOpen("plan")}>
@@ -37,7 +42,12 @@ export default function ForgeDocuments({ issueId }: { issueId: string }) {
         <DifferenceOutlinedIcon sx={{ fontSize: 19 }} />
       </IconButton></span>
     </Tooltip>
-    <Dialog open={open !== null} onClose={() => setOpen(null)} fullWidth maxWidth={open === "changes" ? "lg" : "md"}
+    <Tooltip title={working ? "Wait for the Forge to stop working" : "Git: commit and push"}>
+      <span><IconButton size="small" aria-label="Git" disabled={working} onClick={() => setOpen("git")}>
+        <GitIcon sx={{ fontSize: 17 }} />
+      </IconButton></span>
+    </Tooltip>
+    <Dialog open={open !== null} onClose={() => setOpen(null)} fullWidth maxWidth={open === "changes" ? "lg" : open === "git" ? "sm" : "md"}
       aria-labelledby="forge-document-title">
       <DialogTitle id="forge-document-title" sx={{ pr: 7 }}>
         {title}
@@ -46,6 +56,7 @@ export default function ForgeDocuments({ issueId }: { issueId: string }) {
       <DialogContent dividers>
         {open === "plan" && plan && <PlanView plan={plan} />}
         {open === "changes" && <Changes issueId={issueId} />}
+        {open === "git" && <CommitCard issueId={issueId} onDone={() => setOpen(null)} />}
       </DialogContent>
     </Dialog>
   </>;

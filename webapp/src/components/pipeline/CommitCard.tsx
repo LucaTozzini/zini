@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { Alert, Button, Skeleton, Stack, TextField } from "@mui/material";
+import { Alert, Button, Skeleton, Stack, TextField, Typography } from "@mui/material";
 import { errorMessage } from "../../api/client.ts";
 import { useCommitAndPush, useWorkspaceGitStatus } from "../../api/workspaces.ts";
 
-import { CardFrame } from "./Cards.tsx";
 
 // Forge commits completed coder rounds. Interrupted edits can still be
 // committed with a user-entered message; the normal completed flow only pushes.
-function CommitCard({ issueId }: { issueId: string }) {
+// Shown in the Forge header's git dialog, which titles it; its git status is only
+// checked once the dialog opens. onDone runs once the push succeeds.
+function CommitCard({ issueId, onDone }: { issueId: string; onDone?: () => void }) {
   const workspace = useWorkspaceGitStatus(issueId);
 
   const commit = useCommitAndPush(issueId);
@@ -18,12 +19,11 @@ function CommitCard({ issueId }: { issueId: string }) {
     {errorMessage(workspace.error)}
   </Alert>;
   const { uncommitted = false, unpushed = false } = workspace.data ?? {};
-  if (!uncommitted && !unpushed) return null;
+  if (!uncommitted && !unpushed) return <Typography color="text.secondary">Nothing to commit or push.</Typography>;
 
   const failure = commit.error;
   return (
-    <CardFrame title={uncommitted ? "Commit and push the changes" : "Push the commits"}>
-      <Stack spacing={2}>
+    <Stack spacing={2}>
         {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
         {uncommitted && (
           <TextField
@@ -40,13 +40,12 @@ function CommitCard({ issueId }: { issueId: string }) {
             variant="contained"
             disabled={(uncommitted && !message.trim())}
             loading={commit.isPending}
-            onClick={() => commit.mutate(message.trim(), { onSuccess: () => setMessage("") })}
+            onClick={() => commit.mutate(message.trim(), { onSuccess: () => { setMessage(""); onDone?.(); } })}
           >
             {uncommitted ? "Commit & push" : "Push"}
           </Button>
         </Stack>
-      </Stack>
-    </CardFrame>
+    </Stack>
   );
 }
 
