@@ -14,18 +14,27 @@ import { Workspace } from "../models/Workspace.js";
 // container (its own context, apart from QA's), so the app runs at its own localhost
 // addresses. The user controls it over a WebSocket: their mouse, keyboard and pasted
 // text go to the page, and its screen comes back as JPEG frames (CDP screencast) while
-// someone watches. It stays open, with its cookies, until the app stops.
+// someone watches, each once the viewers have drawn the last. It stays open, with its cookies, until the app stops.
 
 const MOBILE = { width: 390, height: 844, scale: 3 };
-// A frame isn't sent to a viewer that's still this far behind.
-const MAX_BUFFERED = 4 * 1024 * 1024;
+// Frames are at most this many pixels per CSS pixel, whatever the page's density:
+// smaller frames are quicker to encode, send and draw.
+const FRAME_SCALE = 1.5;
+const FRAME_QUALITY = 60;
 
 type Preview = {
   browser: Browser;
   context: BrowserContext;
-  // Pages open, the shown one last: a popup is shown until it closes.
-  pages: { page: Page; cdp: CDPSession }[];
+  // Tabs open, the shown one last: a popup is shown until it closes or the user picks
+  // another. Ids number them in the order they opened; the first, the app's, stays open.
+  pages: { id: number; page: Page; cdp: CDPSession }[];
+  nextId: number;
+  mainId: number;
   viewers: Set<WebSocket>;
+  // Viewers still drawing the last frame, and its acknowledgement: the next frame is
+  // only made once they've all drawn it, so no one falls behind with a backlog.
+  drawing: Set<WebSocket>;
+  ack: (() => void) | null;
   mode: PreviewMode;
   size: { width: number; height: number };
   scale: number;
@@ -51,7 +60,7 @@ function send(preview: Preview, message: PreviewServerMessage) {
 }
 
 async function sendState(preview: Preview) {
-  const { page, cdp } = shown(preview);
+  const { id, page, cdp } = shown(preview);
   const history = await cdp.send("Page.getNavigationHistory").catch(() => null);
   const { width, height } = viewport(preview);
   // The blank page each page starts on isn't somewhere to go back to.
@@ -65,6 +74,17 @@ async function sendState(preview: Preview) {
     mode: preview.mode,
     width,
     height,
+    tabs: await Promise.all(
+      [...preview.pages]
+        .sort((a, b) => a.id - b.id)
+        .map(async (entry) => ({
+          id: entry.id,
+          title: await entry.page.title().catch(() => ""),
+          url: entry.page.url(),
+          closable: entry.id !== preview.mainId,
+        })),
+    ),
+    tab: id,
   });
 }
 
@@ -86,14 +106,17 @@ async function emulate(preview: Preview, cdp: CDPSession) {
 async function screencast(preview: Preview) {
   const { cdp } = shown(preview);
   await cdp.send("Page.stopScreencast").catch(() => {});
+  preview.drawing.clear();
+  preview.ack = null;
   if (!preview.viewers.size) return;
-  const { width, height } = viewport(preview);
+  const { width, height, scale } = viewport(preview);
+  const frameScale = Math.min(scale, FRAME_SCALE);
   await cdp
     .send("Page.startScreencast", {
       format: "jpeg",
-      quality: 70,
-      maxWidth: Math.round(width * preview.scale),
-      maxHeight: Math.round(height * preview.scale),
+      quality: FRAME_QUALITY,
+      maxWidth: Math.round(width * frameScale),
+      maxHeight: Math.round(height * frameScale),
     })
     .catch(() => {});
 }
@@ -101,10 +124,17 @@ async function screencast(preview: Preview) {
 async function show(preview: Preview, page: Page) {
   const cdp = await page.context().newCDPSession(page);
   cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
-    cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
-    if (shown(preview).cdp !== cdp) return;
+    const ack = () => void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+    if (shown(preview).cdp !== cdp || !preview.viewers.size) {
+      ack();
+      return;
+    }
     const frame = Buffer.from(data, "base64");
-    for (const viewer of preview.viewers) if (viewer.bufferedAmount < MAX_BUFFERED) viewer.send(frame);
+    for (const viewer of preview.viewers) {
+      viewer.send(frame);
+      preview.drawing.add(viewer);
+    }
+    preview.ack = ack;
   });
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) void sendState(preview);
@@ -133,7 +163,8 @@ async function show(preview: Preview, page: Page) {
         send(preview, { type: "download", id, name: download.suggestedFilename() });
       })().catch((error) => send(preview, { type: "error", message: `The download failed: ${String(error)}` })),
   );
-  // A closed popup shows the page that opened it again; the last one is replaced.
+  // A closed tab shows the one shown before it again; the last one is replaced (the
+  // context's page event shows the new one).
   page.on(
     "close",
     () =>
@@ -141,15 +172,30 @@ async function show(preview: Preview, page: Page) {
         const wasShown = shown(preview).page === page;
         preview.pages = preview.pages.filter((entry) => entry.page !== page);
         if (!preview.pages.length) {
-          await show(preview, await preview.context.newPage());
+          await preview.context.newPage();
           return;
         }
-        if (wasShown) await refresh(preview);
+        await (wasShown ? refresh(preview) : sendState(preview));
       })().catch(() => {}),
   );
-  preview.pages.push({ page, cdp });
+  const id = preview.nextId++;
+  if (!preview.pages.length) preview.mainId = id;
+  else
+    await shown(preview)
+      .cdp.send("Page.stopScreencast")
+      .catch(() => {});
+  preview.pages.push({ id, page, cdp });
   await emulate(preview, cdp);
   await refresh(preview);
+}
+
+// The viewer has drawn the last frame (or left).
+function drawn(preview: Preview, viewer: WebSocket) {
+  preview.drawing.delete(viewer);
+  if (preview.drawing.size || !preview.ack) return;
+  const ack = preview.ack;
+  preview.ack = null;
+  ack();
 }
 
 async function refresh(preview: Preview) {
@@ -168,7 +214,11 @@ async function open(issueId: string, url: string | null): Promise<Preview> {
     browser,
     context,
     pages: [],
+    nextId: 1,
+    mainId: 1,
     viewers: new Set(),
+    drawing: new Set(),
+    ack: null,
     mode: "desktop",
     size: { width: 1280, height: 800 },
     scale: 1,
@@ -179,8 +229,8 @@ async function open(issueId: string, url: string | null): Promise<Preview> {
     downloads: new Map(),
     dir,
   };
-  context.on("page", (popup) => {
-    if (popup !== page) void show(preview, popup).catch(() => {});
+  context.on("page", (opened) => {
+    if (opened !== page) void show(preview, opened).catch(() => {});
   });
   browser.on("disconnected", () => void forget(issueId, preview));
   await show(preview, page);
@@ -336,6 +386,22 @@ async function handle(preview: Preview, message: PreviewClientMessage) {
       );
       return;
     }
+    case "tab": {
+      const entry = preview.pages.find((tab) => tab.id === message.id);
+      if (!entry || entry === shown(preview)) return;
+      await cdp.send("Page.stopScreencast").catch(() => {});
+      preview.pages = [...preview.pages.filter((tab) => tab !== entry), entry];
+      preview.buttons = 0;
+      // Its size may be from before the viewer's last resize.
+      await emulate(preview, entry.cdp);
+      await refresh(preview);
+      return;
+    }
+    case "closeTab": {
+      const entry = preview.pages.find((tab) => tab.id === message.id);
+      if (entry && entry.id !== preview.mainId) await entry.page.close();
+      return;
+    }
     case "dialog": {
       const dialog = preview.dialog;
       preview.dialog = null;
@@ -395,6 +461,9 @@ async function watch(issueId: string, url: string, viewer: WebSocket) {
   let queue: Promise<unknown> = opening.catch((error) =>
     viewer.close(1011, `The preview browser couldn't open: ${String(error)}`.slice(0, 120)),
   );
+  // A mouse move or scroll still waiting its turn takes the ones after it: the latest
+  // position, and the scrolling added up, go as one.
+  let waiting: { message: PreviewClientMessage } | null = null;
   viewer.on("message", (data: RawData, binary) => {
     if (binary) return;
     let message: PreviewClientMessage;
@@ -403,8 +472,26 @@ async function watch(issueId: string, url: string, viewer: WebSocket) {
     } catch {
       return;
     }
+    if (message.type === "frame") {
+      void opening.then((preview) => drawn(preview, viewer)).catch(() => {});
+      return;
+    }
+    const last = waiting?.message;
+    if (last?.type === "mouse" && last.action === "move" && message.type === "mouse" && message.action === "move") {
+      waiting!.message = message;
+      return;
+    }
+    if (last?.type === "wheel" && message.type === "wheel" && last.modifiers === message.modifiers) {
+      waiting!.message = { ...message, deltaX: last.deltaX + message.deltaX, deltaY: last.deltaY + message.deltaY };
+      return;
+    }
+    const entry = { message };
+    waiting = entry;
     queue = queue
-      .then(async () => handle(await opening, message))
+      .then(async () => {
+        if (waiting === entry) waiting = null;
+        await handle(await opening, entry.message);
+      })
       .catch((error) =>
         viewer.send(
           JSON.stringify({
@@ -420,6 +507,7 @@ async function watch(issueId: string, url: string, viewer: WebSocket) {
       void opening
         .then((preview) => {
           preview.viewers.delete(viewer);
+          drawn(preview, viewer);
           if (!preview.viewers.size)
             void shown(preview)
               .cdp.send("Page.stopScreencast")

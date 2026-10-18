@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type PointerEvent } from "react";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CloseIcon from "@mui/icons-material/Close";
 import DesktopWindowsOutlinedIcon from "@mui/icons-material/DesktopWindowsOutlined";
 import KeyboardOutlinedIcon from "@mui/icons-material/KeyboardOutlined";
 import PhoneIphoneOutlinedIcon from "@mui/icons-material/PhoneIphoneOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import { Alert, Box, Button, IconButton, Link, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  IconButton,
+  Link,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
+} from "@mui/material";
 import type { PreviewClientMessage, PreviewMode, PreviewServerMessage } from "shared";
 
 type State = Extract<PreviewServerMessage, { type: "state" }>;
@@ -279,6 +293,37 @@ function PreviewBrowser({ issueId }: { issueId: string }) {
             (event.target as HTMLInputElement).blur();
           }}
         />
+        {state && state.tabs.length > 1 && (
+          <Select
+            size="small"
+            value={state.tab}
+            inputProps={{ "aria-label": "Tab" }}
+            onChange={(event) => send({ type: "tab", id: Number(event.target.value) })}
+            renderValue={(id) => {
+              const tab = state.tabs.find((entry) => entry.id === id);
+              return tab?.title || tab?.url;
+            }}
+            sx={{ width: 200, flexShrink: 0 }}
+          >
+            {state.tabs.map((tab) => (
+              <MenuItem key={tab.id} value={tab.id} sx={{ maxWidth: 360 }}>
+                <Box sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{tab.title || tab.url}</Box>
+                {tab.closable && (
+                  <IconButton
+                    size="small"
+                    aria-label={`Close ${tab.title || tab.url}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      send({ type: "closeTab", id: tab.id });
+                    }}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </MenuItem>
+            ))}
+          </Select>
+        )}
         <ToggleButtonGroup
           size="small"
           exclusive
@@ -361,6 +406,9 @@ function PreviewBrowser({ issueId }: { issueId: string }) {
           ref={screen}
           alt={state?.title ? `Preview: ${state.title}` : "Preview"}
           draggable={false}
+          // The next frame comes once this one is on screen.
+          onLoad={() => send({ type: "frame" })}
+          onError={() => send({ type: "frame" })}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

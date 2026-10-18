@@ -459,6 +459,10 @@ export type PreviewServerMessage =
       mode: PreviewMode;
       width: number;
       height: number;
+      // Open tabs in the order they opened, and the shown one's id. The app's tab can't
+      // be closed.
+      tabs: { id: number; title: string; url: string; closable: boolean }[];
+      tab: number;
     }
   // The page asked for files: answer with "files", or nothing to cancel.
   | { type: "fileChooser"; multiple: boolean }
@@ -492,4 +496,8 @@ export type PreviewClientMessage =
   | { type: "mode"; mode: PreviewMode }
   // data is base64.
   | { type: "files"; files: { name: string; mimeType: string; data: string }[] }
-  | { type: "dialog"; accept: boolean; text?: string };
+  | { type: "dialog"; accept: boolean; text?: string }
+  | { type: "tab"; id: number }
+  | { type: "closeTab"; id: number }
+  // The last frame is on screen: the next one can come.
+  | { type: "frame" };
