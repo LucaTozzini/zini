@@ -93,9 +93,6 @@ function ActionDetails({ action }: { action: PendingAction }) {
         : `Mark ${String(action.args.blockerId)} as blocking ${String(action.args.issueId)}`}
     </Typography>
   );
-  if (action.name === "stop_workspace_app") return (
-    <Typography variant="subtitle2">Stop the user app for {String(action.args.issueId)}</Typography>
-  );
   if (action.name === "start_app_services") {
     const { issueId, plan } = action.args as { issueId: string; plan: {
       setup: { command: string; cwd: string }[];

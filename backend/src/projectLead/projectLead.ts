@@ -655,7 +655,6 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           pull_request_create: { allowedDecisions: ["approve", "reject"] },
           pull_request_comment: { allowedDecisions: ["approve", "reject"] },
           pull_request_resolve_thread: { allowedDecisions: ["approve", "reject"] },
-          stop_workspace_app: { allowedDecisions: ["approve", "reject"] },
         },
       }),
       fetchRepoMiddleware,
