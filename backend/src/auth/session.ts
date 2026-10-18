@@ -1,3 +1,4 @@
+import { parse } from "cookie";
 import type { RequestHandler } from "express";
 import type { User as SessionUser } from "shared";
 import { User } from "../models/User.js";
@@ -44,13 +45,8 @@ export const requireApiUser: RequestHandler = (req, res, next) => {
 // The signed-in user for a request Express doesn't handle (a WebSocket upgrade), from
 // its Cookie header; null if it has no valid session.
 export async function userForCookies(header: string | undefined): Promise<SessionUser | null> {
-  const token = header
-    ?.split(";")
-    .map((part) => part.trim().split("="))
-    .find(([name]) => name === ACCESS_TOKEN)
-    ?.slice(1)
-    .join("=");
+  const token = header && parse(header)[ACCESS_TOKEN];
   if (!token) return null;
-  const user = await User.findOne({ where: { access_token: decodeURIComponent(token) }, attributes: ["username", "authority"] });
+  const user = await User.findOne({ where: { access_token: token }, attributes: ["username", "authority"] });
   return user ? { username: user.username, authority: user.authority } : null;
 }

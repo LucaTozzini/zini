@@ -1,4 +1,5 @@
-import { createHash, createPublicKey, randomBytes, randomUUID, verify, type JsonWebKey } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createServer, type Server } from "node:http";
 import type { ChatGptStatus } from "shared";
 import { sendEvent } from "../core/events.js";
@@ -214,34 +215,24 @@ async function requestTokens(form: Record<string, string>) {
   return body;
 }
 
+// OpenAI's signing keys, from the address its sign-in configuration names. jose caches
+// them, and fetches them again when a token is signed with a key it hasn't seen.
+let signingKeys: ReturnType<typeof createRemoteJWKSet> | null = null;
+
 // Checks the ID token's signature against OpenAI's published keys, and that it was
 // issued to zini for this sign-in. Returns its claims.
 async function verifyIdToken(idToken: string, clientId: string, nonce: string) {
-  const [header, payload, signature] = idToken.split(".");
-  if (!header || !payload || !signature) throw new Error("the ID token is malformed");
-  const decode = (part: string) => JSON.parse(Buffer.from(part, "base64url").toString()) as Record<string, unknown>;
-  const { alg, kid } = decode(header);
-  if (alg !== "RS256") throw new Error(`the ID token is signed with ${String(alg)}, not RS256`);
-
-  const config = (await (await fetch(`${AUTH}/.well-known/openid-configuration`)).json()) as { jwks_uri: string };
-  const { keys } = (await (await fetch(config.jwks_uri)).json()) as { keys: (JsonWebKey & { kid?: string })[] };
-  const key = keys.find((k) => k.kid === kid);
-  if (!key) throw new Error("the ID token's signing key isn't one of OpenAI's");
-  const valid = verify(
-    "RSA-SHA256",
-    Buffer.from(`${header}.${payload}`),
-    createPublicKey({ key, format: "jwk" }),
-    Buffer.from(signature, "base64url"),
+  if (!signingKeys) {
+    const config = (await (await fetch(`${AUTH}/.well-known/openid-configuration`)).json()) as { jwks_uri: string };
+    signingKeys = createRemoteJWKSet(new URL(config.jwks_uri));
+  }
+  const { payload } = await jwtVerify(idToken, signingKeys, { issuer: AUTH, audience: clientId, algorithms: ["RS256"] }).catch(
+    (error: unknown) => {
+      throw new Error(`the ID token isn't valid: ${errorMessage(error)}`);
+    },
   );
-  if (!valid) throw new Error("the ID token's signature is invalid");
-
-  const claims = decode(payload);
-  const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (claims.iss !== AUTH) throw new Error("the ID token wasn't issued by OpenAI");
-  if (!audience.includes(clientId)) throw new Error("the ID token wasn't issued to zini");
-  if (typeof claims.exp !== "number" || claims.exp * 1000 < Date.now()) throw new Error("the ID token has expired");
-  if (claims.nonce !== nonce) throw new Error("the ID token is from another sign-in");
-  return claims;
+  if (payload.nonce !== nonce) throw new Error("the ID token is from another sign-in");
+  return payload;
 }
 
 // ---- Using the plan --------------------------------------------------------------

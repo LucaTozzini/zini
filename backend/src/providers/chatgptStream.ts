@@ -1,3 +1,5 @@
+import { EventSourceParserStream, type EventSourceMessage } from "eventsource-parser/stream";
+
 // Some ChatGPT streams finish with an empty response.output. LangChain then
 // replays its merged reasoning field, which concatenates separate encrypted
 // items. Restore the completed output from the stream's authoritative items.
@@ -9,19 +11,13 @@ export function preserveChatGptOutput(response: Response): Response {
     return response;
   }
   const items = new Map<number, Record<string, unknown>>();
-  let buffered = "";
-  function event(frame: string): string {
-    const lines = frame.split(/\r?\n/);
-    const data = lines
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n");
-    if (!data || data === "[DONE]") return frame;
+  // An event's data, with the completed response's output restored if it came back empty.
+  function restored(data: string): string {
     let value;
     try {
       value = JSON.parse(data);
     } catch {
-      return frame;
+      return data;
     }
     if (value?.type === "response.output_item.done" && Number.isInteger(value.output_index) && value.item) {
       items.set(value.output_index, value.item);
@@ -33,26 +29,21 @@ export function preserveChatGptOutput(response: Response): Response {
       items.size
     ) {
       value.response.output = [...items.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
-      return [...lines.filter((line) => !line.startsWith("data:")), `data: ${JSON.stringify(value)}`].join("\n");
+      return JSON.stringify(value);
     }
-    return frame;
+    return data;
   }
+  // The event as SSE again, for LangChain's client to read.
+  const frame = ({ event, id, data }: EventSourceMessage) =>
+    `${event ? `event: ${event}\n` : ""}${id ? `id: ${id}\n` : ""}${restored(data)
+      .split("\n")
+      .map((line) => `data: ${line}\n`)
+      .join("")}\n`;
   const stream = response.body
     .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new EventSourceParserStream())
     .pipeThrough(
-      new TransformStream<string, string>({
-        transform(chunk, controller) {
-          buffered += chunk;
-          let boundary;
-          while ((boundary = /\r?\n\r?\n/.exec(buffered))) {
-            controller.enqueue(event(buffered.slice(0, boundary.index)) + "\n\n");
-            buffered = buffered.slice(boundary.index + boundary[0].length);
-          }
-        },
-        flush(controller) {
-          if (buffered) controller.enqueue(event(buffered));
-        },
-      }),
+      new TransformStream<EventSourceMessage, string>({ transform: (event, controller) => controller.enqueue(frame(event)) }),
     )
     .pipeThrough(new TextEncoderStream());
   const headers = new Headers(response.headers);

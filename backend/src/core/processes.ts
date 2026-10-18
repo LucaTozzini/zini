@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import treeKill from "tree-kill";
 
 // Commands run through the system shell (cmd.exe on Windows, sh elsewhere), the way
 // the environment setup, checks, and QA commands run.
@@ -15,22 +16,13 @@ export function spawnShell(command: string, cwd: string, extraEnv: Record<string
     env,
     shell: true,
     windowsHide: true,
-    // Its own process group on macOS/Linux, so killTree can stop all of it.
-    detached: process.platform !== "win32",
   });
 }
 
 // Stops the shell and everything it started (e.g. npm and its children).
 export function killTree(child: ChildProcess) {
-  if (!child.pid) return;
-  if (process.platform === "win32") {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
-  } else {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  treeKill(child.pid, "SIGKILL", () => {
+    // Already gone.
+  });
 }

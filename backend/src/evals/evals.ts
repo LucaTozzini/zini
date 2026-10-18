@@ -138,7 +138,6 @@ export function runInDocker(
         {
           cwd: ROOT,
           windowsHide: true,
-          detached: process.platform !== "win32",
           env: {
             ...process.env,
             ...credential,
