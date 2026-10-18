@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { PipelineResume, PipelineWaiting } from "shared";
-import { getPipeline, pipelineRun, resumePipeline, startPipeline, stopForgeProcesses } from "../../backend/src/forge/forge.js";
+import type { ForgeResume, ForgeWaiting } from "shared";
+import { getForge, forgeRun, resumeForge, startForge, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { checklistVerdict } from "../../backend/src/forge/plan.js";
 import { initDb } from "../../backend/src/db.js";
 import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
@@ -55,7 +55,7 @@ const fixture: Fixture = {
 let questionsAnswered = 0;
 let plansApproved = 0;
 
-function reply(waiting: PipelineWaiting): PipelineResume {
+function reply(waiting: ForgeWaiting): ForgeResume {
   if (waiting.kind === "questions") {
     const answers = waiting.questions.map(() => scenario.answers?.[questionsAnswered++] ?? "You decide.");
     waiting.questions.forEach((question, i) => console.log(`? lead: ${question}\n  → ${answers[i]}`));
@@ -66,7 +66,7 @@ function reply(waiting: PipelineWaiting): PipelineResume {
     console.log("✓ plan approved");
     return { approve: true };
   }
-  throw new Error("Unknown pipeline request");
+  throw new Error("Unknown Forge request");
 }
 
 // ---- The run ----------------------------------------------------------------------
@@ -92,7 +92,7 @@ async function main() {
     const logs = join(runDir, "logs", issueId);
     return existsSync(logs) && readdirSync(logs).some((file) => file.endsWith("-reviewer.jsonl"));
   };
-  const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
+  const run = forgeRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
     refreshes++;
     const patch =
       refreshes === 2 && scenario.upstreamAfterCoderPatch
@@ -112,13 +112,13 @@ async function main() {
   const stopFollowing = followLogs(join(runDir, "logs", issueId));
   let error: string | null = null;
   try {
-    for await (const _ of await startPipeline(run, "")) {
+    for await (const _ of await startForge(run, "")) {
       // Each step's state; the logs show the progress.
     }
     for (let pauses = 0; pauses < 200; pauses++) {
-      const { waiting } = await getPipeline(issueId);
+      const { waiting } = await getForge(issueId);
       if (!waiting) break;
-      for await (const _ of await resumePipeline(run, reply(waiting))) {
+      for await (const _ of await resumeForge(run, reply(waiting))) {
         // As above.
       }
     }
@@ -130,9 +130,9 @@ async function main() {
     await stopForgeProcesses(issueId);
   }
 
-  const pipeline = await getPipeline(issueId);
-  if (!error && !pipeline.finished) error = pipeline.waiting ? "Stopped after 200 pauses" : "Stopped before finishing";
-  writeFileSync(join(runDir, "validation.json"), JSON.stringify({ plan: pipeline.plan }, null, 2));
+  const forge = await getForge(issueId);
+  if (!error && !forge.finished) error = forge.waiting ? "Stopped after 200 pauses" : "Stopped before finishing";
+  writeFileSync(join(runDir, "validation.json"), JSON.stringify({ plan: forge.plan }, null, 2));
 
   const { diff, truncated } = await workspaceDiff(issueId);
   writeFileSync(join(runDir, "diff.patch"), truncated ? `${diff}\n[Cut off]\n` : diff);
@@ -145,7 +145,7 @@ async function main() {
     .then(() => true)
     .catch(() => false);
   const dirty = (await runGit(["status", "--porcelain"])).trim();
-  if (pipeline.finished && (pendingMerge || dirty)) error = "Completed pipeline left uncommitted changes or a pending merge";
+  if (forge.finished && (pendingMerge || dirty)) error = "Completed Forge left uncommitted changes or a pending merge";
   writeFileSync(
     join(runDir, "git.json"),
     JSON.stringify(
@@ -153,7 +153,7 @@ async function main() {
         initialHead,
         finalHead,
         commits: await runGit(["log", "--format=%H %s", `${initialHead}..HEAD`]),
-        integration: pipeline.integration,
+        integration: forge.integration,
         upstreamRefreshes: refreshes,
         pendingMerge,
         dirty,
@@ -181,8 +181,8 @@ async function main() {
   const metrics: RunMetrics = {
     scenario: scenarioName,
     model,
-    finished: pipeline.finished,
-    qaVerdict: checklistVerdict(pipeline.plan),
+    finished: forge.finished,
+    qaVerdict: checklistVerdict(forge.plan),
     error,
     rateLimited: isModelRateLimit(error),
     codeVersion: codeVersion(),
@@ -196,7 +196,7 @@ async function main() {
   writeFileSync(join(runDir, "metrics.json"), `${JSON.stringify(metrics, null, 2)}\n`);
   console.log(`Done in ${Math.round(metrics.seconds)}s: ${runDir}`);
   await removeSandbox(issueId);
-  // The pipeline's checkpointer and LangChain keep handles open.
+  // The Forge's checkpointer and LangChain keep handles open.
   process.exit(metrics.rateLimited ? 2 : metrics.finished && metrics.qaVerdict === "pass" && check?.passed !== false ? 0 : 1);
 }
 

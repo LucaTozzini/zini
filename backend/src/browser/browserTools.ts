@@ -3,6 +3,7 @@ import type { Page } from "playwright";
 import { z } from "zod";
 import { closeBrowser, DEFAULT_VIEWPORT, getPage, noteUrl } from "./agentBrowser.js";
 import { inspectElements } from "../forge/browserInspection.js";
+import { errorMessage } from "../core/errors.js";
 
 const SETTLE_MS = 500;
 const MAX_TEXT = 8_000;
@@ -66,7 +67,7 @@ function locate(page: Page, { role, name, selector }: { role?: string; name?: st
 // A Playwright error's message without its color codes and the "Call log" after it,
 // e.g. "locator.fill: Timeout 10000ms exceeded."
 function playwrightError(err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   const [first = ""] = message.replace(/\x1b\[[0-9;]*m/g, "").split(/\n\s*Call log:/);
   return first.trim();
 }

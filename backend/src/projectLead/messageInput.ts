@@ -1,5 +1,6 @@
-import { MAX_CHAT_IMAGES, MAX_CHAT_IMAGE_BYTES, type ProjectLeadMessage } from "shared";
+import { MAX_CHAT_IMAGES, MAX_CHAT_IMAGE_BYTES } from "shared";
 import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { z } from "zod";
 
 export function userMessage(message: string, images: string[], username: string | null) {
   return new HumanMessage({
@@ -26,17 +27,26 @@ export function withSenderName(message: BaseMessage): BaseMessage {
   });
 }
 
-export function parseMessageInput(body: unknown): ProjectLeadMessage {
-  if (!body || typeof body !== "object") throw new Error("message is required");
-  const { message, images = [] } = body as Record<string, unknown>;
-  if (typeof message !== "string") throw new Error("message must be text");
-  if (!Array.isArray(images) || images.length > MAX_CHAT_IMAGES) throw new Error(`Attach up to ${MAX_CHAT_IMAGES} images.`);
-  for (const image of images) {
-    if (typeof image !== "string") throw new Error("Images must be base64 data URLs.");
-    const match = /^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);
-    if (!match || match[2]!.length % 4 !== 0) throw new Error("Use base64 PNG, JPEG, WebP or GIF images.");
-    if (Buffer.byteLength(match[2]!, "base64") > MAX_CHAT_IMAGE_BYTES) throw new Error("Images must be 5 MB or smaller.");
-  }
-  if (!message.trim() && !images.length) throw new Error("message or images are required");
-  return { message, images };
-}
+// A chat message from the webapp: text, base64 images (PNG, JPEG, WebP or GIF), or both.
+const IMAGE = /^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/;
+const image = z
+  .string({ error: "Images must be base64 data URLs." })
+  .refine((url) => {
+    const data = IMAGE.exec(url)?.[2];
+    return data !== undefined && data.length % 4 === 0;
+  }, "Use base64 PNG, JPEG, WebP or GIF images.")
+  .refine(
+    (url) => Buffer.byteLength(url.slice(url.indexOf(",") + 1), "base64") <= MAX_CHAT_IMAGE_BYTES,
+    "Images must be 5 MB or smaller.",
+  );
+export const messageInput = z
+  .object({
+    message: z.string({ error: "message must be text" }),
+    images: z
+      .array(image, { error: `Attach up to ${MAX_CHAT_IMAGES} images.` })
+      .max(MAX_CHAT_IMAGES, `Attach up to ${MAX_CHAT_IMAGES} images.`)
+      .default([]),
+  })
+  .refine((input) => Boolean(input.message.trim() || input.images.length), "message or images are required");
+
+export const parseMessageInput = (body: unknown) => messageInput.parse(body);

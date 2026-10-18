@@ -1,4 +1,4 @@
-import type { PipelineState } from "shared";
+import type { ForgeState } from "shared";
 import { checklistVerdict } from "./plan.js";
 
 type WorkspaceStatus = { issueId: string };
@@ -7,7 +7,7 @@ type WorkspaceStatus = { issueId: string };
 export async function listForges(
   workspaces: WorkspaceStatus[],
   subscribedIds: string[],
-  readPipeline: (issueId: string) => Promise<PipelineState>,
+  readForge: (issueId: string) => Promise<ForgeState>,
   subscribedOnly = false,
 ) {
   const subscribed = new Set(subscribedIds);
@@ -16,19 +16,19 @@ export async function listForges(
   return Promise.all(
     issueIds.map(async (issueId) => {
       const workspace = byIssue.get(issueId);
-      const pipeline = await readPipeline(issueId);
+      const forge = await readForge(issueId);
       return {
         issueId,
         subscribed: subscribed.has(issueId),
         hasWorkspace: Boolean(workspace),
-        started: pipeline.started,
-        running: pipeline.running,
-        waiting: pipeline.waiting,
-        finished: pipeline.finished,
-        error: pipeline.error,
-        pausing: pipeline.pausing ?? false,
-        canResume: pipeline.canResume ?? false,
-        qaVerdict: checklistVerdict(pipeline.plan),
+        started: forge.started,
+        running: forge.running,
+        waiting: forge.waiting,
+        finished: forge.finished,
+        error: forge.error,
+        pausing: forge.pausing ?? false,
+        canResume: forge.canResume ?? false,
+        qaVerdict: checklistVerdict(forge.plan),
       };
     }),
   );

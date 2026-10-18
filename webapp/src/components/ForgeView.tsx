@@ -13,39 +13,39 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import type { PipelineResume, PipelineState } from "shared";
+import type { ForgeResume, ForgeState } from "shared";
 import { errorMessage } from "../api/client.ts";
-import { useForge, useMessagePipeline, usePipelineControl, useResumePipeline, useStartPipeline } from "../api/forge.ts";
+import { useForge, useMessageForge, useForgeControl, useResumeForge, useStartForge } from "../api/forge.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
-import CheckpointActivity from "./forge-activity/CheckpointActivity.tsx";
+import CheckpointActivity from "./forge/CheckpointActivity.tsx";
 import ChatInput from "./chat/ChatInput.tsx";
-import BrowserView from "./pipeline/BrowserView.tsx";
-import PipelineRequest from "./pipeline/PipelineRequest.tsx";
-import PullRequestCard from "./pipeline/PullRequestCard.tsx";
+import BrowserView from "./forge/BrowserView.tsx";
+import ForgeRequest from "./forge/ForgeRequest.tsx";
+import PullRequestCard from "./forge/PullRequestCard.tsx";
 
-function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: PipelineState }) {
-  const start = useStartPipeline(issueId);
-  const resume = useResumePipeline(issueId);
-  const message = useMessagePipeline(issueId);
-  const control = usePipelineControl(issueId);
-  const reply = (response: PipelineResume) => resume.mutate(response);
+function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }) {
+  const start = useStartForge(issueId);
+  const resume = useResumeForge(issueId);
+  const message = useMessageForge(issueId);
+  const control = useForgeControl(issueId);
+  const reply = (response: ForgeResume) => resume.mutate(response);
   const sending = start.isPending || resume.isPending || message.isPending;
   const failure = start.error ?? resume.error ?? message.error ?? control.error;
   const [activityContent, setActivityContent] = useState("");
-  const content = useMemo(() => ({ pipeline, activityContent }), [pipeline, activityContent]);
+  const content = useMemo(() => ({ forge, activityContent }), [forge, activityContent]);
   const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
     content,
     sending,
-    busy: Boolean(pipeline.running),
-    error: Boolean(failure || pipeline.error),
+    busy: Boolean(forge.running),
+    error: Boolean(failure || forge.error),
     lastIsReply: false,
   });
   // Paused or interrupted work can be resumed; running work is paused from the input.
-  const resumable = Boolean(pipeline.pausing || (pipeline.canResume && !pipeline.running));
+  const resumable = Boolean(forge.pausing || (forge.canResume && !forge.running));
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<string[]>([]);
   // The Lead takes messages when it isn't working or waiting on a reply.
-  const canMessage = pipeline.started && !pipeline.running && !pipeline.pausing && !pipeline.waiting;
+  const canMessage = forge.started && !forge.running && !forge.pausing && !forge.waiting;
   const canSend = canMessage && !sending && Boolean(draft.trim() || images.length);
   const send = () => {
     if (!canSend) return;
@@ -71,45 +71,43 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
       >
         <Container maxWidth={false} sx={{ maxWidth: 750, pt: 3, pb: 18 }}>
           <Stack spacing={3}>
-            {pipeline.started && (
-              <CheckpointActivity issueId={issueId} pipeline={pipeline} onContentChange={setActivityContent} />
-            )}
-            {pipeline.error && <Alert severity="error">{pipeline.error}</Alert>}
-            {pipeline.integration?.status === "conflicts" && (
+            {forge.started && <CheckpointActivity issueId={issueId} forge={forge} onContentChange={setActivityContent} />}
+            {forge.error && <Alert severity="error">{forge.error}</Alert>}
+            {forge.integration?.status === "conflicts" && (
               <Alert severity="warning">
-                Resolving conflicts with {pipeline.integration.targetBranch}
-                {pipeline.integration.conflicts.length > 0 && ` — ${pipeline.integration.conflicts.join(", ")}`}
+                Resolving conflicts with {forge.integration.targetBranch}
+                {forge.integration.conflicts.length > 0 && ` — ${forge.integration.conflicts.join(", ")}`}
               </Alert>
             )}
             {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
-            {pipeline.finished && (
+            {forge.finished && (
               <>
                 <PullRequestCard issueId={issueId} />
               </>
             )}
             <Box data-chat-message="">
-              <PipelineRequest
+              <ForgeRequest
                 issueId={issueId}
-                pipeline={pipeline}
+                forge={forge}
                 onStart={(note) => start.mutate(note)}
                 onReply={reply}
                 sending={sending}
               />
             </Box>
-            {pipeline.browserUrl && (
+            {forge.browserUrl && (
               <Accordion slotProps={{ transition: { unmountOnExit: true } }}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography>Live product preview</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
-                  <BrowserView issueId={issueId} url={pipeline.browserUrl} />
+                  <BrowserView issueId={issueId} url={forge.browserUrl} />
                 </AccordionDetails>
               </Accordion>
             )}
           </Stack>
         </Container>
       </Box>
-      {(pipeline.started || messagesBelow !== null) && (
+      {(forge.started || messagesBelow !== null) && (
         <Box
           sx={{
             position: "absolute",
@@ -137,15 +135,15 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
             {resumable && (
               <Button
                 variant="outlined"
-                loading={control.isPending || pipeline.pausing}
-                disabled={sending || pipeline.pausing}
+                loading={control.isPending || forge.pausing}
+                disabled={sending || forge.pausing}
                 onClick={() => control.mutate("continue")}
                 sx={{ pointerEvents: "auto", bgcolor: "background.default" }}
               >
-                {pipeline.pausing ? "Pausing…" : "Resume"}
+                {forge.pausing ? "Pausing…" : "Resume"}
               </Button>
             )}
-            {pipeline.started && (
+            {forge.started && (
               <Container maxWidth={false} sx={{ maxWidth: 750, pointerEvents: "auto" }}>
                 <ChatInput
                   images={images}
@@ -153,16 +151,16 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
                   value={draft}
                   onChange={setDraft}
                   loading={message.isPending}
-                  disabled={Boolean(pipeline.waiting)}
+                  disabled={Boolean(forge.waiting)}
                   canSend={canSend}
-                  stoppable={Boolean(pipeline.running && !pipeline.pausing)}
+                  stoppable={Boolean(forge.running && !forge.pausing)}
                   onStop={() => control.mutate("pause")}
                   placeholder={
-                    pipeline.waiting
+                    forge.waiting
                       ? "Reply to the Lead above first"
-                      : pipeline.running
+                      : forge.running
                         ? "Pause the Lead to message it"
-                        : pipeline.finished
+                        : forge.finished
                           ? "Ask the Lead for changes"
                           : "Message the Lead"
                   }
@@ -184,10 +182,10 @@ function ForgeContent({ issueId, pipeline }: { issueId: string; pipeline: Pipeli
 }
 
 function ForgeView({ issueId }: { issueId: string }) {
-  const pipeline = useForge(issueId);
-  if (pipeline.isPending) return <Skeleton height={120} />;
-  if (pipeline.isError) return <Alert severity="error">{errorMessage(pipeline.error)}</Alert>;
-  return <ForgeContent key={issueId} issueId={issueId} pipeline={pipeline.data} />;
+  const query = useForge(issueId);
+  if (query.isPending) return <Skeleton height={120} />;
+  if (query.isError) return <Alert severity="error">{errorMessage(query.error)}</Alert>;
+  return <ForgeContent key={issueId} issueId={issueId} forge={query.data} />;
 }
 
 export default ForgeView;

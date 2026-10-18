@@ -1,6 +1,7 @@
 import { tool } from "langchain";
 import { z } from "zod";
 import { readWikiPage, searchWiki } from "./serving.js";
+import { errorMessage } from "../core/errors.js";
 
 // Read tools over the repo's generated OpenWiki (architecture docs), served from a
 // checkout of the default branch (see serving.ts). Model-free lookups:
@@ -11,7 +12,7 @@ export const searchWikiTool = tool(
     try {
       return await searchWiki(query, limit);
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return errorMessage(err);
     }
   },
   {
@@ -30,7 +31,7 @@ export const readWikiTool = tool(
     try {
       return await readWikiPage(page, sections);
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return errorMessage(err);
     }
   },
   {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ForgeLifecycleEvent } from "./events.js";
-import { pipelineEvents } from "./pipelineEvents.js";
+import { forgeEvents } from "./forgeEvents.js";
 const plan = { steps: [], qaChecklist: [] };
 import { Annotation, Command, END, MemorySaver, START, StateGraph, interrupt } from "@langchain/langgraph";
 
@@ -17,7 +17,7 @@ test("streaming chunks don't emit notifications; a saved interrupt emits one wai
     yield "first";
     yield "second";
   })();
-  const stream = pipelineEvents(
+  const stream = forgeEvents(
     Promise.resolve(source),
     async () => ({ type: "waiting", waiting: { kind: "approve_plan", plan } }),
     async (event) => {
@@ -33,13 +33,11 @@ test("completion and failure emit once; failure preserves the original exception
   const emit = async (event: ForgeLifecycleEvent) => {
     events.push(event);
   };
-  await collect(
-    pipelineEvents(Promise.resolve((async function* () {})()), async () => ({ type: "completed", plan: null }), emit),
-  );
+  await collect(forgeEvents(Promise.resolve((async function* () {})()), async () => ({ type: "completed", plan: null }), emit));
   const failure = new Error("model unavailable");
   await assert.rejects(
     collect(
-      pipelineEvents(
+      forgeEvents(
         Promise.resolve(
           (async function* () {
             throw failure;
@@ -72,7 +70,7 @@ test("cancellation emits stopped after draining", async () => {
     })();
     await assert.rejects(
       collect(
-        pipelineEvents(
+        forgeEvents(
           Promise.resolve(source),
           async () => null,
           async (event) => {
@@ -108,9 +106,9 @@ test("a real graph emits a saved human request and completion on resume", async 
   const emit = async (event: ForgeLifecycleEvent) => {
     events.push(event);
   };
-  await collect(pipelineEvents(graph.stream({ finished: false }, config), outcome, emit));
+  await collect(forgeEvents(graph.stream({ finished: false }, config), outcome, emit));
   assert.deepEqual(events, [{ type: "waiting", waiting: { kind: "approve_plan", plan } }]);
-  await collect(pipelineEvents(graph.stream(new Command({ resume: { approve: true } }), config), outcome, emit));
+  await collect(forgeEvents(graph.stream(new Command({ resume: { approve: true } }), config), outcome, emit));
   assert.deepEqual(events, [
     { type: "waiting", waiting: { kind: "approve_plan", plan } },
     { type: "completed", plan: null },

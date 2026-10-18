@@ -3,15 +3,16 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { getRetryable } from "@langchain/core/errors";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { createMiddleware, modelRetryMiddleware, toolErrorMiddleware } from "langchain";
-import type { ChatMessage } from "shared";
+import type { ChatEntry, ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
 import { storage } from "../db.js";
 import { isModelRateLimit } from "../providers/modelErrors.js";
 import { timestampedSerializer } from "./messageTimestamps.js";
+import { errorMessage } from "../core/errors.js";
 
 // What the agents (project lead, forge) share.
 
-// Keeps only the latest checkpoint of each thread and namespace (the pipeline, an agent
+// Keeps only the latest checkpoint of each thread and namespace (the Forge, an agent
 // conversation, a Project Lead chat): each holds the whole state, so a long run's
 // history would grow to gigabytes, and nothing resumes from or reads older ones.
 // Pending writes of older checkpoints go with them; the latest keeps its own.
@@ -68,7 +69,7 @@ export const streamConfig = (threadId: string, recursionLimit?: number, signal?:
 // by default, but not once any wrapToolCall middleware is in use: errors then end the
 // run. Interrupts for approval still pass through.
 export const toolErrors = toolErrorMiddleware({
-  onError: (error) => `${error instanceof Error ? error.message : String(error)}\nPlease fix your mistakes.`,
+  onError: (error) => `${errorMessage(error)}\nPlease fix your mistakes.`,
 });
 
 // A failed model call is tried twice more (after 1s, then 2s) before the run fails:
@@ -140,17 +141,29 @@ export function messageImages(message: BaseMessage): string[] {
 }
 
 // The user's messages, the agent's written replies and its tool calls, each with its
-// result's status, and a marker where each compaction happened, with its summary.
-// Results themselves stay out: they can be whole files. live: the conversation is
-// running or waiting on approval, so the last reply's calls without a result may still
-// get one. Any other call without a result never ran (e.g. the run failed first).
-export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMessage[] {
+// result, and a marker where each compaction happened, with its summary. A message
+// seen twice (e.g. in the checkpoint and its pending writes) shows once. live: the
+// conversation is running or waiting on approval, so the last reply's calls without a
+// result may still get one. Any other call without a result never ran (e.g. the run
+// failed first).
+export function toChatEntries(messages: BaseMessage[], live: boolean): ChatEntry[] {
   const results = new Map(messages.filter(ToolMessage.isInstance).map((m) => [m.tool_call_id, m]));
   const lastReply = messages.findLast(AIMessage.isInstance);
-  return messages.flatMap((message): ChatMessage[] => {
-    if (isSummary(message)) return [{ role: "compaction", summary: summaryText(message) }];
+  const seen = new Set<string>();
+  return messages.flatMap((message, index): ChatEntry[] => {
+    // A summary reuses the id of the first message it replaced.
+    const id = `${isSummary(message) ? "summary:" : ""}${message.id ?? index}`;
+    if (seen.has(id) || ToolMessage.isInstance(message)) return [];
+    seen.add(id);
+    const createdAt = message.additional_kwargs?.createdAt;
+    const entry = (shown: ChatMessage, key = id): ChatEntry => ({
+      ...shown,
+      id: key,
+      ...(typeof createdAt === "string" && { t: createdAt }),
+    });
+    if (isSummary(message)) return [entry({ role: "compaction", summary: summaryText(message) })];
     if (message.type === "human") {
-      const { source, issueId, eventId, eventType, content } = message.additional_kwargs;
+      const { source, issueId, eventId, eventType, content, username } = message.additional_kwargs;
       if (
         source === "forge" &&
         typeof issueId === "string" &&
@@ -158,27 +171,28 @@ export function toChatMessages(messages: BaseMessage[], live: boolean): ChatMess
         typeof eventType === "string" &&
         typeof content === "string"
       ) {
-        return [{ role: "activity", issueId, eventId, eventType, content }];
+        return [entry({ role: "activity", issueId, eventId, eventType, content })];
       }
-      const username = message.additional_kwargs.username;
+      const images = messageImages(message);
+      if (!message.text.trim() && !images.length) return [];
       return [
-        {
+        entry({
           role: "user",
           content: message.text,
-          ...(Array.isArray(message.content) && { images: messageImages(message) }),
+          ...(images.length && { images }),
           ...(typeof username === "string" && { username }),
-        },
+        }),
       ];
     }
     if (!AIMessage.isInstance(message)) return [];
-    const calls = (message.tool_calls ?? []).map((call): ChatMessage => {
+    const calls = (message.tool_calls ?? []).map((call, i) => {
       const result = call.id ? results.get(call.id) : undefined;
-      const base = { role: "tool" as const, name: call.name, args: call.args };
-      if (!result && live && message === lastReply) return { ...base, status: "pending" };
-      if (!result) return { ...base, status: "never_ran" };
-      if (result.status === "error") return { ...base, status: "error", error: result.text };
-      return { ...base, status: "done" };
+      const base = { role: "tool" as const, name: call.name, args: call.args, ...(call.id && { callId: call.id }) };
+      const key = `${id}:tool:${call.id ?? i}`;
+      if (!result) return entry({ ...base, status: live && message === lastReply ? "pending" : "never_ran" }, key);
+      if (result.status === "error") return entry({ ...base, status: "error", error: result.text }, key);
+      return entry({ ...base, status: "done", result: result.text }, key);
     });
-    return message.text ? [{ role: "assistant", content: message.text }, ...calls] : calls;
+    return message.text.trim() ? [entry({ role: "assistant", content: message.text }), ...calls] : calls;
   });
 }

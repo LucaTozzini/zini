@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { storage } from "../db.js";
 import { logTo } from "../forge/runLog.js";
 import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
+import { errorMessage } from "../core/errors.js";
 
 const command = z.object({ command: z.string().min(1), cwd: z.string().min(1) });
 const APP_LAUNCH_PLAN = z.object({
@@ -155,8 +156,7 @@ export async function launchWorkspaceApp(model: BaseChatModel, issueId: string, 
       session,
     };
   } catch (error) {
-    if (!isGraphInterrupt(error))
-      await log.write({ event: "end", error: error instanceof Error ? error.message : String(error) });
+    if (!isGraphInterrupt(error)) await log.write({ event: "end", error: errorMessage(error) });
     throw error;
   }
 }

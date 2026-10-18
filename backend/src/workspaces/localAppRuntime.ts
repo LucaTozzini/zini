@@ -3,6 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import { createServer, connect } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { killTree, spawnShell } from "../core/processes.js";
+import { errorMessage } from "../core/errors.js";
 
 export type AppCommand = { command: string; cwd: string };
 export type AppService = AppCommand & { id: string; port: number; readiness: "http" | "https" | "tcp"; path: string };
@@ -221,7 +222,7 @@ export class WorkspaceAppRuntime {
         throw new Error(session.error ?? "Launch stopped.");
       session.status = "ready";
     } catch (error) {
-      fail(error instanceof Error ? error.message : String(error));
+      fail(errorMessage(error));
       signal?.throwIfAborted();
     } finally {
       signal?.removeEventListener("abort", abort);

@@ -42,7 +42,7 @@ export function useServerEvents() {
         // pages once they exist.
         queryClient.invalidateQueries({ queryKey: openwikiKey });
       } else if (event.type === "forge.updated") {
-        // The pipeline and chat both come from saved checkpoints.
+        // The Forge and chat both come from saved checkpoints.
         queryClient.invalidateQueries({ queryKey: forgeKey(event.issueId), exact: true });
         queryClient.invalidateQueries({ queryKey: forgeMessagesKey(event.issueId) });
         // Whether it's waiting for an approval, for the issue lists.

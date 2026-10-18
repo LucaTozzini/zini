@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import { errorMessage } from "../core/errors.js";
 
 // Agent runs (project lead chats, forge conversations) happen in the
 // background: the request that starts one returns once its input is saved, and the
@@ -70,7 +71,7 @@ function endRun(runId: string, control: AbortController, status: RunStatus, noti
   }
   if (control.signal.aborted) return;
   if (err) console.error(`Agent run ${runId} failed:`, err);
-  const error = err ? (err instanceof Error ? err.message : String(err)) : null;
+  const error = err ? errorMessage(err) : null;
   changeRun(runId, status, { running: false, error });
   notify();
 }
@@ -142,7 +143,7 @@ export async function beginRun(res: Response, runId: string, start: Parameters<t
     if (await startRun(runId, start, notify)) return true;
     alreadyRunning(res);
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: errorMessage(err) });
   }
   return false;
 }

@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Transaction } from "sequelize";
-import type { AgentRole, ForgePlan, PipelineWaiting } from "shared";
+import type { AgentRole, ForgePlan, ForgeWaiting } from "shared";
 import { sequelize } from "../db.js";
 import { ForgeSubscription } from "../models/ForgeSubscription.js";
 import { enqueueMessages } from "../projectLead/messageQueue.js";
 
 export type ForgeLifecycleEvent =
   | { type: "stage_started"; role: AgentRole }
-  | { type: "waiting"; waiting: PipelineWaiting }
+  | { type: "waiting"; waiting: ForgeWaiting }
   | { type: "completed"; plan: ForgePlan | null }
   | { type: "failed"; error: string }
   | { type: "stopped" };

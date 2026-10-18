@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { ForgePlan, RunLogEvent, RunMetrics } from "shared";
-import { pipelineRun, stopForgeProcesses } from "../../backend/src/forge/forge.js";
+import { forgeRun, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { reviewerWorker, runWorker } from "../../backend/src/forge/workers.js";
 import { initDb } from "../../backend/src/db.js";
 import { fetchLinearIssue } from "../../backend/src/integrations/linear.js";
@@ -86,7 +86,7 @@ async function main() {
 
   const { plan } = readJson<{ plan: ForgePlan }>(test.state);
   const history = test.history ? readJson<HistoryMessage[]>(test.history).map(toMessage) : [];
-  const run = pipelineRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals");
+  const run = forgeRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals");
   const logDir = join(runDir, "logs", issueId);
   const stopFollowing = followLogs(logDir);
   let error: string | null = null;

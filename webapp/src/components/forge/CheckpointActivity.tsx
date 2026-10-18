@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import CloseIcon from "@mui/icons-material/Close";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import {
@@ -17,63 +17,41 @@ import {
   ButtonBase,
 } from "@mui/material";
 import { useChatScroll } from "../../hooks/useChatScroll.ts";
-import type { PipelineState } from "shared";
+import type { ForgeMessage, ForgeState } from "shared";
 import { errorMessage } from "../../api/client.ts";
 import { useForgeMessages } from "../../api/forge.ts";
-import { HumanMessage } from "../chat/HumanMessage.tsx";
-import AiMessage from "../chat/AiMessage.tsx";
 import ThinkingIndicator from "../ThinkingIndicator.tsx";
-import CompactionMarker from "../CompactionMarker.tsx";
-import ToolCallLine from "../ToolCallLine.tsx";
-import ToolCallGroup from "../ToolCallGroup.tsx";
-import { groupMessages, type GroupedMessage } from "./groupMessages.ts";
+import MessageList from "../chat/MessageList.tsx";
 
 const titles = { coder: "Coder", reviewer: "Reviewer" };
 
 // Which worker run is open: the one for a Lead's delegate_coder or delegate_reviewer call.
 type Opened = { worker: "coder" | "reviewer"; delegation?: string; working: boolean };
 
-// One agent's conversation: its messages and tool calls, with delegations to workers as
-// buttons that open the worker's conversation.
-function Conversation({ items, busy, onOpen }: { items: GroupedMessage[]; busy: boolean; onOpen?: (opened: Opened) => void }) {
+const workers: Record<string, "coder" | "reviewer"> = { delegate_coder: "coder", delegate_reviewer: "reviewer" };
+
+// A Forge conversation, with the Lead's delegate_coder and delegate_reviewer calls as
+// buttons that open the worker's run.
+function Conversation({ items, busy, onOpen }: { items: ForgeMessage[]; busy: boolean; onOpen?: (opened: Opened) => void }) {
   return (
-    <>
-      {items.map((item) => (
-        <Box key={item.id} data-chat-message="" sx={{ minWidth: 0 }}>
-          {item.kind === "message" ? (
-            item.message.role === "compaction" ? (
-              <CompactionMarker summary={item.message.summary} />
-            ) : item.message.role === "user" ? (
-              <HumanMessage message={item.message} />
-            ) : (
-              <AiMessage content={item.message.content} />
-            )
-          ) : item.kind === "delegation" ? (
-            <Delegation item={item} onOpen={onOpen} />
-          ) : item.tools.length === 1 ? (
-            <ToolCallLine call={item.tools[0].call} busy={busy} result={item.tools[0].result} />
-          ) : (
-            <ToolCallGroup
-              calls={item.tools.map((tool) => tool.call)}
-              results={item.tools.map((tool) => tool.result)}
-              busy={busy}
-            />
-          )}
-        </Box>
-      ))}
-    </>
+    <MessageList
+      entries={items}
+      busy={busy}
+      renderCall={(call) => workers[call.name] && <Delegation call={call} worker={workers[call.name]} onOpen={onOpen} />}
+    />
   );
 }
 
 // A delegate_coder or delegate_reviewer call: the worker, how it went, and the brief.
 function Delegation({
-  item,
+  call,
+  worker,
   onOpen,
 }: {
-  item: Extract<GroupedMessage, { kind: "delegation" }>;
+  call: Extract<ForgeMessage, { role: "tool" }>;
+  worker: "coder" | "reviewer";
   onOpen?: (opened: Opened) => void;
 }) {
-  const { call } = item.tool;
   const brief = typeof call.args.brief === "string" ? call.args.brief : "";
   const status =
     call.status === "pending"
@@ -86,13 +64,13 @@ function Delegation({
   return (
     <Paper variant="outlined">
       <ButtonBase
-        onClick={() => onOpen?.({ worker: item.worker, delegation: item.tool.callId, working: call.status === "pending" })}
+        onClick={() => onOpen?.({ worker, delegation: call.callId, working: call.status === "pending" })}
         sx={{ display: "block", width: "100%", textAlign: "left", p: 1.5 }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 0.5 }}>
           {call.status === "pending" && <CircularProgress size={12} />}
           <Typography variant="subtitle2">
-            {titles[item.worker]} · {status}
+            {titles[worker]} · {status}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Open this run
@@ -115,7 +93,7 @@ function Delegation({
 // Lead's and the Project Lead's chats.
 function WorkerConversation({ issueId, opened, busy }: { issueId: string; opened: Opened; busy: boolean }) {
   const history = useForgeMessages(issueId, opened.worker, opened.delegation);
-  const items = useMemo(() => groupMessages(history.data ?? []), [history.data]);
+  const items = history.data ?? [];
   const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
     content: history.dataUpdatedAt,
     sending: false,
@@ -150,17 +128,17 @@ function WorkerConversation({ issueId, opened, busy }: { issueId: string; opened
 // The Lead's conversation; its workers' open from their delegations.
 export default function CheckpointActivity({
   issueId,
-  pipeline,
+  forge,
   onContentChange,
 }: {
   issueId: string;
-  pipeline: PipelineState;
+  forge: ForgeState;
   onContentChange: (key: string) => void;
 }) {
   const history = useForgeMessages(issueId);
-  const items = useMemo(() => groupMessages(history.data ?? []), [history.data]);
+  const items = history.data ?? [];
   const [open, setOpen] = useState<Opened | null>(null);
-  const busy = Boolean(pipeline.running);
+  const busy = Boolean(forge.running);
   useEffect(() => onContentChange(String(history.dataUpdatedAt)), [history.dataUpdatedAt, onContentChange]);
   return (
     <Stack spacing={2} aria-label="Forge activity" sx={{ minWidth: 0 }}>
@@ -172,7 +150,7 @@ export default function CheckpointActivity({
         </Typography>
       )}
       <Conversation items={items} busy={busy} onOpen={setOpen} />
-      {busy && pipeline.running === "lead" && <ThinkingIndicator />}
+      {busy && forge.running === "lead" && <ThinkingIndicator />}
       <Dialog
         open={open !== null}
         onClose={() => setOpen(null)}
@@ -191,7 +169,7 @@ export default function CheckpointActivity({
             key={`${open.worker}:${open.delegation ?? ""}`}
             issueId={issueId}
             opened={open}
-            busy={pipeline.running === open.worker && open.working}
+            busy={forge.running === open.worker && open.working}
           />
         )}
       </Dialog>

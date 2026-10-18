@@ -1,24 +1,20 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
-import type { ChatMessage, ProjectLeadMessage, Decision, PendingAction, Todo } from "shared";
+import type { ChatEntry, ProjectLeadMessage, Decision, PendingAction, Todo } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
 import ChatInput from "./chat/ChatInput.tsx";
-import CompactionMarker from "./CompactionMarker.tsx";
 import { HumanMessage } from "./chat/HumanMessage.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
-import ToolCallGroup from "./ToolCallGroup.tsx";
-import ToolCallLine from "./ToolCallLine.tsx";
 import ChatHeader from "./ChatHeader.tsx";
-import SystemMessage from "./chat/SystemMessage.tsx";
-import AiMessage from "./chat/AiMessage.tsx";
+import MessageList from "./chat/MessageList.tsx";
 
 // Everything the chat shows and does, whatever agent and API are behind it (e.g.
 // useChat for the project lead).
 export type ChatState = {
-  messages: ChatMessage[];
+  messages: ChatEntry[];
   // Actions waiting on approval.
   pending: PendingAction[];
   // The agent's to-do list, and its project notes (markdown).
@@ -48,24 +44,6 @@ export type ChatState = {
   stoppable: boolean;
   stopAgent: () => void;
 };
-
-type ToolCall = Extract<ChatMessage, { role: "tool" }>;
-type ChatItem =
-  | { i: number; message: Exclude<ChatMessage, ToolCall>; calls?: undefined }
-  | { i: number; message?: undefined; calls: ToolCall[] };
-
-// Messages as shown: consecutive tool calls together, each item keeping the index of
-// its first message (its key).
-function groupToolCalls(messages: ChatMessage[]) {
-  const items: ChatItem[] = [];
-  messages.forEach((message, i) => {
-    if (message.role !== "tool") return items.push({ i, message });
-    const last = items.at(-1);
-    if (last?.calls) last.calls.push(message);
-    else items.push({ i, calls: [message] });
-  });
-  return items;
-}
 
 type ChatProps = {
   chat: ChatState;
@@ -143,23 +121,7 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
               </Typography>
             )}
             {loading && <Typography color="text.secondary">Loading…</Typography>}
-            {groupToolCalls(messages).map(({ i, message, calls }) =>
-              calls ? (
-                calls.length === 1 ? (
-                  <ToolCallLine key={i} call={calls[0]} busy={busy} />
-                ) : (
-                  <ToolCallGroup key={i} calls={calls} busy={busy} />
-                )
-              ) : message.role === "compaction" ? (
-                <CompactionMarker key={i} summary={message.summary} />
-              ) : message.role === "activity" ? (
-                <SystemMessage key={message.eventId} issueId={message.issueId} content={message.content} />
-              ) : message.role === "user" ? (
-                <HumanMessage key={i} message={message} ref={i === messages.length - 1 ? lastMessageRef : undefined} />
-              ) : (
-                <AiMessage key={i} ref={i === messages.length - 1 ? lastMessageRef : undefined} content={message.content} />
-              ),
-            )}
+            <MessageList entries={messages} busy={busy} lastMessageRef={lastMessageRef} />
             {sending && <HumanMessage message={{ role: "user", content: sending.message, images: sending.images }} />}
             {pending.length > 0 && <ApprovalCard actions={pending} loading={decideLoading} onDecide={decide} />}
             {busy && <ThinkingIndicator />}

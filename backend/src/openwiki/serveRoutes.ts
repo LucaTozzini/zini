@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { sendEvent } from "../core/events.js";
 import { getServingStatus, hasServedWiki, refreshServingWorktree, searchWiki } from "./serving.js";
+import { errorMessage } from "../core/errors.js";
 
 // Serving/search routes for the repo's OpenWiki. Mounted at /api/openwiki alongside
 // the generation routes (which live in routes.ts, owned separately).
@@ -14,7 +15,7 @@ openwikiServe.post("/refresh", async (_req, res) => {
     sendEvent({ type: "openwiki.updated" });
     res.json({ commit });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: errorMessage(err) });
   }
 });
 
@@ -43,6 +44,6 @@ openwikiServe.post("/search", async (req, res) => {
   try {
     res.json(JSON.parse(await searchWiki(parsed.data.query, parsed.data.limit)));
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: errorMessage(err) });
   }
 });

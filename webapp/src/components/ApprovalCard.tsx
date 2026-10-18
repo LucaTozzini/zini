@@ -3,8 +3,8 @@ import { Button, Card, CardContent, Stack, TextField, Typography } from "@mui/ma
 import { PRIORITY_NAMES, type Decision, type PendingAction } from "shared";
 import MarkdownText from "./MarkdownText.tsx";
 
-// One reply_to_pipeline call: what will be sent to the issue's forge.
-function PipelineReplyDetails({ action }: { action: PendingAction }) {
+// One reply_to_forge call: what will be sent to the issue's forge.
+function ForgeReplyDetails({ action }: { action: PendingAction }) {
   const { issueId, answers, approve, feedback, decisions } = action.args as {
     issueId: string;
     answers?: string[];
@@ -92,7 +92,7 @@ function PullRequestDetails({ action }: { action: PendingAction }) {
 
 // One create_issue or update_issue call, shown field by field.
 function ActionDetails({ action }: { action: PendingAction }) {
-  if (action.name === "reply_to_pipeline") return <PipelineReplyDetails action={action} />;
+  if (action.name === "reply_to_forge") return <ForgeReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
   if (action.name.startsWith("pull_request_")) return <PullRequestDetails action={action} />;
   if (action.name === "set_blocker")

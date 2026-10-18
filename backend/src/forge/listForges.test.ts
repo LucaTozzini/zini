@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PipelineState } from "shared";
+import type { ForgeState } from "shared";
 import { listForges } from "./listForges.js";
 
-const pipeline: PipelineState = {
+const forge: ForgeState = {
   started: true,
   running: "coder",
   waiting: null,
@@ -23,7 +23,7 @@ const plan = {
 
 test("discovers workspaces and subscriptions without workspaces, preserving status and avoiding duplicates", async () => {
   const rows = await listForges([{ issueId: "running" }, { issueId: "failed" }], ["running", "missing"], async (id) =>
-    id === "running" ? pipeline : { ...pipeline, started: false, running: null },
+    id === "running" ? forge : { ...forge, started: false, running: null },
   );
   assert.deepEqual(
     rows.map((row) => row.issueId),
@@ -45,8 +45,8 @@ test("subscribedOnly excludes other workspaces and retains approvals and complet
     async (id) => {
       read.push(id);
       return id === "watched"
-        ? { ...pipeline, running: null, waiting: { kind: "approve_plan", plan } }
-        : { ...pipeline, running: null, finished: true, plan };
+        ? { ...forge, running: null, waiting: { kind: "approve_plan", plan } }
+        : { ...forge, running: null, finished: true, plan };
     },
     true,
   );

@@ -7,9 +7,9 @@ import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgr
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { setImmediate } from "node:timers/promises";
 import { forgetRun, isRunning, pauseRun, startRun } from "../agents/runs.js";
-import { PipelineExecution } from "./execution.js";
+import { ForgeExecution } from "./execution.js";
 
-test("a rebuilt pipeline continues its durable checkpoint without rerunning completed nodes", async () => {
+test("a rebuilt Forge continues its durable checkpoint without rerunning completed nodes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zini-recovery-"));
   let saved = SqliteSaver.fromConnString(join(dir, "checkpoints.sqlite"));
   let firstCalls = 0;
@@ -79,7 +79,7 @@ test("graph cancellation does not unlock a node still unwinding", async () => {
   const drain = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const execution = new PipelineExecution();
+  const execution = new ForgeExecution();
   const graph = new StateGraph(state)
     .addNode("work", () =>
       execution.track(async () => {

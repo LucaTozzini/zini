@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AgentRole, ForgeMessage, PendingApproval, PipelineResume, PipelineState } from "shared";
+import type { AgentRole, ForgeMessage, PendingApproval, ForgeResume, ForgeState } from "shared";
 import { api } from "./client.ts";
 
 export const forgeKey = (issueId: string) => ["forge", issueId];
@@ -22,15 +22,15 @@ export function useForgeMessages(issueId: string, agent: AgentRole = "lead", del
 export function useForge(issueId: string) {
   return useQuery({
     queryKey: forgeKey(issueId),
-    queryFn: () => api.get(`forge/${issueId}`).json<PipelineState>(),
+    queryFn: () => api.get(`forge/${issueId}`).json<ForgeState>(),
   });
 }
 
-// Under ['forge'] like the pipelines, so reconnecting refetches it with them.
+// Under ['forge'] like the Forges, so reconnecting refetches it with them.
 export const approvalsKey = ["forge", "approvals"];
 
-// The issues whose pipeline is waiting for an approval; refetched by useServerEvents
-// whenever a pipeline changes.
+// The issues whose Forge is waiting for an approval; refetched by useServerEvents
+// whenever a Forge changes.
 export function usePendingApprovals() {
   return useQuery({
     queryKey: approvalsKey,
@@ -39,7 +39,7 @@ export function usePendingApprovals() {
 }
 
 // Starting and replying answer once the run has started; refetching then shows it.
-export function useStartPipeline(issueId: string) {
+export function useStartForge(issueId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (note: string) => api.post(`forge/${issueId}/start`, { json: { note } }),
@@ -47,16 +47,16 @@ export function useStartPipeline(issueId: string) {
   });
 }
 
-// Replies to what the pipeline is waiting on: answers, approving the plan, or feedback.
-export function useResumePipeline(issueId: string) {
+// Replies to what the Forge is waiting on: answers, approving the plan, or feedback.
+export function useResumeForge(issueId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (reply: PipelineResume) => api.post(`forge/${issueId}/resume`, { json: reply }),
+    mutationFn: (reply: ForgeResume) => api.post(`forge/${issueId}/resume`, { json: reply }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
   });
 }
 
-export function usePipelineControl(issueId: string) {
+export function useForgeControl(issueId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (action: "pause" | "continue") => api.post(`forge/${issueId}/${action}`),
@@ -65,7 +65,7 @@ export function usePipelineControl(issueId: string) {
 }
 
 // Sends the Lead a message, e.g. changes to make after it finished.
-export function useMessagePipeline(issueId: string) {
+export function useMessageForge(issueId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { message: string; images: string[] }) => api.post(`forge/${issueId}/message`, { json: input }),

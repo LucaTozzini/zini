@@ -1,10 +1,12 @@
 import { InvalidInputLinearError } from "@linear/sdk";
 import { Router, type Response } from "express";
 import type { PullRequestStatus, WorkspaceAppState } from "shared";
+import { z } from "zod";
 import { findPullRequest } from "../integrations/github.js";
-import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
+import { getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
+import { errorMessage } from "../core/errors.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import { previewDownload } from "../browser/previewBrowser.js";
@@ -19,42 +21,43 @@ import {
   isForgeRunning,
   isIssueId,
 } from "../workspaces/workspaces.js";
-
 import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js";
+import { checkIssueId, parse } from "./http.js";
 
 export const workspaces = Router();
+workspaces.param("issueId", checkIssueId);
+
+// A new workspace's issue, and which branch to start it on: an open pull request's, a
+// fresh one, or (neither) whatever createWorkspace finds.
+const newWorkspace = z
+  .object({
+    issueId: z.string().refine(isIssueId, "Expected a Linear issue id"),
+    pullRequest: z.number().int().positive().optional(),
+    fresh: z.boolean().optional(),
+  })
+  .refine((body) => !(body.fresh && body.pullRequest), "Choose a pull request number or fresh branch");
+
 workspaces.post("/:issueId/sync", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  if (req.body?.merge !== undefined && typeof req.body.merge !== "boolean") {
-    res.status(400).json({ error: "merge must be boolean" });
-    return;
-  }
+  const { issueId } = req.params;
+  const body = parse(z.object({ merge: z.boolean({ error: "merge must be boolean" }).default(false) }), req.body, res);
+  if (!body) return;
   if (!(await getWorkspace(issueId))) {
     res.status(404).json({ error: "Workspace not found" });
     return;
   }
   try {
-    res.json(await syncWorkspace(issueId, req.body?.merge === true));
+    res.json(await syncWorkspace(issueId, body.merge));
   } catch (error) {
     res.status(409).json({ error: lastLine(error) });
   }
 });
 
-// The issue id from the URL or body, or null after sending a 400.
-function readIssueId(value: unknown, res: Response) {
-  if (typeof value === "string" && isIssueId(value)) return value;
-  res.status(400).json({ error: "Expected a Linear issue id" });
-  return null;
-}
-
 // A failed git command's message ends with its "fatal: ..." line.
-const lastLine = (err: unknown) => (err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err));
+const lastLine = (err: unknown) => errorMessage(err).trim().split("\n").at(-1);
 
 // The issue's workspace, or null if it doesn't have one yet.
 workspaces.get("/:issueId", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   try {
     res.json(await getWorkspace(issueId));
   } catch (err) {
@@ -65,10 +68,8 @@ workspaces.get("/:issueId", async (req, res) => {
 
 // The user's app in the workspace, for its preview page.
 workspaces.get("/:issueId/app", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
   try {
-    const { status, error } = await workspaceApps.refresh(issueId);
+    const { status, error } = await workspaceApps.refresh(req.params.issueId);
     res.json({ status, error: error ?? null } satisfies WorkspaceAppState);
   } catch (error) {
     res.status(500).json({ error: `Couldn't read the app: ${lastLine(error)}` });
@@ -77,9 +78,7 @@ workspaces.get("/:issueId/app", async (req, res) => {
 
 // A file the preview's page downloaded.
 workspaces.get("/:issueId/preview/downloads/:id", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  const download = await previewDownload(issueId, req.params.id);
+  const download = await previewDownload(req.params.issueId, req.params.id);
   if (!download) {
     res.status(404).json({ error: "That download is no longer available" });
     return;
@@ -89,10 +88,8 @@ workspaces.get("/:issueId/preview/downloads/:id", async (req, res) => {
 
 // Expensive live Git reads are independent of the issue panel metadata request.
 workspaces.get("/:issueId/git-status", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
   try {
-    res.json(await getWorkspaceGitStatus(issueId));
+    res.json(await getWorkspaceGitStatus(req.params.issueId));
   } catch (error) {
     res.status(500).json({ error: `Couldn't read Git status: ${lastLine(error)}` });
   }
@@ -101,8 +98,7 @@ workspaces.get("/:issueId/git-status", async (req, res) => {
 // Everything changed in the workspace since it branched, as a unified diff (see
 // workspaceDiff).
 workspaces.get("/:issueId/diff", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   if (!(await getWorkspace(issueId))) {
     res.status(404).json({ error: "This issue has no workspace" });
     return;
@@ -119,10 +115,9 @@ workspaces.get("/:issueId/diff", async (req, res) => {
 // GitHub, and answers with the workspace. With nothing uncommitted it only pushes (e.g.
 // after a push that failed). Not while the forge is running in it.
 workspaces.post("/:issueId/commit", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  const { message } = (req.body ?? {}) as { message?: unknown };
-  const result = await commitAndPush(issueId, typeof message === "string" ? message : "");
+  const body = parse(z.object({ message: z.string().catch("") }), req.body, res);
+  if (!body) return;
+  const result = await commitAndPush(req.params.issueId, body.message);
   if ("error" in result) {
     res.status(result.status).json({ error: result.error });
     return;
@@ -138,13 +133,10 @@ async function loadGitHub(res: Response) {
   return null;
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
-
 // Whether the branch is on GitHub, and its newest pull request, whatever its state (see
 // PullRequestStatus). Asks GitHub each time, so it's current.
 workspaces.get("/:issueId/pull-request", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   const workspace = await getWorkspace(issueId);
   if (!workspace) {
     res.status(404).json({ error: "This issue has no workspace" });
@@ -158,28 +150,24 @@ workspaces.get("/:issueId/pull-request", async (req, res) => {
     res.json({ pushed, pullRequest } satisfies PullRequestStatus);
   } catch (err) {
     console.error(`Looking up the pull request for ${issueId} failed:`, err);
-    res.status(500).json({ error: message(err) });
+    res.status(500).json({ error: errorMessage(err) });
   }
 });
 
 // Opens a pull request only after all workspace changes are committed and pushed.
 workspaces.post("/:issueId/pull-request", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  const { title, body } = (req.body ?? {}) as { title?: unknown; body?: unknown };
-  const result = await openWorkspacePullRequest(
-    issueId,
-    typeof title === "string" ? title : "",
-    typeof body === "string" ? body : "",
-  );
+  const body = parse(z.object({ title: z.string().catch(""), body: z.string().catch("") }), req.body, res);
+  if (!body) return;
+  const result = await openWorkspacePullRequest(req.params.issueId, body.title, body.body);
   if ("error" in result) res.status(result.status).json({ error: result.error });
   else res.status(201).json(result.pullRequest);
 });
 
 // Creates a workspace for { issueId }, or returns the one it already has.
 workspaces.post("/", async (req, res) => {
-  const issueId = readIssueId((req.body as { issueId?: unknown } | undefined)?.issueId, res);
-  if (!issueId) return;
+  const body = parse(newWorkspace, req.body, res);
+  if (!body) return;
+  const { issueId, ...selection } = body;
 
   const [linear, githubToken, repo] = await Promise.all([getLinearClient(), getKey("github"), getSetting("githubRepo")]);
   if (!linear) {
@@ -192,15 +180,6 @@ workspaces.post("/", async (req, res) => {
   }
 
   try {
-    const selection = { pullRequest: req.body?.pullRequest, fresh: req.body?.fresh };
-    if (
-      (selection.pullRequest !== undefined && (!Number.isSafeInteger(selection.pullRequest) || selection.pullRequest <= 0)) ||
-      (selection.fresh !== undefined && typeof selection.fresh !== "boolean") ||
-      (selection.fresh && selection.pullRequest)
-    ) {
-      res.status(400).json({ error: "Choose a pull request number or fresh branch" });
-      return;
-    }
     const { workspace, created } = await createWorkspace(linear, issueId, selection);
     res.status(created ? 201 : 200).json(workspace);
   } catch (err) {
@@ -219,8 +198,7 @@ workspaces.post("/", async (req, res) => {
 
 // Not while the forge is running in it.
 workspaces.delete("/:issueId", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   if (workspaceApps.starting(issueId)) {
     res.status(409).json({ error: "Stop the app launch before deleting its workspace" });
     return;

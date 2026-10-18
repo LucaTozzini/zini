@@ -7,7 +7,7 @@ import { useWorkspace } from "../api/workspaces.ts";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
 import ForgeView from "../components/ForgeView.tsx";
-import ForgeDocuments from "../components/pipeline/ForgeDocuments.tsx";
+import ForgeDocuments from "../components/forge/ForgeDocuments.tsx";
 import { isActiveBlocker } from "shared";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import IssuePanel from "../components/IssuePanel.tsx";

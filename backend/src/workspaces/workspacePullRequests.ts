@@ -11,6 +11,7 @@ import { withWorkspaceLock } from "./workspaceLocks.js";
 import { sendEvent } from "../core/events.js";
 import { Workspace } from "../models/Workspace.js";
 import { assertNoMerge } from "./workspaceIntegration.js";
+import { errorMessage } from "../core/errors.js";
 
 const dependencies = {
   starting: (id: string) => workspaceApps.starting(id),
@@ -51,7 +52,7 @@ export async function openWorkspacePullRequest(
       try {
         await deps.noMerge?.(issueId);
       } catch (error) {
-        return { status: 409, error: error instanceof Error ? error.message : String(error) };
+        return { status: 409, error: errorMessage(error) };
       }
       if (workspace.uncommitted || workspace.unpushed || !(await deps.pushed(issueId))) {
         return {
@@ -74,7 +75,7 @@ export async function openWorkspacePullRequest(
       return { pullRequest };
     } catch (error) {
       console.error(`Opening the pull request for ${issueId} failed:`, error);
-      return { status: 500, error: error instanceof Error ? error.message : String(error) };
+      return { status: 500, error: errorMessage(error) };
     }
   });
 }

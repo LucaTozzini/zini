@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { chatGptModels, chatGptStatus, signOutChatGpt, startSignIn } from "../providers/chatgpt.js";
+import { errorMessage } from "../core/errors.js";
 
 // Sign in with ChatGPT, at /api/chatgpt (see chatgpt.ts): whether zini is signed in,
 // starting a sign-in, signing out, and the models the plan offers.
@@ -15,7 +16,7 @@ chatgpt.post("/sign-in", async (_req, res) => {
   try {
     res.json({ url: await startSignIn() });
   } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(409).json({ error: errorMessage(error) });
   }
 });
 
@@ -24,7 +25,7 @@ chatgpt.delete("/", async (_req, res) => {
     await signOutChatGpt();
     res.json(await chatGptStatus());
   } catch (error) {
-    res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(502).json({ error: errorMessage(error) });
   }
 });
 
@@ -32,6 +33,6 @@ chatgpt.get("/models", async (_req, res) => {
   try {
     res.json(await chatGptModels());
   } catch (error) {
-    res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(502).json({ error: errorMessage(error) });
   }
 });

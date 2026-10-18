@@ -5,7 +5,7 @@ import { errorMessage } from "../../api/client.ts";
 import { useCreateWorkspace, useWorkspace } from "../../api/workspaces.ts";
 import { WorkspaceChoices } from "../WorkspaceChoices.tsx";
 
-// The cards the pipeline shows when it's waiting on you.
+// The cards the Forge shows when it's waiting on you.
 
 export function CardFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (

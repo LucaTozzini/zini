@@ -58,7 +58,7 @@ Forge, a passing QA checklist and no failed hidden check.
 
 `repos/<repo>/` contains each fixture project. Every run creates a fresh Git repository,
 then applies the optional scenario patch. Dependencies are installed inside its sandbox
-before execution unless `preinstalledDependencies: false` exercises pipeline setup.
+before execution unless `preinstalledDependencies: false` exercises the Forge's setup.
 
 `scenarios/<repo>/<name>/scenario.json` supplies the issue title, description, optional
 patch and scripted answers. An optional `check.ts` receives container-backed `readFile`

@@ -71,16 +71,14 @@ test("merges the Lead's and workers' conversations in time order, without system
   );
   assert.ok(!JSON.stringify(items).includes("PRIVATE SYSTEM PROMPT"));
   assert.deepEqual(
-    items
-      .filter((item) => item.kind === "message" && item.message.role === "user")
-      .map((item) => item.kind === "message" && item.message.role === "user" && [item.agent, item.message.username]),
+    items.flatMap((item) => (item.role === "user" ? [[item.agent, item.username]] : [])),
     [
       ["lead", "luca"],
       ["coder", "Lead"],
     ],
   );
   assert.deepEqual(
-    items.filter((item) => item.kind === "tool").map((item) => item.kind === "tool" && [item.call.name, item.result]),
+    items.flatMap((item) => (item.role === "tool" ? [[item.name, item.result]] : [])),
     [
       ["delegate_coder", '{"report":"Done"}'],
       ["read_file", "A"],
@@ -109,7 +107,7 @@ test("calls without results are pending only for the agent working now; the Lead
     { agent: "coder" as const, checkpoint: saved("forge:x:coder", 2, { messages: [reading] }) },
   ];
   const statuses = (running: "coder" | null) =>
-    forgeMessages(threads, running).flatMap((item) => (item.kind === "tool" ? [item.call.status] : []));
+    forgeMessages(threads, running).flatMap((item) => (item.role === "tool" ? [item.status] : []));
   assert.deepEqual(statuses("coder"), ["pending", "pending"]);
   assert.deepEqual(statuses(null), ["never_ran", "never_ran"]);
 });
@@ -132,12 +130,12 @@ test("compaction and reports show as markers, and results saved as pending write
     ],
     "coder",
   );
-  const messages = items.flatMap((item) => (item.kind === "message" ? [item.message] : []));
+  const messages = items;
   assert.ok(messages.some((message) => message.role === "compaction"));
   assert.ok(!messages.some((message) => message.role === "user"));
   assert.ok(messages.some((message) => message.role === "assistant" && message.content === "Report submitted."));
   assert.deepEqual(
-    items.flatMap((item) => (item.kind === "tool" ? [[item.call.name, item.call.status, item.result]] : [])),
+    items.flatMap((item) => (item.role === "tool" ? [[item.name, item.status, item.result]] : [])),
     [["read_file", "done", "Live result"]],
   );
 });
@@ -171,7 +169,7 @@ test("the user's messages keep their images, image-only ones too", () => {
     null,
   );
   assert.deepEqual(
-    items.map((item) => item.kind === "message" && item.message.role === "user" && [item.message.content, item.message.images]),
+    items.map((item) => item.role === "user" && [item.content, item.images]),
     [
       ["Like this", [image]],
       ["", [image]],

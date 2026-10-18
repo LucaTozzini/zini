@@ -1,5 +1,5 @@
 // The graph stream may close before aborted nodes/tools have unwound.
-export class PipelineExecution {
+export class ForgeExecution {
   private pending = new Set<Promise<unknown>>();
 
   async track<T>(work: () => Promise<T>): Promise<T> {

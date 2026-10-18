@@ -4,6 +4,7 @@ import type { ChatGptStatus } from "shared";
 import { sendEvent } from "../core/events.js";
 import { OAuthConnection } from "../models/OAuthConnection.js";
 import { Setting } from "../models/Setting.js";
+import { errorMessage } from "../core/errors.js";
 
 // Sign in with ChatGPT: zini signs in to the user's ChatGPT plan (Plus or Pro) and runs
 // models on it, through OpenAI's plan usage for open-source apps
@@ -128,7 +129,7 @@ export async function startSignIn() {
     finishSignIn(Object.fromEntries(callback.searchParams), { state, verifier, nonce, redirectUri, previous })
       .then(
         () => "Signed in to ChatGPT. You can close this tab.",
-        (error: unknown) => `Couldn't sign in to ChatGPT: ${error instanceof Error ? error.message : String(error)}`,
+        (error: unknown) => `Couldn't sign in to ChatGPT: ${errorMessage(error)}`,
       )
       .then((message) => {
         res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(message);

@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { z } from "zod";
+import { parse } from "./http.js";
 import {
   batchLogFile,
   evalStatus,
@@ -28,12 +30,14 @@ evals.get("/status", (_req, res) => {
 // Starts { kind?, scenario, repeat } runs; answers once they've started. Its output and
 // its end come through the eval.updated event.
 evals.post("/runs", async (req, res) => {
-  const { kind, scenario, repeat } = req.body ?? {};
-  if (typeof scenario !== "string" || typeof repeat !== "number" || (kind !== undefined && !isEvalKind(kind))) {
-    res.status(400).json({ error: "Expected { kind?, scenario, repeat }" });
-    return;
-  }
-  const error = await startEval(kindOf(kind), scenario, repeat);
+  const body = parse(
+    z.object({ kind: z.enum(["scenarios", "agents"]).default("scenarios"), scenario: z.string(), repeat: z.number() }),
+    req.body,
+    res,
+    "Expected { kind?, scenario, repeat }",
+  );
+  if (!body) return;
+  const error = await startEval(body.kind, body.scenario, body.repeat);
   if (error) {
     res.status(409).json({ error });
     return;

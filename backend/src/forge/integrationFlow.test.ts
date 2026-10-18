@@ -24,7 +24,7 @@ test(
     const { git, workspacePath, removeWorkspaceMarker } = await import("../repositories/git.js");
     const { Workspace } = await import("../models/Workspace.js");
     const { initDb, sequelize } = await import("../db.js");
-    const { startPipeline, resumePipeline, getPipeline, getPipelineMessages, pipelineRun } = await import("./forge.js");
+    const { startForge, resumeForge, getForge, getForgeMessages, forgeRun } = await import("./forge.js");
     const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
     const { checkpointer } = await import("../agents/agents.js");
     const { saveSettings } = await import("../core/settings.js");
@@ -170,7 +170,7 @@ test(
           }),
         },
       } as unknown as LinearClient;
-      const run = pipelineRun(
+      const run = forgeRun(
         { linear, connection: { provider: "openrouter", key: "test-only" }, model: "fixture" },
         id,
         "Test",
@@ -185,27 +185,27 @@ test(
           await promisify(execFile)("git", ["-C", join(dir, "repo.git"), "fetch", "-q", "origin"]);
         },
       );
-      for await (const _ of await startPipeline(run, "")) {
+      for await (const _ of await startForge(run, "")) {
         /* drain */
       }
       for (let n = 0; n < 5; n++) {
-        const pipeline = await getPipeline(id);
-        if (!pipeline.waiting) break;
-        waits.push(pipeline.waiting.kind);
-        const reply = pipeline.waiting.kind === "questions" ? { answers: ["Yes, keep both"] } : { approve: true as const };
-        for await (const _ of await resumePipeline(run, reply)) {
+        const forge = await getForge(id);
+        if (!forge.waiting) break;
+        waits.push(forge.waiting.kind);
+        const reply = forge.waiting.kind === "questions" ? { answers: ["Yes, keep both"] } : { approve: true as const };
+        for await (const _ of await resumeForge(run, reply)) {
           /* drain */
         }
       }
-      const pipeline = await getPipeline(id);
+      const forge = await getForge(id);
       assert.deepEqual(waits, ["questions", "approve_plan"]);
-      assert.equal(pipeline.finished, true);
+      assert.equal(forge.finished, true);
       assert.deepEqual(
-        pipeline.plan?.steps.map((step) => step.status),
+        forge.plan?.steps.map((step) => step.status),
         ["complete"],
       );
       assert.deepEqual(
-        pipeline.plan?.qaChecklist.map((check) => check.status),
+        forge.plan?.qaChecklist.map((check) => check.status),
         ["passed"],
       );
       assert.ok(
@@ -226,21 +226,21 @@ test(
       assert.equal((await runGit(["status", "--porcelain"])).trim(), "");
       assert.match(await runGit(["show", "HEAD:file.txt"]), /issue behavior\nupstream behavior/);
       assert.equal((await runGit(["show", "HEAD:later.txt"])).trim(), "later upstream behavior");
-      const lead = await getPipelineMessages(id, "lead");
+      const lead = await getForgeMessages(id, "lead");
       const callId = (name: string) => {
-        const item = lead.find((entry) => entry.kind === "tool" && entry.call.name === name);
-        return item?.kind === "tool" ? item.callId : undefined;
+        const item = lead.find((entry) => entry.role === "tool" && entry.name === name);
+        return item?.role === "tool" ? item.callId : undefined;
       };
       assert.ok(callId("delegate_coder") && callId("delegate_reviewer"), "The Lead's delegations carry their call ids");
       for (const [agent, feed] of [
         ["lead", lead],
-        ["coder", await getPipelineMessages(id, "coder", callId("delegate_coder"))],
-        ["reviewer", await getPipelineMessages(id, "reviewer", callId("delegate_reviewer"))],
+        ["coder", await getForgeMessages(id, "coder", callId("delegate_coder"))],
+        ["reviewer", await getForgeMessages(id, "reviewer", callId("delegate_reviewer"))],
       ] as const) {
         assert.ok(feed.length > 0 && feed.every((item) => item.agent === agent), `${agent}'s chat loads on its own`);
       }
-      assert.equal((await getPipelineMessages(id, "coder")).length, 0, "The Coder has no shared thread: each brief is its own");
-      assert.equal((await getPipelineMessages(id, "reviewer")).length, 0, "Nor does the Reviewer: each review is its own");
+      assert.equal((await getForgeMessages(id, "coder")).length, 0, "The Coder has no shared thread: each brief is its own");
+      assert.equal((await getForgeMessages(id, "reviewer")).length, 0, "Nor does the Reviewer: each review is its own");
     } finally {
       globalThis.fetch = originalFetch;
       await removeSandbox(id);

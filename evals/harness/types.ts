@@ -11,7 +11,7 @@ export type Scenario = {
   // Answers to the subagents' questions, in the order they're asked; "You decide."
   // once they run out.
   answers?: string[];
-  // False exercises pipeline preparation with an initially empty dependency install.
+  // False exercises the Forge's preparation with an initially empty dependency install.
   preinstalledDependencies?: boolean;
   // Seed an inherited implementation on the issue branch after the baseline commit.
   branchPatch?: string;

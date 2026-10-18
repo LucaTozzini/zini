@@ -26,7 +26,7 @@ import {
 import { summarizeRuns, type EvalBatch, type EvalKind, type RunMetrics } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useEvalBatches, useEvalRunDiff, useEvalScenarios, useEvalStatus, useStartEval, useStopEval } from "../api/evals.ts";
-import DiffView from "../components/pipeline/DiffView.tsx";
+import DiffView from "../components/forge/DiffView.tsx";
 
 // Runs the forge on test scenarios, or one agent on an agent test (see evals/README.md),
 // and shows the results: start one, watch its output, and look at past batches, alone or
@@ -104,7 +104,7 @@ function StartEval({ kind, disabled }: { kind: EvalKind; disabled: boolean }) {
             <Typography variant="body2" color="text.secondary">
               {kind === "agents"
                 ? "Each run is one agent run from the test's starting point, in a Docker container, with the Forge's model."
-                : "Each run is a full pipeline run in a Docker container, with the Forge's model, and can take a while."}
+                : "Each run is a full Forge run in a Docker container, with the Forge's model, and can take a while."}
             </Typography>
           </Stack>
         </DialogContent>

@@ -3,19 +3,25 @@ import express from "express";
 import crypto from "crypto";
 import { User } from "../models/User.js";
 import { ACCESS_TOKEN } from "../auth/session.js";
+import { z } from "zod";
+import { parse } from "./http.js";
 const usersRouter = express.Router();
 
 usersRouter.post("/login", async (req, res) => {
-  if (!req.body.username || !req.body.password) {
-    return res.status(400).json({ error: "Username and password required" });
-  }
+  const body = parse(
+    z.object({ username: z.string().min(1), password: z.string().min(1) }),
+    req.body,
+    res,
+    "Username and password required",
+  );
+  if (!body) return;
 
-  const user = await User.findOne({ where: { username: req.body.username } });
+  const user = await User.findOne({ where: { username: body.username } });
   if (!user) {
     return res.status(400).json({ error: "Incorrect username or password" });
   }
 
-  const match = await bcrypt.compare(req.body.password, user.password_hash);
+  const match = await bcrypt.compare(body.password, user.password_hash);
   if (!match) {
     return res.status(400).json({ error: "Incorrect username or password" });
   }

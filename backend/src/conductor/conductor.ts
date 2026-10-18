@@ -1,5 +1,5 @@
 import { startRun } from "../agents/runs.js";
-import { forgeThreadId, getPipeline, loadSetup, pipelineRun, startPipeline } from "../forge/forge.js";
+import { forgeThreadId, getForge, loadSetup, forgeRun, startForge } from "../forge/forge.js";
 import { fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
 import { createWorkspace } from "../workspaces/workspaces.js";
 import { isConductorEnabled, onSettingsSaved } from "../core/settings.js";
@@ -24,13 +24,13 @@ async function conductorIteration(isEnabled: () => boolean) {
   for (const issue of issues) {
     try {
       if (!isEnabled()) return;
-      if ((await getPipeline(issue.id)).started) continue; // skip forge that has already been started
+      if ((await getForge(issue.id)).started) continue; // skip forge that has already been started
       if (typeof setup === "string") throw new Error(setup); // setup returns a string on missing reqs
 
       await createWorkspace(client, issue.id);
       if (!isEnabled()) return;
-      const run = pipelineRun(setup, issue.id, "Conductor");
-      const start = await startRun(forgeThreadId(issue.id), (signal) => startPipeline(run, "", signal), run.notify);
+      const run = forgeRun(setup, issue.id, "Conductor");
+      const start = await startRun(forgeThreadId(issue.id), (signal) => startForge(run, "", signal), run.notify);
 
       if (!start) throw new Error("Conductor: Unable to run forge " + issue.id);
       console.log("Conductor: started forge for " + issue.id);

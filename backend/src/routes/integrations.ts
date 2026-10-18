@@ -1,12 +1,33 @@
 import { Router } from "express";
-import { PROVIDERS, STATUS_TYPES, type Provider, type StatusType } from "shared";
+import { PROVIDERS, STATUS_TYPES, type Provider } from "shared";
+import { z } from "zod";
 import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations/integrations.js";
 import { InvalidInputLinearError } from "@linear/sdk";
 import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
-
-const isStatusType = (s: string): s is StatusType => (STATUS_TYPES as readonly string[]).includes(s);
+import { parse } from "./http.js";
 
 export const integrations = Router();
+
+// API keys to save, by service, e.g. { "linear": "lin_api_..." }.
+const apiKey = z.string({ error: "API key is required" }).trim().min(1, "API key is required").optional();
+const apiKeys = z.strictObject(
+  Object.fromEntries(PROVIDERS.map((provider) => [provider, apiKey])) as Record<Provider, typeof apiKey>,
+  {
+    error: (issue) =>
+      issue.code === "unrecognized_keys"
+        ? `Unknown integration "${issue.keys[0]}". Known: ${PROVIDERS.join(", ")}`
+        : "Expected an object of API keys",
+  },
+);
+
+// ?status=unstarted,started: the status types to filter by.
+const issuesQuery = z.object({
+  status: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value.split(",") : []))
+    .pipe(z.array(z.enum(STATUS_TYPES))),
+});
 
 // Which services are connected, e.g. { linear: { connected: true, keyHint: "a1b" }, ... }.
 integrations.get("/", async (_req, res) => {
@@ -16,25 +37,8 @@ integrations.get("/", async (_req, res) => {
 // Saves the keys in the body, e.g. { "linear": "lin_api_..." }, after each service
 // accepts its key. The rest stay as they are. Returns all integrations.
 integrations.put("/", async (req, res) => {
-  const body: unknown = req.body;
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    res.status(400).json({ error: "Expected an object of API keys" });
-    return;
-  }
-
-  const keys: Partial<Record<Provider, string>> = {};
-  for (const [provider, value] of Object.entries(body)) {
-    if (!isProvider(provider)) {
-      res.status(400).json({ error: `Unknown integration "${provider}". Known: ${PROVIDERS.join(", ")}` });
-      return;
-    }
-    const apiKey = typeof value === "string" ? value.trim() : "";
-    if (!apiKey) {
-      res.status(400).json({ error: "API key is required" });
-      return;
-    }
-    keys[provider] = apiKey;
-  }
+  const keys = parse(apiKeys, req.body, res);
+  if (!keys) return;
 
   const rejectedBy = await saveKeys(keys);
   if (rejectedBy) {
@@ -55,11 +59,9 @@ integrations.delete("/:provider", async (req, res) => {
 
 // Up to 250 issues, most recently updated first. ?status=unstarted,started filters by status type.
 integrations.get("/linear/issues", async (req, res) => {
-  const status = typeof req.query.status === "string" ? req.query.status.split(",") : [];
-  if (!status.every(isStatusType)) {
-    res.status(400).json({ error: `status must be one of: ${STATUS_TYPES.join(", ")}` });
-    return;
-  }
+  const query = parse(issuesQuery, req.query, res, `status must be one of: ${STATUS_TYPES.join(", ")}`);
+  if (!query) return;
+  const { status } = query;
 
   const client = await getLinearClient();
   if (!client) {

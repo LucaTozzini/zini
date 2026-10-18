@@ -11,6 +11,7 @@ import { REPO_DIR, defaultBranch, fetchRepo, git } from "../repositories/git.js"
 import { DEFAULT_OPENWIKIIGNORE } from "./ignoreDefaults.js";
 import { loadOpenwiki } from "./openwiki.js";
 import { type ScanLog, openScanLog } from "./scanLog.js";
+import { errorMessage } from "../core/errors.js";
 
 // The docs branch the wiki update is pushed to.
 const DOCS_BRANCH = "docs/openwiki-update";
@@ -118,7 +119,7 @@ export async function startScan(): Promise<{ started: boolean; error?: string }>
     void runScan({ repo, githubToken, model, connection }).catch((e) => console.error("openwiki scan failed:", e));
     return { started: true };
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = errorMessage(err);
     status = { ...status, state: "failed", error };
     void log?.write({ type: "scan", stage: "failed", error });
     running = false;
@@ -165,7 +166,7 @@ async function runScan(ctx: ScanContext) {
     status = { ...status, state: "done", error: null, pullRequestUrl };
     void log?.write({ type: "scan", stage: "done", pullRequestUrl });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = errorMessage(err);
     status = { ...status, state: "failed", error };
     void log?.write({ type: "scan", stage: "failed", error, stack: err instanceof Error ? err.stack : undefined });
     console.error(`openwiki scan failed: ${error}`);

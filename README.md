@@ -82,7 +82,7 @@ The Project Lead automatically follows Forges it starts. Its
 The Project Lead can pause running work with `pause_forge` and continue paused or
 interrupted work with `continue_forge` when requested. Continuation is available
 after cancellation drains and uses the saved checkpoint; questions and approvals still
-go through `reply_to_pipeline`.
+go through `reply_to_forge`.
 Meaningful progress, questions, approvals, failures and
 completion appear as Forge activity messages and wake the Project Lead when the chat is
 idle. The Forge emits lifecycle events directly; token and file updates only refresh
@@ -130,7 +130,7 @@ Ahead of the code: opening a pull request, and tearing a workspace down after a 
 
 To steer a Forge, message its Lead: the issue page's message box (`/api/forge/:issueId/message`)
 or the Project Lead's `message_forge` tool, whenever it isn't running or waiting on a
-reply (pause it first to change course). `/resume` / `reply_to_pipeline` accepts answers,
+reply (pause it first to change course). `/resume` / `reply_to_forge` accepts answers,
 plan approval, or feedback on a proposed plan. Finished Forges have `waiting: null`.
 
 ### Development environment variables

@@ -1,25 +1,25 @@
 import { Stack } from "@mui/material";
-import type { PipelineResume, PipelineState } from "shared";
+import type { ForgeResume, ForgeState } from "shared";
 import { FeedbackCard, QuestionsCard, StartCard } from "./Cards.tsx";
 import { PlanView } from "./Documents.tsx";
 
 // What the Forge needs from you now, inline: starting it, the Lead's questions, or the
 // plan to approve. Other messages to the Lead go through the chat input below.
-export default function PipelineRequest({
+export default function ForgeRequest({
   issueId,
-  pipeline,
+  forge,
   onStart,
   onReply,
   sending,
 }: {
   issueId: string;
-  pipeline: PipelineState;
+  forge: ForgeState;
   onStart: (note: string) => void;
-  onReply: (response: PipelineResume) => void;
+  onReply: (response: ForgeResume) => void;
   sending: boolean;
 }) {
-  if (!pipeline.started) return <StartCard issueId={issueId} onStart={onStart} loading={sending} />;
-  const { waiting } = pipeline;
+  if (!forge.started) return <StartCard issueId={issueId} onStart={onStart} loading={sending} />;
+  const { waiting } = forge;
   if (waiting?.kind === "questions")
     return (
       <QuestionsCard
@@ -35,7 +35,7 @@ export default function PipelineRequest({
         <PlanView plan={waiting.plan} />
         <FeedbackCard
           key={JSON.stringify(waiting.plan)}
-          title={pipeline.planApproved ? "Approve this change to the plan?" : "Approve the plan?"}
+          title={forge.planApproved ? "Approve this change to the plan?" : "Approve the plan?"}
           placeholder="Or describe what to change, and the Lead will revise it."
           feedbackLabel="Send feedback"
           onApprove={() => onReply({ approve: true })}

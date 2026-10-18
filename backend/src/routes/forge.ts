@@ -2,45 +2,48 @@ import { Router, type Response } from "express";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
 import {
   forgeThreadId,
-  continuePipeline,
-  getPipeline,
-  getPipelineMessages,
-  loadSetup as loadPipelineSetup,
-  messagePipeline,
+  continueForge,
+  getForge,
+  getForgeMessages,
+  loadSetup as loadForgeSetup,
+  messageForge,
   pendingApprovals,
-  pipelineRun,
+  forgeRun,
   readReply,
   replyFits,
-  resumePipeline,
-  startPipeline,
+  resumeForge,
+  startForge,
 } from "../forge/forge.js";
 import { addViewer } from "../browser/agentBrowser.js";
 import { listRunLogs, readRunLog } from "../forge/runLog.js";
 import { Workspace } from "../models/Workspace.js";
 import { beginRun, pauseRun } from "../agents/runs.js";
 import { sendEvent } from "../core/events.js";
-import { isIssueId } from "../workspaces/workspaces.js";
-import { parseMessageInput } from "../projectLead/messageInput.js";
+import { messageInput } from "../projectLead/messageInput.js";
+import { z } from "zod";
+import { checkIssueId, parse } from "./http.js";
 
 // An issue's Forge, at /api/forge/:issueId (see forge.ts).
 export const forge = Router();
+forge.param("issueId", checkIssueId);
 
-// The issue id from the URL, or null after sending a 400.
-function readIssueId(value: string, res: Response) {
-  if (isIssueId(value)) return value;
-  res.status(400).json({ error: "Expected a Linear issue id" });
-  return null;
-}
+const messagesQuery = z.object({
+  agent: z.enum(["lead", "coder", "reviewer"], { error: "agent must be lead, coder or reviewer" }).default("lead"),
+  delegation: z
+    .string()
+    .regex(/^[\w-]{1,200}$/, "Invalid delegation")
+    .optional(),
+});
 
-// What the pipeline needs to run, or null after sending a 409 naming what's missing.
+// What the Forge needs to run, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
-  const setup = await loadPipelineSetup();
+  const setup = await loadForgeSetup();
   if (typeof setup !== "string") return setup;
   res.status(409).json({ error: setup });
   return null;
 }
 
-// The pipeline needs a checkout; environment preparation happens in the pipeline.
+// The Forge needs a checkout; environment preparation happens in the Forge.
 async function requireWorkspace(issueId: string, res: Response) {
   if (workspaceApps.starting(issueId)) {
     res.status(409).json({ error: "The user app is still being prepared" });
@@ -54,69 +57,50 @@ async function requireWorkspace(issueId: string, res: Response) {
   return true;
 }
 
-// The issues whose pipeline is waiting for an approval. Before /:issueId, which would
+// The issues whose Forge is waiting for an approval. Before /:issueId, which would
 // otherwise take "approvals" for an issue id.
 forge.get("/approvals", async (_req, res) => {
   res.json(await pendingApprovals());
 });
 
 forge.get("/:issueId", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  res.json(await getPipeline(issueId));
+  const { issueId } = req.params;
+  res.json(await getForge(issueId));
 });
 
 // The Lead's conversation, or with ?agent=coder|reviewer&delegation=<call id>, that
 // worker's run for the Lead's call.
 forge.get("/:issueId/messages", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  const agent = req.query.agent ?? "lead";
-  if (agent !== "lead" && agent !== "coder" && agent !== "reviewer") {
-    res.status(400).json({ error: "agent must be lead, coder or reviewer" });
-    return;
-  }
-  const { delegation } = req.query;
-  if (delegation !== undefined && (typeof delegation !== "string" || !/^[\w-]{1,200}$/.test(delegation))) {
-    res.status(400).json({ error: "Invalid delegation" });
-    return;
-  }
-  res.json(await getPipelineMessages(issueId, agent, delegation));
+  const { issueId } = req.params;
+  const query = parse(messagesQuery, req.query, res);
+  if (!query) return;
+  const { agent, delegation } = query;
+  res.json(await getForgeMessages(issueId, agent, delegation));
 });
 
 // Starts the Forge, with an optional note for the Lead. Answers once it's started;
 // the Lead works in the background.
 forge.post("/:issueId/start", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  const { note } = req.body ?? {};
-  if (note !== undefined && typeof note !== "string") {
-    res.status(400).json({ error: "note must be a string" });
-    return;
-  }
+  const { issueId } = req.params;
+  const body = parse(z.object({ note: z.string({ error: "note must be a string" }).trim().default("") }), req.body, res);
+  if (!body) return;
   if (!(await requireWorkspace(issueId, res))) return;
-  if ((await getPipeline(issueId)).started) {
-    res.status(409).json({ error: "The pipeline has already started" });
+  if ((await getForge(issueId)).started) {
+    res.status(409).json({ error: "The Forge has already started" });
     return;
   }
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId, req.user!.username);
-  const started = await beginRun(
-    res,
-    forgeThreadId(issueId),
-    (signal) => startPipeline(run, (note ?? "").trim(), signal),
-    run.notify,
-  );
+  const run = forgeRun(setup, issueId, req.user!.username);
+  const started = await beginRun(res, forgeThreadId(issueId), (signal) => startForge(run, body.note, signal), run.notify);
   if (started) res.status(202).end();
 });
 
 // Replies to what the Forge is waiting on: { answers } to questions, or { approve: true }
 // or { feedback } on the plan. Other messages use /message.
 forge.post("/:issueId/resume", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   const reply = readReply(req.body);
   if (!reply) {
     res.status(400).json({ error: "Expected { answers }, { approve: true } or { feedback }" });
@@ -124,65 +108,59 @@ forge.post("/:issueId/resume", async (req, res) => {
   }
   if (!(await requireWorkspace(issueId, res))) return;
 
-  const { waiting } = await getPipeline(issueId);
+  const { waiting } = await getForge(issueId);
   if (!replyFits(waiting, reply)) {
     res.status(409).json({
-      error: waiting ? "That reply doesn't fit what the pipeline is waiting on" : "The pipeline isn't waiting on you",
+      error: waiting ? "That reply doesn't fit what the Forge is waiting on" : "The Forge isn't waiting on you",
     });
     return;
   }
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const run = pipelineRun(setup, issueId, req.user!.username);
-  const started = await beginRun(res, forgeThreadId(issueId), (signal) => resumePipeline(run, reply, signal), run.notify);
+  const run = forgeRun(setup, issueId, req.user!.username);
+  const started = await beginRun(res, forgeThreadId(issueId), (signal) => resumeForge(run, reply, signal), run.notify);
   if (started) res.status(202).end();
 });
 
 // Manual recovery only. Human approval/answer pauses still use /resume above.
 forge.post("/:issueId/continue", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId || !(await requireWorkspace(issueId, res))) return;
-  if (!(await getPipeline(issueId)).canResume) {
-    res.status(409).json({ error: "The pipeline has no interrupted work to resume" });
+  const { issueId } = req.params;
+  if (!(await requireWorkspace(issueId, res))) return;
+  if (!(await getForge(issueId)).canResume) {
+    res.status(409).json({ error: "The Forge has no interrupted work to resume" });
     return;
   }
   const setup = await loadSetup(res);
   if (!setup) return;
-  const run = pipelineRun(setup, issueId, req.user!.username);
-  if (await beginRun(res, forgeThreadId(issueId), (signal) => continuePipeline(run, signal), run.notify)) res.status(202).end();
+  const run = forgeRun(setup, issueId, req.user!.username);
+  if (await beginRun(res, forgeThreadId(issueId), (signal) => continueForge(run, signal), run.notify)) res.status(202).end();
 });
 
 // Sends the Lead a message ({ message, images? }), e.g. changes to make after it
 // finished. Not while it's working or waiting on a reply (see /resume).
 forge.post("/:issueId/message", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
-  let input;
-  try {
-    input = parseMessageInput(req.body);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    return;
-  }
+  const { issueId } = req.params;
+  const input = parse(messageInput, req.body, res);
+  if (!input) return;
   if (!(await requireWorkspace(issueId, res))) return;
-  const pipeline = await getPipeline(issueId);
-  if (!pipeline.started) {
+  const state = await getForge(issueId);
+  if (!state.started) {
     res.status(409).json({ error: "Start the Forge first" });
     return;
   }
-  if (pipeline.waiting) {
+  if (state.waiting) {
     res.status(409).json({ error: "The Forge is waiting on your reply" });
     return;
   }
   const setup = await loadSetup(res);
   if (!setup) return;
-  const run = pipelineRun(setup, issueId, req.user!.username);
+  const run = forgeRun(setup, issueId, req.user!.username);
   if (
     await beginRun(
       res,
       forgeThreadId(issueId),
-      (signal) => messagePipeline(run, input.message.trim(), signal, input.images),
+      (signal) => messageForge(run, input.message.trim(), signal, input.images),
       run.notify,
     )
   )
@@ -190,8 +168,7 @@ forge.post("/:issueId/message", async (req, res) => {
 });
 
 forge.post("/:issueId/pause", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   if (!pauseRun(forgeThreadId(issueId))) {
     res.status(409).json({ error: "The Forge isn't running or is already pausing" });
     return;
@@ -203,22 +180,19 @@ forge.post("/:issueId/pause", async (req, res) => {
 // The Reviewer's browser, live, as MJPEG (an <img> shows it), while it's open; 404 when
 // it isn't. Ends when the browser closes.
 forge.get("/:issueId/browser", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   if (!(await addViewer(issueId, res))) res.status(404).json({ error: "The Reviewer's browser isn't open" });
 });
 
 // The issue's agent runs, oldest first, for inspecting their logs (see runLog.ts).
 forge.get("/:issueId/logs", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   res.json(await listRunLogs(issueId));
 });
 
 // One run's log. Each line added sends a forge.log event.
 forge.get("/:issueId/logs/:runId", async (req, res) => {
-  const issueId = readIssueId(req.params.issueId, res);
-  if (!issueId) return;
+  const { issueId } = req.params;
   const log = await readRunLog(issueId, req.params.runId);
   if (!log) {
     res.status(404).json({ error: "No such run" });

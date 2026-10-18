@@ -1,31 +1,31 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
 import type { Decision } from "shared";
+import { z } from "zod";
 import { ProjectLeadThread } from "../models/ProjectLeadThread.js";
 import { chat, deleteThreadHistory, loadThread, resume, loadProjectLeadSetup } from "../projectLead/projectLead.js";
 import { sendEvent } from "../core/events.js";
 import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../agents/runs.js";
 import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { addViewer, browserState } from "../browser/agentBrowser.js";
-
-import { parseMessageInput } from "../projectLead/messageInput.js";
+import { messageInput } from "../projectLead/messageInput.js";
+import { parse } from "./http.js";
 
 export const projectLead = Router();
 
-function readMessage(body: unknown, res: Response) {
-  try {
-    return parseMessageInput(body);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid message" });
-    return null;
-  }
-}
+const readMessage = (body: unknown, res: Response) => parse(messageInput, body, res);
 
-const isDecision = (d: unknown): d is Decision =>
-  typeof d === "object" &&
-  d !== null &&
-  "type" in d &&
-  (d.type === "approve" || (d.type === "reject" && (!("message" in d) || typeof d.message === "string")));
+// One decision per action a thread is paused on.
+const decisions: z.ZodType<{ decisions: Decision[] }> = z.object({
+  decisions: z
+    .array(
+      z.union([
+        z.object({ type: z.literal("approve") }),
+        z.object({ type: z.literal("reject"), message: z.string().optional() }),
+      ]),
+    )
+    .min(1),
+});
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
@@ -173,17 +173,14 @@ projectLead.post("/threads/:id/steer", async (req, res) => {
 // Approves or rejects the actions a thread is paused on, one decision per action.
 // The run then carries on in the background.
 projectLead.post("/threads/:id/resume", async (req, res) => {
-  const { decisions } = req.body ?? {};
-  if (!Array.isArray(decisions) || !decisions.length || !decisions.every(isDecision)) {
-    res.status(400).json({ error: "decisions must be a list of approve/reject decisions" });
-    return;
-  }
+  const body = parse(decisions, req.body, res, "decisions must be a list of approve/reject decisions");
+  if (!body) return;
   if (!(await findThread(req.params.id, res))) return;
 
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  const start = (signal: AbortSignal) => resume(setup, id, decisions, signal);
+  const start = (signal: AbortSignal) => resume(setup, id, body.decisions, signal);
   if (await begin(res, id, start)) res.status(202).end();
 });
 

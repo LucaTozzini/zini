@@ -103,9 +103,9 @@ test("chat identity comes from a revocable user session", async (t) => {
       const settings = await fetch(base + "/api/settings", { headers });
       assert.equal(settings.status, 200);
       assert.deepEqual(await settings.json(), identity);
-      const pipeline = await fetch(base + "/api/forge/invalid-issue-id", { headers });
-      assert.equal(pipeline.status, 400);
-      assert.deepEqual(await pipeline.json(), { error: "Expected a Linear issue id" });
+      const response = await fetch(base + "/api/forge/invalid-issue-id", { headers });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "Expected a Linear issue id" });
     });
 
     let sessionCookie = "";

@@ -1,7 +1,7 @@
 import type { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import type { CheckpointTuple } from "@langchain/langgraph-checkpoint";
 
-// The latest checkpoint of each namespace on the thread: the pipeline's, and each
+// The latest checkpoint of each namespace on the thread: the Forge's, and each
 // agent conversation's.
 export async function loadForgeHistory(saver: SqliteSaver, threadId: string) {
   // Initialize the saver on a fresh database before querying its tables.

@@ -132,7 +132,7 @@ export async function makeWorkspace(issueId: string, fixture: Fixture) {
   });
 }
 
-// Linear, as far as the pipeline uses it: fetchLinearIssue's query, answered with the
+// Linear, as far as the Forge uses it: fetchLinearIssue's query, answered with the
 // fixture's issue. Any other call fails, so a new one shows up instead of misleading.
 export function fakeLinear(issueId: string, fixture: Fixture): LinearClient {
   const issue = {

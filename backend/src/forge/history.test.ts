@@ -48,13 +48,8 @@ test("only the latest checkpoint is kept, with its pending writes and first-save
       0,
     );
     const items = forgeMessages([{ agent: "coder", checkpoint: checkpoints[0] }], "coder");
-    assert.equal(
-      items.find(
-        (item) => item.kind === "message" && item.message.role === "assistant" && item.message.content === "Implemented.",
-      )?.t,
-      firstTime,
-    );
-    assert.ok(items.some((item) => item.kind === "tool" && item.result === "Live result" && item.call.status === "done"));
+    assert.equal(items.find((item) => item.role === "assistant" && item.content === "Implemented.")?.t, firstTime);
+    assert.ok(items.some((item) => item.role === "tool" && item.result === "Live result" && item.status === "done"));
   } finally {
     saver.db.close();
   }

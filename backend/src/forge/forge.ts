@@ -2,15 +2,7 @@ import { Command, interrupt, StateSchema } from "@langchain/langgraph";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createAgent, createMiddleware, fakeModel, modelCallLimitMiddleware, tool } from "langchain";
-import type {
-  AgentRole,
-  ForgePlan,
-  IntegrationState,
-  PendingApproval,
-  PipelineResume,
-  PipelineState,
-  PipelineWaiting,
-} from "shared";
+import type { AgentRole, ForgePlan, IntegrationState, PendingApproval, ForgeResume, ForgeState, ForgeWaiting } from "shared";
 import { z } from "zod";
 import {
   checkpointer,
@@ -35,7 +27,7 @@ import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
 import { loadForgeHistory } from "./history.js";
 import { forgeMessages } from "./messages.js";
 import { draftPlan, issueText, planText, resetChecks, unfinishedPlan } from "./plan.js";
-import { pipelineEvents } from "./pipelineEvents.js";
+import { forgeEvents } from "./forgeEvents.js";
 import { stopAllProcesses } from "./qaProcesses.js";
 import { forgeModel, forgeThreadId, working, workerThreadId, type Run } from "./run.js";
 import { logTo, openRunLog, type RunLog } from "./runLog.js";
@@ -43,7 +35,7 @@ import { LEAD_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem } from "./tools.js";
 import { coderWorker, reviewerWorker, runWorker } from "./workers.js";
 
-export { loadSetup, forgeThreadId, outsideAgentRun, pipelineRun, type Run, type Setup } from "./run.js";
+export { loadSetup, forgeThreadId, outsideAgentRun, forgeRun, type Run, type Setup } from "./run.js";
 
 // The forge: per issue, a Lead agent that works the issue end to end in its workspace.
 // It reads the code, writes the plan (every change to it pauses for your approval),
@@ -130,7 +122,7 @@ function leadTools(issueId: string, need: () => Run) {
       async ({ steps, qaChecklist }, config) => {
         const runtime = runtimeOf(config);
         const plan = draftPlan(runtime.state.plan, steps, qaChecklist);
-        const reply = interrupt<PipelineWaiting, PipelineResume>({ kind: "approve_plan", plan });
+        const reply = interrupt<ForgeWaiting, ForgeResume>({ kind: "approve_plan", plan });
         if ("feedback" in reply) return `The user didn't approve this plan. Their feedback:\n\n${reply.feedback}`;
         return updating(runtime, "write_plan", `The user approved the plan:\n\n${planText(plan)}`, {
           plan,
@@ -179,7 +171,7 @@ function leadTools(issueId: string, need: () => Run) {
     ),
     tool(
       async ({ questions }) => {
-        const { answers } = interrupt<PipelineWaiting, { answers: string[] }>({ kind: "questions", questions });
+        const { answers } = interrupt<ForgeWaiting, { answers: string[] }>({ kind: "questions", questions });
         return questions.map((question, i) => `Q: ${question}\nA: ${answers[i] ?? ""}`).join("\n\n");
       },
       {
@@ -363,7 +355,7 @@ const reader = (issueId: string) => leadAgent(issueId, null, fakeModel(), "");
 async function readLead(issueId: string) {
   const snapshot = await reader(issueId).graph.getState(threadConfig(forgeThreadId(issueId)));
   const values = snapshot.values as Partial<LeadState> & { messages?: BaseMessage[] };
-  const waiting = (snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value ?? null) as PipelineWaiting | null;
+  const waiting = (snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value ?? null) as ForgeWaiting | null;
   return { snapshot, values, waiting };
 }
 
@@ -379,7 +371,7 @@ async function runLead(run: Run, input: unknown, describe: string, signal?: Abor
   const wasFinished = Boolean((await readLead(issueId)).values.finished);
   const agent = leadAgent(issueId, run, forgeModel(setup), prompt, log);
   const source = agent.stream(input as never, streamConfig(forgeThreadId(issueId), 2_000, signal));
-  return pipelineEvents(
+  return forgeEvents(
     Promise.resolve(logged(log, run.execution.stream(source))),
     async (): Promise<ForgeLifecycleEvent | null> => {
       const { values, waiting } = await readLead(issueId);
@@ -403,40 +395,37 @@ async function* logged<T>(log: RunLog, source: AsyncIterable<T>) {
 
 // Starts the issue's Forge, with an optional note for the Lead; the returned stream is
 // the run (see startRun).
-export function startPipeline(run: Run, note: string, signal?: AbortSignal) {
+export function startForge(run: Run, note: string, signal?: AbortSignal) {
   const text = note ? `Start work on this issue. Note: ${note}` : "Start work on this issue.";
   return runLead(run, { messages: [userMessage(text, [], run.username ?? null)] }, text, signal);
 }
 
 // Sends the Lead a message, with any images (base64 data URLs), e.g. changes you want
 // after it finished.
-export function messagePipeline(run: Run, message: string, signal?: AbortSignal, images: string[] = []) {
+export function messageForge(run: Run, message: string, signal?: AbortSignal, images: string[] = []) {
   return runLead(run, { messages: [userMessage(message, images, run.username ?? null)] }, message, signal);
 }
 
 // Answers what the Forge is waiting on, and carries on.
-export function resumePipeline(run: Run, reply: PipelineResume, signal?: AbortSignal) {
+export function resumeForge(run: Run, reply: ForgeResume, signal?: AbortSignal) {
   return runLead(run, new Command({ resume: reply }), JSON.stringify(reply), signal);
 }
 
 // Carries on paused or interrupted work, without adding input or bypassing a pause.
-export function continuePipeline(run: Run, signal?: AbortSignal) {
+export function continueForge(run: Run, signal?: AbortSignal) {
   return runLead(run, null, "Continue", signal);
 }
 
 // Checks, and narrows, a reply to what the Forge is waiting on.
-export function readReply(body: unknown): PipelineResume | null {
-  if (typeof body !== "object" || body === null) return null;
-  const b = body as Record<string, unknown>;
-  if (Object.keys(b).length !== 1) return null;
-  if (Array.isArray(b.answers) && b.answers.every((a) => typeof a === "string")) return { answers: b.answers as string[] };
-  if (b.approve === true) return { approve: true };
-  if (typeof b.feedback === "string" && b.feedback.trim()) return { feedback: b.feedback.trim() };
-  return null;
-}
+const replySchema: z.ZodType<ForgeResume> = z.union([
+  z.strictObject({ answers: z.array(z.string()) }),
+  z.strictObject({ approve: z.literal(true) }),
+  z.strictObject({ feedback: z.string().trim().min(1) }),
+]);
+export const readReply = (body: unknown) => replySchema.safeParse(body).data ?? null;
 
 // Whether a reply answers what the Forge is waiting on.
-export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume) {
+export function replyFits(waiting: ForgeWaiting | null, reply: ForgeResume) {
   return (
     (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
     (waiting?.kind === "approve_plan" && ("approve" in reply || "feedback" in reply))
@@ -446,7 +435,7 @@ export function replyFits(waiting: PipelineWaiting | null, reply: PipelineResume
 // ---- Reading it -------------------------------------------------------------------
 
 // The issue's Forge, for the webapp.
-export async function getPipeline(issueId: string): Promise<PipelineState> {
+export async function getForge(issueId: string): Promise<ForgeState> {
   const threadId = forgeThreadId(issueId);
   const { snapshot, values, waiting: saved } = await readLead(issueId);
   const { running, error, pausing } = runStatus(threadId);
@@ -470,11 +459,11 @@ export async function getPipeline(issueId: string): Promise<PipelineState> {
 
 // One agent's conversation, for the activity feed: the Lead's, or a worker's run for one
 // of the Lead's delegate_coder or delegate_reviewer calls.
-export async function getPipelineMessages(issueId: string, agent: AgentRole = "lead", delegation?: string) {
+export async function getForgeMessages(issueId: string, agent: AgentRole = "lead", delegation?: string) {
   const thread = agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent, delegation);
   const { checkpoints } = await loadForgeHistory(checkpointer, thread);
   const checkpoint = checkpoints.find((tuple) => !tuple.config.configurable?.checkpoint_ns);
-  const { running } = await getPipeline(issueId);
+  const { running } = await getForge(issueId);
   return forgeMessages([{ agent, checkpoint }], running);
 }
 
@@ -482,10 +471,10 @@ export async function getPipelineMessages(issueId: string, agent: AgentRole = "l
 // issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
   const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
-  const pipelines = await Promise.all(
-    workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getPipeline(issueId)).waiting })),
+  const Forges = await Promise.all(
+    workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getForge(issueId)).waiting })),
   );
-  return pipelines.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
+  return Forges.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
 }
 
 // Stops what the workers started in the issue's workspace: their processes and browser.

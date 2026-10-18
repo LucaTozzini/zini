@@ -94,11 +94,12 @@ export type WorkspaceSelection = { pullRequest?: number; fresh?: boolean };
 // GitHub, and its newest pull request (whatever its state), if it has one.
 export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | null };
 
-// One turn of the project lead chat, as shown in the webapp: a message, one of
-// the agent's tool calls (without its result), or where the conversation was
-// compacted (the messages before it are replaced by a summary for the model). A call is pending while it runs or
-// waits on approval, and never_ran when it can't get a result anymore (e.g. the run
-// failed first); error is set when it failed or was rejected.
+// One turn of an agent's conversation, as shown in the webapp: a message, one of the
+// agent's tool calls, or where the conversation was compacted (the messages before it
+// are replaced by a summary for the model). A call is pending while it runs or waits on
+// approval, and never_ran when it can't get a result anymore (e.g. the run failed first);
+// error is set when it failed or was rejected. result is its output, where the chat
+// shows it (the Forge's; the Project Lead's can be whole files), and callId its id.
 export type ChatMessage =
   | { role: "user"; content: string; username?: string; images?: string[] }
   | { role: "activity"; content: string; issueId: string; eventId: string; eventType: string }
@@ -109,11 +110,16 @@ export type ChatMessage =
       args: Record<string, unknown>;
       status: "pending" | "done" | "error" | "never_ran";
       error?: string;
+      result?: string;
+      callId?: string;
     }
   | { role: "compaction"; summary: string };
 
+// A ChatMessage with its id (unique within its conversation) and when it was written.
+export type ChatEntry = ChatMessage & { id: string; t?: string };
+
 // A tool call the agent is waiting on the user to approve, e.g. create_issue. For a
-// reply_to_pipeline call, questions are the ones the pipeline is waiting on, which its
+// reply_to_forge call, questions are the ones the Forge is waiting on, which its
 // answers are for, in order.
 export type PendingAction = { name: string; args: Record<string, unknown>; questions?: string[] };
 
@@ -137,7 +143,7 @@ export type Todo = { content: string; status: "pending" | "in_progress" | "compl
 export type Thread = {
   id: string;
   title: string;
-  messages: ChatMessage[];
+  messages: ChatEntry[];
   pending: PendingAction[];
   notes: string;
   todos: Todo[];
@@ -228,24 +234,21 @@ export type WorkspaceDiff = { diff: string; truncated: boolean };
 
 // What the Forge is paused on, waiting for you: the Lead's questions, or a plan (or a
 // change to it) to approve.
-export type PipelineWaiting = { kind: "questions"; questions: string[] } | { kind: "approve_plan"; plan: ForgePlan };
+export type ForgeWaiting = { kind: "questions"; questions: string[] } | { kind: "approve_plan"; plan: ForgePlan };
 
 // Your reply to what the Forge is waiting on, as POSTed to /api/forge/:issueId/resume:
 // answers to the questions (in order), approving the plan, or what to change in it.
-export type PipelineResume = { answers: string[] } | { approve: true } | { feedback: string };
+export type ForgeResume = { answers: string[] } | { approve: true } | { feedback: string };
 
-export type ForgeMessage = { id: string; t: string; agent: AgentRole | null } & (
-  | { kind: "message"; message: Extract<ChatMessage, { role: "user" | "assistant" | "compaction" }> }
-  // callId: the tool call's own id, e.g. to open the Coder's run for a delegate_coder call.
-  | { kind: "tool"; call: Extract<ChatMessage, { role: "tool" }>; result?: string; callId?: string }
-);
+// One entry of a Forge conversation, with the agent whose conversation it's from.
+export type ForgeMessage = ChatEntry & { t: string; agent: AgentRole | null };
 
 // An issue whose Forge is waiting for you to approve its plan, as listed by
 // GET /api/forge/approvals.
 export type PendingApproval = { issueId: string; kind: "approve_plan" };
 
 // An issue's Forge, as returned by GET /api/forge/:issueId. One per issue.
-export type PipelineState = {
+export type ForgeState = {
   integration?: IntegrationState | null;
   started: boolean;
   // The agent working now, if any: the Lead, or the worker it delegated to.
@@ -254,7 +257,7 @@ export type PipelineState = {
   pausing?: boolean;
   // Pending work with no active run or outstanding human request.
   canResume?: boolean;
-  waiting: PipelineWaiting | null;
+  waiting: ForgeWaiting | null;
   plan: ForgePlan | null;
   planApproved: boolean;
   // The page the Reviewer's browser is on, while it's open: it can be watched live, at
@@ -339,7 +342,7 @@ export type RoleMetrics = {
 export type RunMetrics = {
   scenario: string;
   model: string;
-  // Whether the pipeline got to the end. Further revisions use redirect.
+  // Whether the Forge got to the end. Further revisions use redirect.
   finished: boolean;
   qaVerdict: "pass" | "fail" | "partial" | null;
   rateLimited?: boolean;

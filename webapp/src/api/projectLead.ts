@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ChatMessage, ProjectLeadMessage, ProjectLeadSubscriptions, Decision, Thread, ThreadSummary, User } from "shared";
+import type { ChatEntry, ProjectLeadMessage, ProjectLeadSubscriptions, Decision, Thread, ThreadSummary, User } from "shared";
 import { api } from "./client.ts";
 import { userKey } from "./users.ts";
 
@@ -44,9 +44,9 @@ async function updateNow<T>(queryClient: QueryClient, key: unknown[], change: (d
 }
 
 // Match the signed-in author the server saves with the message.
-function userMessage(queryClient: QueryClient, payload: ProjectLeadMessage): ChatMessage {
+function userMessage(queryClient: QueryClient, payload: ProjectLeadMessage): ChatEntry {
   const username = queryClient.getQueryData<User>(userKey)?.username;
-  return { role: "user", content: payload.message, images: payload.images, ...(username && { username }) };
+  return { id: "sending", role: "user", content: payload.message, images: payload.images, ...(username && { username }) };
 }
 
 // Starts a chat with its first message; resolves to the new chat, cached with that

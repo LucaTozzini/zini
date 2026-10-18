@@ -5,7 +5,7 @@ import { workspaceRequest } from "./workspaceSandbox.js";
 import { workspaceGitOperation } from "./workspaceVolumes.js";
 import { repositoryPath } from "../repositories/repositoryFilesystem.js";
 
-// The files of an issue's workspace, as the pipeline's subagents see and change them:
+// The files of an issue's workspace, as the Forge's subagents see and change them:
 // the checkout in a Linux Docker volume, uncommitted edits included. Content I/O goes
 // through the gateway; trusted Git uses a reusable helper container on the same volume.
 

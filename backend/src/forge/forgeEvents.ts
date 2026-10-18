@@ -1,8 +1,9 @@
 import type { ForgeLifecycleEvent } from "./events.js";
+import { errorMessage } from "../core/errors.js";
 
-// The pipeline stream is drained (including tools) before a terminal event is
+// The Forge stream is drained (including tools) before a terminal event is
 // emitted. Only lifecycle boundaries invoke this emitter, never token/UI updates.
-export async function* pipelineEvents<T>(
+export async function* forgeEvents<T>(
   source: Promise<AsyncIterable<T>>,
   outcome: () => Promise<ForgeLifecycleEvent | null>,
   emit: (event: ForgeLifecycleEvent) => Promise<void>,
@@ -12,7 +13,7 @@ export async function* pipelineEvents<T>(
     yield* await source;
   } catch (error) {
     if (signal?.aborted) await emit({ type: "stopped" });
-    else await emit({ type: "failed", error: error instanceof Error ? error.message : String(error) });
+    else await emit({ type: "failed", error: errorMessage(error) });
     throw error;
   }
   if (signal?.aborted) {
