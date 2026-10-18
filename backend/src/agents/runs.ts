@@ -26,6 +26,18 @@ export function runStatus(runId: string): RunStatus {
 
 export const isRunning = (runId: string) => runStatus(runId).running || reservations.has(runId);
 
+// Told whenever a conversation's run ends or is stopped, e.g. to deliver what waited for it.
+const endListeners = new Set<(runId: string) => void>();
+export function onRunEnd(listener: (runId: string) => void) {
+  endListeners.add(listener);
+  return () => {
+    endListeners.delete(listener);
+  };
+}
+const runEnded = (runId: string) => {
+  for (const listener of endListeners) listener(runId);
+};
+
 // Drops a deleted conversation's status.
 export function forgetRun(runId: string) {
   runs.delete(runId);
@@ -48,6 +60,7 @@ export function stopRun(runId: string): boolean {
   if (!isRunning(runId) || !control) return false;
   control.abort();
   runs.set(runId, NOT_RUNNING);
+  runEnded(runId);
   return true;
 }
 
@@ -67,6 +80,7 @@ function endRun(runId: string, control: AbortController, status: RunStatus, noti
   if (status.pausing) {
     changeRun(runId, status, { running: false, pausing: false, error: null });
     notify();
+    runEnded(runId);
     return;
   }
   if (control.signal.aborted) return;
@@ -74,6 +88,7 @@ function endRun(runId: string, control: AbortController, status: RunStatus, noti
   const error = err ? errorMessage(err) : null;
   changeRun(runId, status, { running: false, error });
   notify();
+  runEnded(runId);
 }
 
 // Starts a run; false if one is already going. start is handed the run's signal, which

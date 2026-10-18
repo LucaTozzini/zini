@@ -3,6 +3,15 @@ import { Op, Transaction } from "sequelize";
 import { sequelize } from "../db.js";
 import { ProjectLeadQueueMessage, type QueuedMessage } from "../models/ProjectLeadQueueMessage.js";
 
+// Told when messages are queued (once their transaction commits), to deliver them.
+const enqueueListeners = new Set<() => void>();
+export function onEnqueue(listener: () => void) {
+  enqueueListeners.add(listener);
+  return () => {
+    enqueueListeners.delete(listener);
+  };
+}
+
 export async function enqueueMessages(threadIds: string[], message: QueuedMessage, transaction?: Transaction) {
   await ProjectLeadQueueMessage.bulkCreate(
     [...new Set(threadIds)].map((threadId) => ({
@@ -11,6 +20,11 @@ export async function enqueueMessages(threadIds: string[], message: QueuedMessag
     })),
     { ignoreDuplicates: true, transaction },
   );
+  const queued = () => {
+    for (const listener of enqueueListeners) listener();
+  };
+  if (transaction) transaction.afterCommit(queued);
+  else queued();
 }
 // Single backend process: recover claims left by its previous incarnation.
 export async function recoverMessageQueue() {
