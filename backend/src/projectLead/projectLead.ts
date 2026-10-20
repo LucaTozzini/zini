@@ -2,7 +2,7 @@ import type { LinearClient } from "@linear/sdk";
 import { Command } from "@langchain/langgraph";
 import { createAgent, createMiddleware, humanInTheLoopMiddleware, todoListMiddleware, tool, type HITLRequest } from "langchain";
 import type { BaseMessage } from "@langchain/core/messages";
-import type { Decision, PendingAction, Todo } from "shared";
+import type { ChatFile, Decision, PendingAction, Todo } from "shared";
 import { z } from "zod";
 import {
   checkpointer,
@@ -36,6 +36,8 @@ import { SYSTEM_PROMPT } from "./systemPrompt.js";
 import { linearTools, toIssueId } from "./linearTools.js";
 import { forgeTools, workspaceAppTools } from "./forgeTools.js";
 import { pullRequestTools } from "./pullRequestTools.js";
+import { linearFileTools } from "../agents/linearFileTools.js";
+import { chatFilesMiddleware, uploadFileTool } from "./chatFiles.js";
 
 // Shows the model who sent each message, from the username saved with it. Only in
 // what the model reads: the saved message, and so the chat, stays as it was written.
@@ -74,6 +76,8 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
     model: chatModel,
     tools: [
       ...linearTools(linear),
+      ...linearFileTools(() => linear),
+      uploadFileTool(linear),
       ...forgeTools(linear),
       ...workspaceAppTools(linear, chatModel),
       ...codeTools,
@@ -93,6 +97,8 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       modelStamp(model),
       repairToolCalls,
       senderNames,
+      // Inside senderNames, which merges a message's text blocks.
+      chatFilesMiddleware,
       todoListMiddleware(),
       notesMiddleware,
       humanInTheLoopMiddleware({
@@ -152,7 +158,7 @@ export async function projectLeadAwaitingApproval(setup: Setup, threadId: string
 const RECURSION_LIMIT = 250;
 
 // Sends the user's next message on a thread. The run ends with a reply, or paused
-// on actions to approve. Aborting it stops the run in flight, leaving the checkpoint
+// on actions to approve. Files are PDFs or text files the user attached. Aborting it stops the run in flight, leaving the checkpoint
 // its finished steps were saved to, which the next turn carries on from. The sender's
 // authenticated username is saved with the message. Null remains supported for
 // internal callers and older conversation history.
@@ -163,9 +169,10 @@ export function chat(
   username: string | null,
   signal?: AbortSignal,
   images: string[] = [],
+  files: ChatFile[] = [],
 ) {
   return buildAgent(setup, threadId).stream(
-    { messages: [userMessage(message, images, username)] },
+    { messages: [userMessage(message, images, username, files)] },
     streamConfig(threadId, RECURSION_LIMIT, signal),
   );
 }

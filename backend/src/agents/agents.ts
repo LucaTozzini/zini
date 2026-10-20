@@ -7,6 +7,7 @@ import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messag
 import { createMiddleware, modelRetryMiddleware, toolErrorMiddleware } from "langchain";
 import type { ChatEntry, ChatMessage } from "shared";
 import { isSummary, summaryText } from "./compaction.js";
+import { messageFiles } from "../projectLead/chatFiles.js";
 import { storage } from "../db.js";
 import { isModelRateLimit } from "../providers/modelErrors.js";
 import { timestampedSerializer } from "./messageTimestamps.js";
@@ -212,12 +213,14 @@ export function toChatEntries(messages: BaseMessage[], live: boolean): ChatEntry
         return [entry({ role: "activity", issueId, eventId, eventType, content })];
       }
       const images = messageImages(message);
-      if (!message.text.trim() && !images.length) return [];
+      const files = messageFiles(message);
+      if (!message.text.trim() && !images.length && !files.length) return [];
       return [
         entry({
           role: "user",
           content: message.text,
           ...(images.length && { images }),
+          ...(files.length && { files }),
           ...(typeof username === "string" && { username }),
         }),
       ];

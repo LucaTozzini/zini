@@ -7,6 +7,7 @@ import {
   fetchLinearIssue,
   fetchLinearIssues,
   fetchLinearTeams,
+  linearUploads,
   searchLinearIssues,
   setLinearBlocker,
   updateLinearIssue,
@@ -32,13 +33,21 @@ export function linearTools(linear: LinearClient) {
         "Search issue titles and descriptions with Linear's full-text search, like its " + "search box. Up to 50 results.",
       schema: z.object({ query: z.string().min(1) }),
     }),
-    tool(async ({ id }) => JSON.stringify(await fetchLinearIssue(linear, id)), {
-      name: "get_issue",
-      description:
-        "Get one issue with its description, comments, attachments (links such as its pull requests), " +
-        "the issues blocking it (blockedBy) and the issues it blocks, each with its status, by identifier (e.g. ENG-123) or id.",
-      schema: z.object({ id: z.string() }),
-    }),
+    tool(
+      async ({ id }) => {
+        const issue = await fetchLinearIssue(linear, id);
+        const text = [issue.description ?? "", ...issue.comments.map((comment) => comment.body)].join("\n");
+        return JSON.stringify({ ...issue, files: linearUploads(text) });
+      },
+      {
+        name: "get_issue",
+        description:
+          "Get one issue with its description, comments, attachments (links such as its pull requests), " +
+          "the files uploaded to its description and comments (files: images, PDFs and others, by URL, for get_linear_file), " +
+          "the issues blocking it (blockedBy) and the issues it blocks, each with its status, by identifier (e.g. ENG-123) or id.",
+        schema: z.object({ id: z.string() }),
+      },
+    ),
     tool(
       async ({ issueId, blockerId, blocked }) =>
         JSON.stringify({ blockedBy: await setLinearBlocker(linear, issueId, blockerId, blocked ?? true) }),

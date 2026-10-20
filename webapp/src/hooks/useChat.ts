@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
-import type { Decision } from "shared";
+import type { ChatFile, Decision } from "shared";
 import {
   useCreateThread,
   useResumeThread,
@@ -32,6 +32,7 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
   const resume = useResumeThread(threadId ?? "");
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [files, setFiles] = useState<ChatFile[]>([]);
 
   const messages = thread.data?.messages ?? [];
   const pending = thread.data?.pending ?? [];
@@ -42,21 +43,24 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
   // message, so the two appear at once.
   const busy = creating || Boolean(thread.data?.running);
   const posting = send.isPending || steer.isPending || stop.isPending || resume.isPending;
-  const canSend = pending.length === 0 && !creating && !posting && (draft.trim().length > 0 || images.length > 0);
+  const canSend =
+    pending.length === 0 && !creating && !posting && (draft.trim().length > 0 || images.length > 0 || files.length > 0);
   const runError = thread.data?.error ? new Error(thread.data.error) : null;
   const error = thread.error ?? create.error ?? send.error ?? steer.error ?? stop.error ?? resume.error ?? runError;
 
   function sendDraft(e?: FormEvent) {
     e?.preventDefault();
-    const message = { message: draft.trim(), images };
+    const message = { message: draft.trim(), images, files };
     if (!canSend) return;
 
     // If sending fails, the message goes back in the input.
     setDraft("");
     setImages([]);
+    setFiles([]);
     const restore = () => {
       setDraft(message.message);
       setImages(message.images);
+      setFiles(message.files);
     };
     if (threadId) {
       // While the agent works, the message redirects it: the server stops the run and
@@ -102,6 +106,8 @@ export function useChat(threadId: string | undefined, basePath: string): ChatSta
     setDraft,
     images,
     setImages,
+    files,
+    setFiles,
     sending: creating ? create.variables : null,
     busy,
     canSend,

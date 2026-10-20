@@ -26,7 +26,8 @@ import { openwikiServe } from "./openwiki/serveRoutes.js";
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
-app.use("/api/project-lead", express.json({ limit: "30mb" }));
+// Up to 4 images of 5 MB and 4 files of 10 MB, base64 encoded.
+app.use("/api/project-lead", express.json({ limit: "90mb" }));
 // Messages to a Forge's Lead can carry images too.
 app.use("/api/forge/:issueId/message", express.json({ limit: "30mb" }));
 app.use(express.json());

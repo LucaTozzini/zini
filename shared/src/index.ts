@@ -101,7 +101,7 @@ export type PullRequestStatus = { pushed: boolean; pullRequest: PullRequest | nu
 // error is set when it failed or was rejected. result is its output, where the chat
 // shows it (the Forge's; the Project Lead's can be whole files), and callId its id.
 export type ChatMessage =
-  | { role: "user"; content: string; username?: string; images?: string[] }
+  | { role: "user"; content: string; username?: string; images?: string[]; files?: ChatFileInfo[] }
   | { role: "activity"; content: string; issueId: string; eventId: string; eventType: string }
   | { role: "assistant"; content: string }
   | {
@@ -431,10 +431,19 @@ export function summarizeRuns(runs: RunMetrics[], compare?: RunMetrics[]): Summa
   });
 }
 
-// Images are base64 data URLs, sent alongside the message text.
-export type ProjectLeadMessage = { message: string; images?: string[] };
+// Images are base64 data URLs, sent alongside the message text. Files (PDF or text) are
+// too, with their names.
+export type ProjectLeadMessage = { message: string; images?: string[]; files?: ChatFile[] };
+export type ChatFile = { name: string; data: string };
+// A file attached to a chat message, as the chat shows it: without its contents.
+export type ChatFileInfo = { name: string; type: string };
+// Attached files as a chat shows them, from their data URLs.
+export const fileInfo = (files?: ChatFile[]): ChatFileInfo[] | undefined =>
+  files?.map(({ name, data }) => ({ name, type: data.slice("data:".length, data.indexOf(";")) }));
 export const MAX_CHAT_IMAGES = 4;
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_CHAT_FILES = 4;
+export const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
 // Current conductor activity, as returned by GET /api/conductor/status.
 export type ConductorStatus = {

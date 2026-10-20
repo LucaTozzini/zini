@@ -1,7 +1,15 @@
 import { Alert, Box, Chip, Container, Stack, Typography } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
-import type { ChatEntry, ProjectLeadMessage, Decision, PendingAction, Todo } from "shared";
+import {
+  fileInfo,
+  type ChatEntry,
+  type ChatFile,
+  type ProjectLeadMessage,
+  type Decision,
+  type PendingAction,
+  type Todo,
+} from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import ApprovalCard from "./ApprovalCard.tsx";
@@ -30,6 +38,8 @@ export type ChatState = {
   sending: ProjectLeadMessage | null | undefined;
   images: string[];
   setImages: (images: string[]) => void;
+  files: ChatFile[];
+  setFiles: (files: ChatFile[]) => void;
   // The agent is working.
   busy: boolean;
   canSend: boolean;
@@ -122,7 +132,11 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
             )}
             {loading && <Typography color="text.secondary">Loading…</Typography>}
             <MessageList entries={messages} busy={busy} lastMessageRef={lastMessageRef} />
-            {sending && <HumanMessage message={{ role: "user", content: sending.message, images: sending.images }} />}
+            {sending && (
+              <HumanMessage
+                message={{ role: "user", content: sending.message, images: sending.images, files: fileInfo(sending.files) }}
+              />
+            )}
             {pending.length > 0 && <ApprovalCard actions={pending} loading={decideLoading} onDecide={decide} />}
             {busy && <ThinkingIndicator />}
             {error && <Alert severity="error">{errorMessage(error)}</Alert>}
@@ -179,6 +193,8 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
             <ChatInput
               images={chat.images}
               onImagesChange={chat.setImages}
+              files={chat.files}
+              onFilesChange={chat.setFiles}
               value={draft}
               loading={sendLoading}
               onChange={setDraft}

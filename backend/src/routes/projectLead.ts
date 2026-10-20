@@ -8,12 +8,12 @@ import { sendEvent } from "../core/events.js";
 import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } from "../agents/runs.js";
 import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { addViewer, browserState } from "../browser/agentBrowser.js";
-import { messageInput } from "../projectLead/messageInput.js";
+import { projectLeadMessageInput } from "../projectLead/messageInput.js";
 import { parse } from "./http.js";
 
 export const projectLead = Router();
 
-const readMessage = (body: unknown, res: Response) => parse(messageInput, body, res);
+const readMessage = (body: unknown, res: Response) => parse(projectLeadMessageInput, body, res);
 
 // One decision per action a thread is paused on.
 const decisions: z.ZodType<{ decisions: Decision[] }> = z.object({
@@ -78,14 +78,14 @@ projectLead.get("/subscriptions", async (_req, res) => {
 projectLead.post("/threads", async (req, res) => {
   const input = readMessage(req.body, res);
   if (!input) return;
-  const { message, images } = input;
+  const { message, images, files } = input;
 
   const setup = await loadSetup(res);
   if (!setup) return;
 
-  const title = message.trim().replace(/\s+/g, " ").slice(0, 60) || "Image attachment";
+  const title = message.trim().replace(/\s+/g, " ").slice(0, 60) || (files[0]?.name ?? "Image attachment");
   const thread = await ProjectLeadThread.create({ id: randomUUID(), title });
-  const start = (signal: AbortSignal) => chat(setup, thread.id, message, req.user!.username, signal, images);
+  const start = (signal: AbortSignal) => chat(setup, thread.id, message, req.user!.username, signal, images, files);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.
     await thread.destroy();
@@ -126,13 +126,14 @@ projectLead.get("/threads/:id/browser", async (req, res) => {
 projectLead.post("/threads/:id/messages", async (req, res) => {
   const input = readMessage(req.body, res);
   if (!input) return;
-  const { message, images } = input;
+  const { message, images, files } = input;
   if (!(await findThread(req.params.id, res))) return;
 
   const setup = await loadSetup(res);
   if (!setup) return;
   const id = req.params.id;
-  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images, files)))
+    res.status(202).end();
 });
 
 // Stops the run going on the chat. It shows as stopped straight away, while the run
@@ -154,7 +155,7 @@ projectLead.post("/threads/:id/stop", async (req, res) => {
 projectLead.post("/threads/:id/steer", async (req, res) => {
   const input = readMessage(req.body, res);
   if (!input) return;
-  const { message, images } = input;
+  const { message, images, files } = input;
   if (!(await findThread(req.params.id, res))) return;
 
   const setup = await loadSetup(res);
@@ -167,7 +168,8 @@ projectLead.post("/threads/:id/steer", async (req, res) => {
   // is still unwinding. Unlike /messages, which answers 409 while the agent works (which
   // guards a send from another tab), this is how the client sends one while it works.
   stopRun(id);
-  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images))) res.status(202).end();
+  if (await begin(res, id, (signal) => chat(setup, id, message, req.user!.username, signal, images, files)))
+    res.status(202).end();
 });
 
 // Approves or rejects the actions a thread is paused on, one decision per action.

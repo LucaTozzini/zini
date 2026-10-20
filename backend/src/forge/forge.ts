@@ -16,6 +16,7 @@ import {
 } from "../agents/agents.js";
 import { compactionMiddleware } from "../agents/compaction.js";
 import { npmTools } from "../agents/npmTools.js";
+import { linearFileTools } from "../agents/linearFileTools.js";
 import { isRunning, runStatus } from "../agents/runs.js";
 import { browserUrl, closeBrowser } from "../browser/agentBrowser.js";
 import { fetchLinearIssue } from "../integrations/linear.js";
@@ -325,7 +326,14 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
     systemPrompt,
     // Only reading the Forge, without a run, goes through the cache.
     checkpointer: run ? checkpointer : readCheckpointer,
-    tools: [...leadTools(issueId, need), diffTool(issueId), ...conflictTools(issueId), ...wikiTools, ...npmTools],
+    tools: [
+      ...leadTools(issueId, need),
+      ...linearFileTools(() => need().setup.linear),
+      diffTool(issueId),
+      ...conflictTools(issueId),
+      ...wikiTools,
+      ...npmTools,
+    ],
     middleware: [
       createMiddleware({
         name: "DrainForgeTools",

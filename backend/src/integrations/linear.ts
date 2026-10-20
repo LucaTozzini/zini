@@ -20,6 +20,76 @@ export async function testLinearKey(apiKey: string) {
   }
 }
 
+// Files uploaded to Linear (images and attachments in descriptions, comments and
+// documents) are on this host, and only download with the API key.
+const UPLOADS_HOST = "uploads.linear.app";
+
+// The uploaded files a markdown text links to, each once, named by its link's text
+// where it has one.
+export function linearUploads(markdown: string) {
+  const files = new Map<string, string>();
+  for (const [, name = "", url = ""] of markdown.matchAll(/!?\[([^\]]*)\]\((https:\/\/uploads\.linear\.app\/[^)\s]+)\)/g))
+    if (!files.has(url)) files.set(url, name);
+  // A bare URL can end a sentence: its last punctuation isn't part of it.
+  for (const [url] of markdown.matchAll(/https:\/\/uploads\.linear\.app\/[^\s)"'<>\]]*[^\s)"'<>\].,;:!?]/g))
+    if (!files.has(url)) files.set(url, "");
+  return [...files].map(([url, name]) => ({ url, ...(name && { name }) }));
+}
+
+// Downloads a file uploaded to Linear, with its name and type. Only from Linear's
+// uploads host, so the key never goes anywhere else.
+export async function downloadLinearFile(url: string) {
+  if (new URL(url).hostname !== UPLOADS_HOST) throw new Error(`Only files on ${UPLOADS_HOST} can be fetched`);
+  const apiKey = await getKey("linear");
+  if (!apiKey) throw new Error("Linear isn't connected");
+  const res = await fetch(url, { headers: { Authorization: apiKey } });
+  if (!res.ok) throw new Error(`Linear answered ${res.status} for ${url}`);
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const name = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] ?? /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+  return {
+    name: name ? decodeURIComponent(name) : (new URL(url).pathname.split("/").at(-1) ?? "file"),
+    type: res.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream",
+    bytes: Buffer.from(await res.arrayBuffer()),
+  };
+}
+
+// Uploads a file to Linear and returns its URL, for linking it from an issue or comment.
+// On its own, it isn't attached to anything.
+export async function uploadLinearFile(client: LinearClient, name: string, type: string, bytes: Buffer) {
+  const { uploadFile } = await client.fileUpload(type, name, bytes.length);
+  if (!uploadFile) throw new Error("Linear didn't accept the upload");
+  const headers: Record<string, string> = { "Content-Type": type, "Cache-Control": "public, max-age=31536000" };
+  for (const { key, value } of uploadFile.headers) headers[key] = value;
+  const res = await fetch(uploadFile.uploadUrl, { method: "PUT", headers, body: new Uint8Array(bytes) });
+  if (!res.ok) throw new Error(`Uploading ${name} to Linear failed (${res.status})`);
+  return uploadFile.assetUrl;
+}
+
+const DOCUMENT_QUERY = `
+  query Document($id: String!) {
+    document(id: $id) {
+      id title content url updatedAt
+      project { name }
+    }
+  }
+`;
+
+// A Linear document with its markdown and the uploaded files it links to. Accepts its
+// URL, the id at the end of it, or its internal id.
+export async function fetchLinearDocument(client: LinearClient, idOrUrl: string) {
+  const id = /\/document\/(?:[^/?#]*-)?([0-9a-f]{12})(?:[/?#]|$)/.exec(idOrUrl)?.[1] ?? idOrUrl.trim();
+  type Document = {
+    id: string;
+    title: string;
+    content: string | null;
+    url: string;
+    updatedAt: string;
+    project: { name: string } | null;
+  };
+  const { data } = await client.client.rawRequest<{ document: Document }, { id: string }>(DOCUMENT_QUERY, { id });
+  return { ...data!.document, files: linearUploads(data!.document.content ?? "") };
+}
+
 // One request with nested fields, instead of the SDK's lazy per-issue lookups.
 const ISSUES_QUERY = `
   query Issues($filter: IssueFilter) {

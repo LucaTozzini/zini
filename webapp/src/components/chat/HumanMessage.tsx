@@ -1,4 +1,4 @@
-import { Typography, Box, Card, Grid, Dialog } from "@mui/material";
+import { Typography, Box, Card, Chip, Grid, Dialog, Stack } from "@mui/material";
 import { memo, useState, type Ref } from "react";
 import type { ChatMessage } from "shared";
 import MarkdownText from "../MarkdownText.tsx";
@@ -77,6 +77,13 @@ export const HumanMessage = memo(function HumanMessage({ message, ref, lineLimit
         </Typography>
       )}
       <MessageImages images={message.images} />
+      {message.files?.length ? (
+        <Stack direction="row" spacing={1} sx={{ alignSelf: "flex-end", mb: 1, flexWrap: "wrap" }}>
+          {message.files.map((file, i) => (
+            <Chip key={i} label={file.name} title={file.type} />
+          ))}
+        </Stack>
+      ) : null}
       {message.content && (
         <Card
           variant="elevation"
