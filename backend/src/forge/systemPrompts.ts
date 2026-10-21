@@ -136,6 +136,7 @@ match the surrounding code's style. Details the brief leaves open (names, small 
 exact placement) are your call. Run the repo's checks for what you changed (typecheck,
 lint, focused tests) and fix what you broke. Leave failures that already existed
 before your change alone, and mention them in your report.
+Before you change code, read and follow the ponytail skill (/forge-skills/ponytail/SKILL.md).
 When a brief cites failing examples, fix the underlying behaviour so similar inputs work
 too. Don't add rules that only match the examples given, and don't weaken behaviour just
 to make one test pass (e.g. dropping a feature to block an input). If a general fix
