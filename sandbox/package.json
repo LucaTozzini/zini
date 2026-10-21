@@ -1,1 +1,1 @@
-{"private":true,"type":"module","dependencies":{"playwright":"1.63.0","tsx":"4.23.15","deepagents":"1.14.1","micromatch":"4.0.8"}}
+{"private":true,"type":"module","dependencies":{"deepagents":"1.14.1","micromatch":"4.0.8","playwright":"1.63.0","tree-kill":"1.2.2","tsx":"4.23.15"}}
