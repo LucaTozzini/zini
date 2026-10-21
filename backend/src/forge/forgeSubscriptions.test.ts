@@ -88,11 +88,7 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
     });
     await t.test("startup recovers interrupted claims and preserves FIFO", async () => {
       await emitForgeEvent("issue-b", { type: "stage_started", role: "lead" }, "first");
-      await emitForgeEvent(
-        "issue-b",
-        { type: "waiting", waiting: { kind: "approve_plan", plan: { steps: [], qaChecklist: [] } } },
-        "second",
-      );
+      await emitForgeEvent("issue-b", { type: "plan_ready", revision: 1 }, "second");
       const original = (await claimMessages("one"))!;
       assert.deepEqual(
         original.messages.map((message) => message.eventId),
@@ -178,6 +174,9 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
         forgeEventContent({
           type: "completed",
           plan: {
+            revision: 1,
+            design: "",
+            mockups: [],
             steps: [],
             qaChecklist: [
               { id: "Q1", condition: "Page loads", status: "failed", note: "Broken page" },
@@ -188,6 +187,7 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
         /failed: Page loads \(Broken page\)\n- skipped: Works on mobile/,
       );
       assert.equal(forgeEventContent({ type: "failed", error: "Timeout" }), "Forge failed: Timeout");
+      assert.equal(forgeEventContent({ type: "plan_ready", revision: 2 }), "Plan revision 2 is ready for your review.");
     });
     await sequelize.close();
     closed = true;

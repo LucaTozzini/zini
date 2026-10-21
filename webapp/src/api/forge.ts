@@ -54,12 +54,25 @@ export function useStartForge(issueId: string) {
   });
 }
 
-// Replies to what the Forge is waiting on: answers, approving the plan, or feedback.
+// Answers the Lead's questions.
 export function useResumeForge(issueId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (reply: ForgeResume) => api.post(`forge/${issueId}/resume`, { json: reply }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
+  });
+}
+
+// Approves the plan revision you reviewed, which starts the Lead on it.
+export function useApprovePlan(issueId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (revision: number) => api.post(`forge/${issueId}/approve-plan`, { json: { revision } }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: forgeKey(issueId) }),
+        queryClient.invalidateQueries({ queryKey: approvalsKey }),
+      ]),
   });
 }
 

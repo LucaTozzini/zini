@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import type { ForgeResume, ForgeState } from "shared";
 import { errorMessage } from "../api/client.ts";
-import { useForge, useMessageForge, useForgeControl, useResumeForge, useStartForge } from "../api/forge.ts";
+import { useApprovePlan, useForge, useMessageForge, useForgeControl, useResumeForge, useStartForge } from "../api/forge.ts";
 import { useChatScroll } from "../hooks/useChatScroll.ts";
 import CheckpointActivity from "./forge/CheckpointActivity.tsx";
 import ChatInput from "./chat/ChatInput.tsx";
@@ -28,9 +28,10 @@ function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }
   const resume = useResumeForge(issueId);
   const message = useMessageForge(issueId);
   const control = useForgeControl(issueId);
+  const approve = useApprovePlan(issueId);
   const reply = (response: ForgeResume) => resume.mutate(response);
-  const sending = start.isPending || resume.isPending || message.isPending;
-  const failure = start.error ?? resume.error ?? message.error ?? control.error;
+  const sending = start.isPending || resume.isPending || message.isPending || approve.isPending;
+  const failure = start.error ?? resume.error ?? message.error ?? control.error ?? approve.error;
   const [activityContent, setActivityContent] = useState("");
   const content = useMemo(() => ({ forge, activityContent }), [forge, activityContent]);
   const { scrollRef, onScroll, onScrollEnd, messagesBelow, scrollToBottom } = useChatScroll({
@@ -91,7 +92,10 @@ function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }
                 forge={forge}
                 onStart={(note) => start.mutate(note)}
                 onReply={reply}
+                onApprove={(revision) => approve.mutateAsync(revision)}
+                onFeedback={(feedback) => message.mutateAsync({ message: feedback, images: [] })}
                 sending={sending}
+                error={approve.error ?? message.error}
               />
             </Box>
             {forge.browserUrl && (

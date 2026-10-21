@@ -212,12 +212,15 @@ export type ServerEvent = ThreadEvent | WorkspaceEvent | ForgeEvent | ForgeLogEv
 // can't decide.
 export type AgentRole = "lead" | "coder" | "reviewer";
 
-// The plan the Lead writes. The Lead sets each step's status; only the Reviewer sets a
-// QA check's status. Every commit sets the checks back to todo. note says why a check
-// failed or was skipped.
+// The plan the Lead writes: its design (markdown, for you to see the implementation),
+// wireframe mockups of any UI it adds or changes (standalone HTML, shown sandboxed), its
+// steps and its QA checklist. The Lead sets each step's status; only the Reviewer
+// sets a QA check's status. Every commit sets the checks back to todo. note says why a
+// check failed or was skipped. revision counts the Lead's versions of it, from 1.
 export type PlanStep = { id: string; description: string; status: "todo" | "in-progress" | "complete" };
 export type QaCheck = { id: string; condition: string; status: "todo" | "skipped" | "failed" | "passed"; note: string };
-export type ForgePlan = { steps: PlanStep[]; qaChecklist: QaCheck[] };
+export type Mockup = { title: string; html: string };
+export type ForgePlan = { revision: number; design: string; mockups: Mockup[]; steps: PlanStep[]; qaChecklist: QaCheck[] };
 
 // A command the repo supports (to set up, check or start it), kept with the files
 // that define it, so it's dropped once they change. Used by the workspace app launcher.
@@ -234,18 +237,19 @@ export type RepoCommand = {
 // GET /api/workspaces/:issueId/diff: a unified diff, new files included.
 export type WorkspaceDiff = { diff: string; truncated: boolean };
 
-// What the Forge is paused on, waiting for you: the Lead's questions, or a plan (or a
-// change to it) to approve.
-export type ForgeWaiting = { kind: "questions"; questions: string[] } | { kind: "approve_plan"; plan: ForgePlan };
+// What the Forge is paused on, waiting for you: the Lead's questions. A plan waiting for
+// approval isn't a pause: it's a plan that isn't approved (see ForgeState), approved with
+// POST /api/forge/:issueId/approve-plan { revision }, or answered with feedback as a
+// message to the Lead.
+export type ForgeWaiting = { kind: "questions"; questions: string[] };
 
-// Your reply to what the Forge is waiting on, as POSTed to /api/forge/:issueId/resume:
-// answers to the questions (in order), approving the plan, or what to change in it.
-export type ForgeResume = { answers: string[] } | { approve: true } | { feedback: string };
+// Your answers to the Lead's questions (in order), as POSTed to /api/forge/:issueId/resume.
+export type ForgeResume = { answers: string[] };
 
 // One entry of a Forge conversation, with the agent whose conversation it's from.
 export type ForgeMessage = ChatEntry & { t: string; agent: AgentRole | null };
 
-// An issue whose Forge is waiting for you to approve its plan, as listed by
+// An issue whose Forge has a plan waiting for your approval, as listed by
 // GET /api/forge/approvals.
 export type PendingApproval = { issueId: string; kind: "approve_plan" };
 

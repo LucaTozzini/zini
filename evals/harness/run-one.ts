@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFil
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ForgeResume, ForgeWaiting } from "shared";
-import { getForge, forgeRun, resumeForge, startForge, stopForgeProcesses } from "../../backend/src/forge/forge.js";
+import { approvePlan, getForge, forgeRun, resumeForge, startForge, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { checklistVerdict } from "../../backend/src/forge/plan.js";
 import { initDb } from "../../backend/src/db.js";
 import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
@@ -55,18 +55,11 @@ const fixture: Fixture = {
 let questionsAnswered = 0;
 let plansApproved = 0;
 
+// Every question gets "You decide.": the Lead makes the calls a user would.
 function reply(waiting: ForgeWaiting): ForgeResume {
-  if (waiting.kind === "questions") {
-    const answers = waiting.questions.map(() => scenario.answers?.[questionsAnswered++] ?? "You decide.");
-    waiting.questions.forEach((question, i) => console.log(`? lead: ${question}\n  → ${answers[i]}`));
-    return { answers };
-  }
-  if (waiting.kind === "approve_plan") {
-    plansApproved++;
-    console.log("✓ plan approved");
-    return { approve: true };
-  }
-  throw new Error("Unknown Forge request");
+  questionsAnswered += waiting.questions.length;
+  waiting.questions.forEach((question) => console.log(`? lead: ${question}\n  → You decide.`));
+  return { answers: waiting.questions.map(() => "You decide.") };
 }
 
 // ---- The run ----------------------------------------------------------------------
@@ -116,9 +109,14 @@ async function main() {
       // Each step's state; the logs show the progress.
     }
     for (let pauses = 0; pauses < 200; pauses++) {
-      const { waiting } = await getForge(issueId);
-      if (!waiting) break;
-      for await (const _ of await resumeForge(run, reply(waiting))) {
+      const { waiting, plan, planApproved } = await getForge(issueId);
+      const next = waiting
+        ? resumeForge(run, reply(waiting))
+        : plan && !planApproved
+          ? (plansApproved++, console.log(`✓ plan revision ${plan.revision} approved`), approvePlan(run, plan.revision))
+          : null;
+      if (!next) break;
+      for await (const _ of await next) {
         // As above.
       }
     }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ForgeLifecycleEvent } from "./events.js";
 import { forgeEvents } from "./forgeEvents.js";
-const plan = { steps: [], qaChecklist: [] };
+const questions = { kind: "questions" as const, questions: ["Which list?"] };
 import { Annotation, Command, END, MemorySaver, START, StateGraph, interrupt } from "@langchain/langgraph";
 
 async function collect<T>(stream: AsyncIterable<T>) {
@@ -19,13 +19,13 @@ test("streaming chunks don't emit notifications; a saved interrupt emits one wai
   })();
   const stream = forgeEvents(
     Promise.resolve(source),
-    async () => ({ type: "waiting", waiting: { kind: "approve_plan", plan } }),
+    async () => ({ type: "waiting", waiting: questions }),
     async (event) => {
       events.push(event);
     },
   );
   assert.deepEqual(await collect(stream), ["first", "second"]);
-  assert.deepEqual(events, [{ type: "waiting", waiting: { kind: "approve_plan", plan } }]);
+  assert.deepEqual(events, [{ type: "waiting", waiting: questions }]);
 });
 
 test("completion and failure emit once; failure preserves the original exception", async () => {
@@ -88,12 +88,12 @@ test("cancellation emits stopped after draining", async () => {
 test("a real graph emits a saved human request and completion on resume", async () => {
   const state = Annotation.Root({ finished: Annotation<boolean>() });
   const graph = new StateGraph(state)
-    .addNode("approval", () => {
-      interrupt({ kind: "approve_plan", plan });
+    .addNode("question", () => {
+      interrupt(questions);
       return { finished: true };
     })
-    .addEdge(START, "approval")
-    .addEdge("approval", END)
+    .addEdge(START, "question")
+    .addEdge("question", END)
     .compile({ checkpointer: new MemorySaver() });
   const config = { configurable: { thread_id: "lifecycle" }, streamMode: "values" as const, durability: "sync" as const };
   const events: ForgeLifecycleEvent[] = [];
@@ -101,16 +101,16 @@ test("a real graph emits a saved human request and completion on resume", async 
     const snapshot = await graph.getState(config);
     if (snapshot.values.finished) return { type: "completed", plan: null };
     const request = snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value;
-    return request ? { type: "waiting", waiting: request as { kind: "approve_plan"; plan: typeof plan } } : null;
+    return request ? { type: "waiting", waiting: request as typeof questions } : null;
   };
   const emit = async (event: ForgeLifecycleEvent) => {
     events.push(event);
   };
   await collect(forgeEvents(graph.stream({ finished: false }, config), outcome, emit));
-  assert.deepEqual(events, [{ type: "waiting", waiting: { kind: "approve_plan", plan } }]);
-  await collect(forgeEvents(graph.stream(new Command({ resume: { approve: true } }), config), outcome, emit));
+  assert.deepEqual(events, [{ type: "waiting", waiting: questions }]);
+  await collect(forgeEvents(graph.stream(new Command({ resume: { answers: ["The first"] } }), config), outcome, emit));
   assert.deepEqual(events, [
-    { type: "waiting", waiting: { kind: "approve_plan", plan } },
+    { type: "waiting", waiting: questions },
     { type: "completed", plan: null },
   ]);
 });

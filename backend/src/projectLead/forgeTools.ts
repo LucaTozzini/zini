@@ -11,6 +11,8 @@ import {
   messageForge,
   outsideAgentRun,
   forgeRun,
+  approvePlan,
+  planApprovalError,
   readReply,
   replyFits,
   resumeForge,
@@ -272,9 +274,9 @@ export function forgeTools(linear: LinearClient) {
         name: "forge_status",
         description:
           "Where an issue's Forge is at: running is the agent working now (lead, coder or " +
-          "reviewer), waiting what it needs from the user (questions to answer, or a plan to " +
-          "approve), and the plan: its steps and QA checklist with their statuses. Finished " +
-          "has waiting: null; changes go through message_forge. Not the code changes.",
+          "reviewer), waiting the questions it needs the user to answer, and the plan: its design, " +
+          "steps and QA checklist with their statuses, and whether it's approved (planApproved). " +
+          "Changes go through message_forge. Not the code changes.",
         schema: z.object({ issueId: ISSUE_ID }),
       },
     ),
@@ -333,18 +335,11 @@ export function forgeTools(linear: LinearClient) {
       },
     ),
     tool(
-      async ({ issueId, ...input }) => {
-        // Exactly one, so nothing the user approved on the card is left out.
-        if (Object.values(input).filter((value) => value !== undefined).length !== 1) {
-          return JSON.stringify({
-            status: "error",
-            error: "Pass exactly one of answers, approve or feedback",
-          });
-        }
+      async ({ issueId, answers }) => {
         const id = await toIssueId(linear, issueId);
         const { waiting } = await getForge(id);
         if (!waiting) return JSON.stringify({ status: "not_waiting" });
-        const reply = readReply(input);
+        const reply = readReply({ answers });
         if (!reply || !replyFits(waiting, reply)) {
           return JSON.stringify({
             status: "error",
@@ -368,23 +363,38 @@ export function forgeTools(linear: LinearClient) {
       {
         name: "reply_to_forge",
         description:
-          "Reply to what an issue's Forge is waiting on, with exactly one of: " +
-          "answers (one per question, in order), approve: true (approve the plan) or " +
-          "feedback (what to change in the plan). Other changes use message_forge. Finished " +
-          "work needs no reply. The user approves the call before it runs.",
+          "Answer the questions an issue's Forge is waiting on (waiting.kind=questions), one answer per question, " +
+          "in order. Feedback on a plan and other changes use message_forge. The user approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
-          answers: z.array(z.string()).optional().describe("User answers to waiting.kind=questions, one per question in order."),
-          approve: z
-            .boolean()
-            .optional()
-            .describe(
-              "Pass true only for user approval of a pending plan (waiting.kind=approve_plan). Not acceptance of finished work.",
-            ),
-          feedback: z
-            .string()
-            .optional()
-            .describe("The user's requested changes to a pending plan (waiting.kind=approve_plan), instead of approving it."),
+          answers: z.array(z.string()).describe("The user's answers, one per question in order."),
+        }),
+      },
+    ),
+    tool(
+      async ({ issueId, revision }, config) => {
+        const id = await toIssueId(linear, issueId);
+        if (!(await Workspace.findByPk(id))) return JSON.stringify({ status: "error", error: "This issue has no workspace" });
+        const error = await planApprovalError(id, revision);
+        if (error) return JSON.stringify({ status: "error", error });
+        const setup = await loadForgeSetup();
+        if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
+        await forgeSubscriptions.subscribe(caller(config), id);
+        const run = forgeRun(setup, id, "Project Lead");
+        const started = await outsideAgentRun(() =>
+          startRun(forgeThreadId(id), (signal) => approvePlan(run, revision, signal), run.notify),
+        );
+        return JSON.stringify(started ? { status: "approved" } : { status: "error", error: "The Forge is still running" });
+      },
+      {
+        name: "approve_forge_plan",
+        description:
+          "Approve the plan revision an issue's Forge is waiting on (forge_status: a plan with planApproved false), " +
+          "only when the user approves it, and start the Lead on it. Not acceptance of finished work. The user " +
+          "approves the call before it runs.",
+        schema: z.object({
+          issueId: ISSUE_ID,
+          revision: z.number().int().positive().describe("The plan's revision the user reviewed (plan.revision)"),
         }),
       },
     ),

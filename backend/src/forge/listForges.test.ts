@@ -14,6 +14,9 @@ const forge: ForgeState = {
   error: null,
 };
 const plan = {
+  revision: 1,
+  design: "",
+  mockups: [],
   steps: [],
   qaChecklist: [
     { id: "Q1", condition: "Loads", status: "passed" as const, note: "" },
@@ -45,14 +48,14 @@ test("subscribedOnly excludes other workspaces and retains approvals and complet
     async (id) => {
       read.push(id);
       return id === "watched"
-        ? { ...forge, running: null, waiting: { kind: "approve_plan", plan } }
+        ? { ...forge, running: null, waiting: { kind: "questions" as const, questions: ["Which list?"] } }
         : { ...forge, running: null, finished: true, plan };
     },
     true,
   );
   assert.deepEqual(read, ["watched", "done"]);
   assert.ok(rows.every((row) => row.subscribed));
-  assert.deepEqual(rows[0]?.waiting, { kind: "approve_plan", plan });
+  assert.deepEqual(rows[0]?.waiting, { kind: "questions", questions: ["Which list?"] });
   assert.equal(rows[1]?.finished, true);
   assert.equal(rows[1]?.qaVerdict, "partial");
 });

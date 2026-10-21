@@ -1,6 +1,6 @@
 // A scenario: an issue for the forge to work on, in a copy of a test repo, with an
-// optional patch applied first (e.g. a planted bug) and answers for the questions the
-// subagents may ask. Each lives in evals/scenarios/<repo>/<name>/, under the folder of
+// optional patch applied first (e.g. a planted bug). The Lead's questions are all
+// answered "You decide.", and each plan it saves is approved. Each lives in evals/scenarios/<repo>/<name>/, under the folder of
 // the repo in evals/repos it runs on, as scenario.json, and can also hold check.ts, a
 // hidden check of the result (see Check).
 export type Scenario = {
@@ -8,9 +8,6 @@ export type Scenario = {
   description: string;
   // A patch in the scenario's folder, applied to the repo before its first commit.
   patch?: string;
-  // Answers to the subagents' questions, in the order they're asked; "You decide."
-  // once they run out.
-  answers?: string[];
   // False exercises the Forge's preparation with an initially empty dependency install.
   preinstalledDependencies?: boolean;
   // Seed an inherited implementation on the issue branch after the baseline commit.

@@ -53,7 +53,12 @@ export async function coderWorker(run: Run, issue: LinearIssueDetails, plan: For
     plan.steps.map((step) => `- ${step.id} [${step.status}] ${step.description}`).join("\n") || "No implementation steps.";
   return {
     role: "coder",
-    prompt: `${CODER_PROMPT}\n\n${await context(issueId, issue)}\n\n# The approved plan's steps\n\n${steps}`,
+    prompt:
+      `${CODER_PROMPT}\n\n${await context(issueId, issue)}\n\n# The approved plan's design\n\n${plan.design}` +
+      plan.mockups
+        .map((mockup) => `\n\n## Mockup: ${mockup.title} (a wireframe: layout and content, not styling)\n\n${mockup.html}`)
+        .join("") +
+      `\n\n# The approved plan's steps\n\n${steps}`,
     tools: [
       ...writeTools(issueId, notify),
       diffTool(issueId),

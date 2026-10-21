@@ -1,5 +1,8 @@
 {
   "plan": {
+    "revision": 1,
+    "design": "",
+    "mockups": [],
     "steps": [
       {
         "id": "S1",

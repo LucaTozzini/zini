@@ -10,6 +10,8 @@ import {
   messageForge,
   pendingApprovals,
   forgeRun,
+  approvePlan,
+  planApprovalError,
   readReply,
   replyFits,
   resumeForge,
@@ -111,13 +113,13 @@ forge.post("/:issueId/start", async (req, res) => {
   if (started) res.status(202).end();
 });
 
-// Replies to what the Forge is waiting on: { answers } to questions, or { approve: true }
-// or { feedback } on the plan. Other messages use /message.
+// Answers the Lead's questions: { answers }, one per question in order. Feedback on the
+// plan, and other messages, use /message.
 forge.post("/:issueId/resume", async (req, res) => {
   const { issueId } = req.params;
   const reply = readReply(req.body);
   if (!reply) {
-    res.status(400).json({ error: "Expected { answers }, { approve: true } or { feedback }" });
+    res.status(400).json({ error: "Expected { answers }" });
     return;
   }
   if (!(await requireWorkspace(issueId, res))) return;
@@ -134,6 +136,25 @@ forge.post("/:issueId/resume", async (req, res) => {
 
   const run = forgeRun(setup, issueId, req.user!.username);
   const started = await beginRun(res, forgeThreadId(issueId), (signal) => resumeForge(run, reply, signal), run.notify);
+  if (started) res.status(202).end();
+});
+
+// Approves the plan revision the user reviewed ({ revision }), and starts the Lead on it.
+forge.post("/:issueId/approve-plan", async (req, res) => {
+  const { issueId } = req.params;
+  const body = parse(z.object({ revision: z.number().int().positive() }), req.body, res, "Expected { revision }");
+  if (!body) return;
+  if (!(await requireWorkspace(issueId, res))) return;
+  const error = await planApprovalError(issueId, body.revision);
+  if (error) {
+    res.status(409).json({ error });
+    return;
+  }
+  const setup = await loadSetup(res);
+  if (!setup) return;
+
+  const run = forgeRun(setup, issueId, req.user!.username);
+  const started = await beginRun(res, forgeThreadId(issueId), (signal) => approvePlan(run, body.revision, signal), run.notify);
   if (started) res.status(202).end();
 });
 

@@ -1,15 +1,25 @@
-import type { ForgePlan, LinearIssueDetails } from "shared";
+import type { ForgePlan, LinearIssueDetails, Mockup } from "shared";
 
-// The Lead's plan (see shared's ForgePlan): its steps, which the Lead marks off, and its
-// QA checklist, which only the Reviewer marks. Every change to its contents needs your
-// approval; statuses don't.
+// The Lead's plan (see shared's ForgePlan): its design and mockups, its steps, which the
+// Lead marks off, and its QA checklist, which only the Reviewer marks. Every change to its contents
+// needs your approval; statuses don't.
 
-// A plan from the Lead's lists. Steps and checks whose text is unchanged keep their
-// status (and a check its note); the rest start as todo. Ids follow the order.
-export function draftPlan(previous: ForgePlan | null, steps: string[], qaChecklist: string[]): ForgePlan {
+// The next revision of the plan, from the Lead's design, mockups and lists. Steps and checks
+// whose text is unchanged keep their status (and a check its note); the rest start as
+// todo. Ids follow the order.
+export function draftPlan(
+  previous: ForgePlan | null,
+  design: string,
+  mockups: Mockup[],
+  steps: string[],
+  qaChecklist: string[],
+): ForgePlan {
   const stepStatus = new Map(previous?.steps.map((step) => [step.description, step.status]));
   const checks = new Map(previous?.qaChecklist.map((check) => [check.condition, check]));
   return {
+    revision: (previous?.revision ?? 0) + 1,
+    design,
+    mockups,
     steps: steps.map((description, i) => ({ id: `S${i + 1}`, description, status: stepStatus.get(description) ?? "todo" })),
     qaChecklist: qaChecklist.map((condition, i) => {
       const old = checks.get(condition);

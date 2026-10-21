@@ -54,7 +54,7 @@ test("continuation with null does not approve a pending human request", async ()
   let work = 0;
   const graph = new StateGraph(state)
     .addNode("approval", () => {
-      interrupt({ kind: "approve_plan" });
+      interrupt({ kind: "questions", questions: ["Which list?"] });
       work++;
       return { done: true };
     })

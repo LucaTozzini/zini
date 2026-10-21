@@ -24,7 +24,8 @@ test(
     const { git, workspacePath, removeWorkspaceMarker } = await import("../repositories/git.js");
     const { Workspace } = await import("../models/Workspace.js");
     const { initDb, sequelize } = await import("../db.js");
-    const { startForge, resumeForge, getForge, getForgeMessages, forgeRun } = await import("./forge.js");
+    const { startForge, resumeForge, approvePlan, planApprovalError, getForge, getForgeMessages, forgeRun } =
+      await import("./forge.js");
     const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
     const { checkpointer } = await import("../agents/agents.js");
     const { saveSettings } = await import("../core/settings.js");
@@ -46,10 +47,13 @@ test(
         {
           name: "write_plan",
           args: {
+            design: "Keep the inherited issue behavior and main's upstream behavior side by side in file.txt.",
             steps: ["Resolve file.txt preserving issue and upstream behavior"],
             qaChecklist: ["file.txt keeps both behaviors"],
           },
         },
+        // Saving the plan ends the Lead's turn, until the user approves it.
+        { text: "The plan is ready for your review." },
         { name: "delegate_coder", args: { brief: "Resolve the conflict in file.txt, keeping both behaviors." } },
         { name: "commit", args: { message: "Preserve issue and upstream behavior" } },
         { name: "delegate_reviewer", args: { brief: "Review the conflict resolution." } },
@@ -190,15 +194,22 @@ test(
       }
       for (let n = 0; n < 5; n++) {
         const forge = await getForge(id);
-        if (!forge.waiting) break;
-        waits.push(forge.waiting.kind);
-        const reply = forge.waiting.kind === "questions" ? { answers: ["Yes, keep both"] } : { approve: true as const };
-        for await (const _ of await resumeForge(run, reply)) {
-          /* drain */
-        }
+        if (forge.waiting) {
+          waits.push(forge.waiting.kind);
+          for await (const _ of await resumeForge(run, { answers: ["Yes, keep both"] })) {
+            /* drain */
+          }
+        } else if (forge.plan && !forge.planApproved) {
+          waits.push(`plan revision ${forge.plan.revision}`);
+          assert.equal(await planApprovalError(id, 2), "The plan has changed since: review revision 1");
+          assert.equal(await planApprovalError(id, 1), null);
+          for await (const _ of await approvePlan(run, 1)) {
+            /* drain */
+          }
+        } else break;
       }
       const forge = await getForge(id);
-      assert.deepEqual(waits, ["questions", "approve_plan"]);
+      assert.deepEqual(waits, ["questions", "plan revision 1"]);
       assert.equal(forge.finished, true);
       assert.deepEqual(
         forge.plan?.steps.map((step) => step.status),
@@ -214,12 +225,15 @@ test(
       );
       assert.match(requests.lead[2]!, /Yes, keep both/, "The Lead gets the user's answers");
       assert.match(requests.lead[2]!, /stopped on conflicts in: file\.txt/, "Committing merges main and reports conflicts");
-      assert.match(requests.lead[7]!, /Can't finish yet[\s\S]*latest default branch/, "Finishing needs the latest main");
-      assert.match(requests.lead[8]!, /Merged the latest main[\s\S]*back to todo/, "A merge sets the QA checks back to todo");
+      assert.match(requests.lead[3]!, /Saved plan revision 1, not approved yet/, "Saving the plan doesn't wait");
+      assert.match(requests.lead[4]!, /I approved plan revision 1/, "Approving tells the Lead");
+      assert.match(requests.lead[8]!, /Can't finish yet[\s\S]*latest default branch/, "Finishing needs the latest main");
+      assert.match(requests.lead[9]!, /Merged the latest main[\s\S]*back to todo/, "A merge sets the QA checks back to todo");
       assert.match(requests.coder[0]!, /Preserve both behaviors/, "The Coder sees the issue");
       assert.match(requests.coder[0]!, /Resolve the conflict in file\.txt/, "The Coder gets the Lead's brief");
       assert.match(requests.coder[0]!, /S1 \[todo\] Resolve file\.txt/, "The Coder sees the plan's steps");
-      assert.match(requests.lead[4]!, /S1: complete/, "The Coder marks the steps it completes");
+      assert.match(requests.coder[0]!, /side by side in file\.txt/, "The Coder sees the plan's design");
+      assert.match(requests.lead[5]!, /S1: complete/, "The Coder marks the steps it completes");
       assert.match(requests.reviewer[0]!, /Q1: file\.txt keeps both behaviors/, "The Reviewer gets the QA checklist");
       assert.match(requests.reviewer[2]!, /Your report was invalid: Give a result for every QA check/);
       assert.doesNotMatch(requests.reviewer[3]!, /both-behaviors/, "Each review starts a fresh Reviewer");

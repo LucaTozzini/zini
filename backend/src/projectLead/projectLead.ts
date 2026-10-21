@@ -107,6 +107,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           update_issue: { allowedDecisions: ["approve", "reject"] },
           set_blocker: { allowedDecisions: ["approve", "reject"] },
           reply_to_forge: { allowedDecisions: ["approve", "reject"] },
+          approve_forge_plan: { allowedDecisions: ["approve", "reject"] },
           commit_and_push: { allowedDecisions: ["approve", "reject"] },
           pull_request_create: { allowedDecisions: ["approve", "reject"] },
           pull_request_comment: { allowedDecisions: ["approve", "reject"] },

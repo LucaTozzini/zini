@@ -22,7 +22,7 @@ You can also run the trusted harness with `node --import tsx evals/run.ts all --
 from the repository root after `npm run sandbox:build`. Set `EVAL_MODEL` and either
 `OPENROUTER_API_KEY`, or `EVAL_PROVIDER=chatgpt` and `CHATGPT_TOKEN_FILE`.
 
-Scenario answers and plan approvals remain scripted. Sandbox commands run without
+The Lead's questions are all answered "You decide.", and each plan revision it saves is approved. Sandbox commands run without
 approval pauses. Unsupported runtimes or configuration
 failures still surface as blocked validation or questions.
 
@@ -60,8 +60,8 @@ Forge, a passing QA checklist and no failed hidden check.
 then applies the optional scenario patch. Dependencies are installed inside its sandbox
 before execution unless `preinstalledDependencies: false` exercises the Forge's setup.
 
-`scenarios/<repo>/<name>/scenario.json` supplies the issue title, description, optional
-patch and scripted answers. An optional `check.ts` receives container-backed `readFile`
+`scenarios/<repo>/<name>/scenario.json` supplies the issue title, description and optional
+patch. An optional `check.ts` receives container-backed `readFile`
 and `runCommand` helpers, `startApp` and `launchBrowser`. Hidden-check code remains trusted on the host; its app
 and browser execute inside the sandbox. HTTP checks use a temporary authenticated
 loopback proxy (`app.url`); browser checks use the container-local `app.browserUrl`.

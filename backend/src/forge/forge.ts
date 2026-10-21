@@ -71,7 +71,12 @@ const leadState = createMiddleware({
   }),
   wrapModelCall: (request, handler) => {
     const { plan, planApproved } = request.state as unknown as LeadState;
-    const text = plan ? `${planApproved ? "Approved." : "Not approved yet."}\n\n${planText(plan)}` : "No plan yet.";
+    const text = plan
+      ? `Revision ${plan.revision}. ${planApproved ? "Approved." : "Not approved yet: the user is reviewing it."}\n\n` +
+        `Design:\n${plan.design}\n\n` +
+        (plan.mockups.length ? `Mockups: ${plan.mockups.map((mockup) => mockup.title).join(", ")}\n\n` : "") +
+        planText(plan)
+      : "No plan yet.";
     return handler({ ...request, systemMessage: request.systemMessage.concat(`\n\n# The current plan\n\n${text}`) });
   },
 });
@@ -122,23 +127,42 @@ function leadTools(issueId: string, need: () => Run) {
   };
   return [
     tool(
-      async ({ steps, qaChecklist }, config) => {
+      async ({ design, mockups, steps, qaChecklist }, config) => {
         const runtime = runtimeOf(config);
-        const plan = draftPlan(runtime.state.plan, steps, qaChecklist);
-        const reply = interrupt<ForgeWaiting, ForgeResume>({ kind: "approve_plan", plan });
-        if ("feedback" in reply) return `The user didn't approve this plan. Their feedback:\n\n${reply.feedback}`;
-        return updating(runtime, "write_plan", `The user approved the plan:\n\n${planText(plan)}`, {
-          plan,
-          planApproved: true,
-          finished: false,
-        });
+        const plan = draftPlan(runtime.state.plan, design, mockups ?? [], steps, qaChecklist);
+        return updating(
+          runtime,
+          "write_plan",
+          `Saved plan revision ${plan.revision}, not approved yet. The user reviews it now: their approval or ` +
+            "feedback comes as a message. End your turn with one short sentence for them; until it's approved, " +
+            "delegate_coder and delegate_reviewer are refused.",
+          { plan, planApproved: false, finished: false },
+        );
       },
       {
         name: "write_plan",
         description:
-          "Propose the whole plan (or a change to it): the user approves it or answers with feedback. " +
-          "Steps and checks whose text is unchanged keep their status. Nothing can be built until a plan is approved.",
+          "Save the whole plan (or a change to it) for the user to review. It doesn't wait: end your turn after it. " +
+          "The plan is unapproved until the user approves it, and every change to it needs approval again. " +
+          "Steps and checks whose text is unchanged keep their status.",
         schema: z.object({
+          design: z
+            .string()
+            .min(1)
+            .describe(
+              "Markdown for the user: the outcome, the approach (components and data flow, alternatives rejected), " +
+                "the decisions (each marked issue, user's answer or your call), interfaces (API, data, UI states, copy), " +
+                "and risks and what's out of scope",
+            ),
+          mockups: z
+            .array(
+              z.object({
+                title: z.string().min(1).describe('The screen and state it shows, e.g. "To-do list: empty"'),
+                html: z.string().min(1).describe("A standalone HTML document with inline CSS and no scripts"),
+              }),
+            )
+            .optional()
+            .describe("Wireframes of the UI the issue adds or changes, one per state the design names; none otherwise"),
           steps: z.array(z.string().min(1)).describe("Concrete implementation steps, in order, each naming the files it touches"),
           qaChecklist: z
             .array(z.string().min(1))
@@ -380,7 +404,8 @@ async function runLead(run: Run, input: unknown, describe: string, signal?: Abor
     `\n\n# Workspace starting point\n\n${JSON.stringify(await workspaceContext(issueId))}`;
   const log = await openRunLog(issueId, "lead");
   await log.write({ event: "start", role: "lead", model: setup.model, prompt, input: describe });
-  const wasFinished = Boolean((await readLead(issueId)).values.finished);
+  const before = (await readLead(issueId)).values;
+  const wasFinished = Boolean(before.finished);
   const agent = leadAgent(issueId, run, forgeModel(setup), prompt, log);
   const source = agent.stream(input as never, streamConfig(forgeThreadId(issueId), 2_000, signal));
   return forgeEvents(
@@ -388,7 +413,11 @@ async function runLead(run: Run, input: unknown, describe: string, signal?: Abor
     async (): Promise<ForgeLifecycleEvent | null> => {
       const { values, waiting } = await readLead(issueId);
       if (values.finished && !wasFinished) return { type: "completed", plan: values.plan ?? null };
-      return waiting ? { type: "waiting", waiting } : null;
+      if (waiting) return { type: "waiting", waiting };
+      // A new revision of the plan, for the user to review.
+      if (values.plan && !values.planApproved && values.plan.revision !== before.plan?.revision)
+        return { type: "plan_ready", revision: values.plan.revision };
+      return null;
     },
     (event) => emitForgeEvent(issueId, event),
     signal,
@@ -418,9 +447,26 @@ export function messageForge(run: Run, message: string, signal?: AbortSignal, im
   return runLead(run, { messages: [userMessage(message, images, run.username ?? null)] }, message, signal);
 }
 
-// Answers what the Forge is waiting on, and carries on.
+// Answers the Lead's questions, and carries on.
 export function resumeForge(run: Run, reply: ForgeResume, signal?: AbortSignal) {
   return runLead(run, new Command({ resume: reply }), JSON.stringify(reply), signal);
+}
+
+// Why the plan's revision can't be approved now, or null if it can. Only the revision
+// the user reviewed, and only while the Lead isn't working or asking.
+export async function planApprovalError(issueId: string, revision: number) {
+  const forge = await getForge(issueId);
+  if (forge.running || forge.pausing) return "The Lead is working: approve the plan once it stops";
+  if (forge.waiting) return "Answer the Lead's questions first";
+  if (!forge.plan || forge.planApproved) return "There's no plan waiting for approval";
+  if (forge.plan.revision !== revision) return `The plan has changed since: review revision ${forge.plan.revision}`;
+  return null;
+}
+
+// Approves the plan's revision and tells the Lead, in one step, so it carries on.
+export function approvePlan(run: Run, revision: number, signal?: AbortSignal) {
+  const text = `I approved plan revision ${revision}.`;
+  return runLead(run, { messages: [userMessage(text, [], run.username ?? null)], planApproved: true }, text, signal);
 }
 
 // Carries on paused or interrupted work, without adding input or bypassing a pause.
@@ -428,21 +474,13 @@ export function continueForge(run: Run, signal?: AbortSignal) {
   return runLead(run, null, "Continue", signal);
 }
 
-// Checks, and narrows, a reply to what the Forge is waiting on.
-const replySchema: z.ZodType<ForgeResume> = z.union([
-  z.strictObject({ answers: z.array(z.string()) }),
-  z.strictObject({ approve: z.literal(true) }),
-  z.strictObject({ feedback: z.string().trim().min(1) }),
-]);
+// Checks, and narrows, answers to the Lead's questions.
+const replySchema: z.ZodType<ForgeResume> = z.strictObject({ answers: z.array(z.string()) });
 export const readReply = (body: unknown) => replySchema.safeParse(body).data ?? null;
 
-// Whether a reply answers what the Forge is waiting on.
-export function replyFits(waiting: ForgeWaiting | null, reply: ForgeResume) {
-  return (
-    (waiting?.kind === "questions" && "answers" in reply && reply.answers.length === waiting.questions.length) ||
-    (waiting?.kind === "approve_plan" && ("approve" in reply || "feedback" in reply))
-  );
-}
+// Whether the answers fit the questions the Forge is waiting on.
+export const replyFits = (waiting: ForgeWaiting | null, reply: ForgeResume) =>
+  waiting?.kind === "questions" && reply.answers.length === waiting.questions.length;
 
 // ---- Reading it -------------------------------------------------------------------
 
@@ -495,14 +533,19 @@ export async function getToolResult(issueId: string, agent: AgentRole, delegatio
 const agentThreadId = (issueId: string, agent: AgentRole, delegation?: string) =>
   agent === "lead" ? forgeThreadId(issueId) : workerThreadId(issueId, agent, delegation);
 
-// The issues whose Forge is waiting for plan approval, for marking them in the webapp's
-// issue lists.
+// Whether the Forge's plan is waiting for the user to approve it: it isn't approved, and
+// the Lead has stopped working on it.
+export const awaitingPlanApproval = (forge: ForgeState) =>
+  Boolean(forge.plan && !forge.planApproved && !forge.running && !forge.pausing);
+
+// The issues whose Forge has a plan waiting for approval, for marking them in the
+// webapp's issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
   const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
-  const forges = await Promise.all(
-    workspaces.map(async ({ issueId }) => ({ issueId, waiting: (await getForge(issueId)).waiting })),
+  const forges = await Promise.all(workspaces.map(async ({ issueId }) => ({ issueId, forge: await getForge(issueId) })));
+  return forges.flatMap(({ issueId, forge }) =>
+    awaitingPlanApproval(forge) ? [{ issueId, kind: "approve_plan" as const }] : [],
   );
-  return forges.flatMap(({ issueId, waiting }) => (waiting?.kind === "approve_plan" ? [{ issueId, kind: waiting.kind }] : []));
 }
 
 // Stops what the workers started in the issue's workspace: their processes and browser.

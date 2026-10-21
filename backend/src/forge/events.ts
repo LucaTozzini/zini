@@ -8,6 +8,7 @@ import { enqueueMessages } from "../projectLead/messageQueue.js";
 export type ForgeLifecycleEvent =
   | { type: "stage_started"; role: AgentRole }
   | { type: "waiting"; waiting: ForgeWaiting }
+  | { type: "plan_ready"; revision: number }
   | { type: "completed"; plan: ForgePlan | null }
   | { type: "failed"; error: string }
   | { type: "stopped" };
@@ -15,12 +16,10 @@ export function forgeEventContent(event: ForgeLifecycleEvent): string {
   switch (event.type) {
     case "stage_started":
       return `The Lead delegated to the ${event.role}.`;
-    case "waiting": {
-      const waiting = event.waiting;
-      return waiting.kind === "questions"
-        ? `The Lead needs answers:\n${waiting.questions.join("\n")}`
-        : "The plan is ready for your approval.";
-    }
+    case "waiting":
+      return `The Lead needs answers:\n${event.waiting.questions.join("\n")}`;
+    case "plan_ready":
+      return `Plan revision ${event.revision} is ready for your review.`;
     case "completed": {
       const checks = event.plan?.qaChecklist ?? [];
       return `Forge finished.${
