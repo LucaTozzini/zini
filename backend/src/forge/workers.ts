@@ -19,6 +19,7 @@ import { serviceTools } from "./serviceTools.js";
 import { requireSubmission } from "./submission.js";
 import { CODER_PROMPT, REVIEWER_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem, writeTools } from "./tools.js";
+import { forgeSkillsMiddleware } from "./forgeSkills.js";
 
 // The Lead's workers: the Coder and the Reviewer. Each brief runs one to its report (see
 // documents.ts), which goes back to the Lead. Both start fresh with every brief, on a
@@ -141,6 +142,7 @@ export async function runWorker<S extends z.ZodObject>(
       toolErrors,
       repairToolCalls,
       workspaceFilesystem(issueId, role === "coder", notify),
+      forgeSkillsMiddleware(issueId),
       requireSubmission(String(schema.meta()?.title), (attempt) => log.write({ event: "doc_recovery", attempt })),
       compactionMiddleware(model),
     ],

@@ -8,7 +8,7 @@ import {
   workspaceDiff,
 } from "../workspaces/workspaceFiles.js";
 import { repositoryFilesystem } from "../repositories/repositoryFilesystem.js";
-import { containerFilesystem } from "../workspaces/containerFilesystem.js";
+import { forgeFilesystem } from "./forgeSkills.js";
 import { inspectConflicts, resolveConflict } from "../workspaces/workspaceIntegration.js";
 
 // The subagents' tools, each working in the issue's workspace.
@@ -17,7 +17,7 @@ import { inspectConflicts, resolveConflict } from "../workspaces/workspaceIntegr
 const MAX_DIFF_FOR_MODEL = 60_000;
 
 export function workspaceFilesystem(issueId: string, writable = false, notify?: () => void) {
-  return repositoryFilesystem(containerFilesystem(issueId, writable, notify), writable);
+  return repositoryFilesystem(forgeFilesystem(issueId, writable, notify), writable);
 }
 
 // The files whose diffs start in a diff ("diff --git a/<path> b/<path>" lines).

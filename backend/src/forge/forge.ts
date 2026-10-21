@@ -35,6 +35,7 @@ import { forgeModel, forgeThreadId, working, workerThreadId, type Run } from "./
 import { logTo, openRunLog, type RunLog } from "./runLog.js";
 import { LEAD_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem } from "./tools.js";
+import { forgeSkillsMiddleware } from "./forgeSkills.js";
 import { coderWorker, reviewerWorker, runWorker } from "./workers.js";
 
 export { loadSetup, forgeThreadId, outsideAgentRun, forgeRun, type Run, type Setup } from "./run.js";
@@ -356,6 +357,7 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
       oneAtATime,
       modelCallLimitMiddleware({ runLimit: MODEL_CALLS_PER_RUN, exitBehavior: "end" }),
       workspaceFilesystem(issueId),
+      forgeSkillsMiddleware(issueId),
     ],
   });
 }
