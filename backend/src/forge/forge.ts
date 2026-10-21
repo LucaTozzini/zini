@@ -28,7 +28,7 @@ import { commitAndIntegrate, isUpToDate, workspaceContext } from "../workspaces/
 import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
 import { loadForgeHistory } from "./history.js";
 import { checkpointMessages, forgeMessages } from "./messages.js";
-import { draftPlan, issueText, planText, resetChecks, unfinishedPlan } from "./plan.js";
+import { draftPlan, editPlan, issueText, planText, resetChecks, unfinishedPlan } from "./plan.js";
 import { forgeEvents } from "./forgeEvents.js";
 import { stopAllProcesses } from "./qaProcesses.js";
 import { forgeModel, forgeThreadId, working, workerThreadId, type Run } from "./run.js";
@@ -83,7 +83,16 @@ const leadState = createMiddleware({
 
 // Tools that change the plan or the workspace, or pause for the user, run one at a time:
 // a reply that calls one alongside other tools gets an error for each call instead.
-const SEQUENTIAL = new Set(["write_plan", "update_steps", "ask_user", "delegate_coder", "delegate_reviewer", "commit", "finish"]);
+const SEQUENTIAL = new Set([
+  "write_plan",
+  "edit_plan",
+  "update_steps",
+  "ask_user",
+  "delegate_coder",
+  "delegate_reviewer",
+  "commit",
+  "finish",
+]);
 const oneAtATime = createMiddleware({
   name: "OneAtATime",
   afterModel: (state) => {
@@ -119,6 +128,27 @@ const runtimeOf = (runtime: unknown) => runtime as Runtime;
 const updating = (runtime: Runtime, name: string, content: string, update: Partial<LeadState>) =>
   new Command({ update: { ...update, messages: [new ToolMessage({ content, tool_call_id: runtime.toolCallId, name })] } });
 
+// Saves a new revision of the plan, unapproved, for the user to review.
+const savePlan = (runtime: Runtime, name: string, plan: ForgePlan) =>
+  updating(
+    runtime,
+    name,
+    `Saved plan revision ${plan.revision}, not approved yet. The user reviews it now: their approval or ` +
+      "feedback comes as a message. End your turn with one short sentence for them; until it's approved, " +
+      "delegate_coder and delegate_reviewer are refused.",
+    { plan, planApproved: false, finished: false },
+  );
+
+// A step or QA check edit for edit_plan (see plan.ts's ListEdit).
+const LIST_EDIT = z.object({
+  action: z.enum(["replace", "remove", "insert"]),
+  id: z
+    .string()
+    .optional()
+    .describe("The id it changes or removes, or inserts after (as before this edit); insert without it adds at the end"),
+  text: z.string().optional().describe("The new text, for replace and insert"),
+});
+
 function leadTools(issueId: string, need: () => Run) {
   const issue = () => fetchLinearIssue(need().setup.linear, issueId);
   const approved = (state: LeadState) => {
@@ -129,22 +159,14 @@ function leadTools(issueId: string, need: () => Run) {
     tool(
       async ({ design, mockups, steps, qaChecklist }, config) => {
         const runtime = runtimeOf(config);
-        const plan = draftPlan(runtime.state.plan, design, mockups ?? [], steps, qaChecklist);
-        return updating(
-          runtime,
-          "write_plan",
-          `Saved plan revision ${plan.revision}, not approved yet. The user reviews it now: their approval or ` +
-            "feedback comes as a message. End your turn with one short sentence for them; until it's approved, " +
-            "delegate_coder and delegate_reviewer are refused.",
-          { plan, planApproved: false, finished: false },
-        );
+        return savePlan(runtime, "write_plan", draftPlan(runtime.state.plan, design, mockups ?? [], steps, qaChecklist));
       },
       {
         name: "write_plan",
         description:
-          "Save the whole plan (or a change to it) for the user to review. It doesn't wait: end your turn after it. " +
-          "The plan is unapproved until the user approves it, and every change to it needs approval again. " +
-          "Steps and checks whose text is unchanged keep their status.",
+          "Save the whole plan for the user to review: the first plan, or a rewrite. For changes to part of it, use " +
+          "edit_plan. It doesn't wait: end your turn after it. The plan is unapproved until the user approves it, and " +
+          "every change to it needs approval again. Steps and checks whose text is unchanged keep their status.",
         schema: z.object({
           design: z
             .string()
@@ -168,6 +190,48 @@ function leadTools(issueId: string, need: () => Run) {
             .array(z.string().min(1))
             .min(1)
             .describe("Testable conditions the Reviewer verifies, including code checks"),
+        }),
+      },
+    ),
+    tool(
+      async (edits, config) => {
+        const runtime = runtimeOf(config);
+        const previous = runtime.state.plan;
+        if (!previous) throw new Error("There's no plan to edit yet: write it with write_plan");
+        if (!Object.values(edits).some((list) => list?.length)) throw new Error("Give at least one edit");
+        const { design, mockups, steps, qaChecklist } = editPlan(previous, edits);
+        if (!qaChecklist.length) throw new Error("The QA checklist can't be empty");
+        return savePlan(runtime, "edit_plan", draftPlan(previous, design, mockups, steps, qaChecklist));
+      },
+      {
+        name: "edit_plan",
+        description:
+          "Change part of the plan, e.g. for the user's feedback, without rewriting the rest: exact text replacements " +
+          "in the design, mockups by title, and steps and QA checks by id. The edits apply together, or not at all if " +
+          "one doesn't fit. Like write_plan, it saves the next revision unapproved for the user to review: end your " +
+          "turn after it. Unchanged steps and checks keep their status.",
+        schema: z.object({
+          design: z
+            .array(
+              z.object({
+                oldText: z.string().min(1).describe("Text that appears exactly once in the design, copied exactly"),
+                newText: z.string().describe("Its replacement; empty removes it"),
+              }),
+            )
+            .optional(),
+          mockups: z
+            .array(
+              z.object({
+                title: z.string().min(1),
+                html: z
+                  .string()
+                  .optional()
+                  .describe("The whole new HTML, replacing the mockup with this title or adding one; omit to remove it"),
+              }),
+            )
+            .optional(),
+          steps: z.array(LIST_EDIT).optional(),
+          qaChecklist: z.array(LIST_EDIT).optional(),
         }),
       },
     ),

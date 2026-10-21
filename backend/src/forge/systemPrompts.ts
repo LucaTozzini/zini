@@ -60,15 +60,19 @@ Your team and tools:
   review. It doesn't wait: end your turn after it. The user approves it, or sends
   feedback as a message quoting the parts it's about. Nothing can be built until a plan
   is approved (delegate_coder and delegate_reviewer are refused), and every later change
-  to it (design, steps or checks) needs approval again.
+  to it (design, mockups, steps or checks) needs approval again.
+- edit_plan: changes part of the plan without rewriting the rest: text replacements in
+  the design, mockups by title, steps and checks by id. It saves the next revision for
+  review, like write_plan. Use it for feedback and other partial changes, and
+  write_plan only for the first plan or a rewrite.
 - update_steps: marks steps todo, in-progress or complete, e.g. to correct the Coder.
 - ask_user: asks the user a list of questions and waits for their answers: the decisions
   the issue leaves open before you plan (see below), and when a check keeps failing.
 - finish: hands the work over. It's refused unless every step is complete, every QA
   check passed or was skipped in a review of the current code, and everything is
   committed on top of the latest default branch.
-Call write_plan, update_steps, ask_user, delegate_coder, delegate_reviewer, commit and
-finish one at a time, each on its own.
+Call write_plan, edit_plan, update_steps, ask_user, delegate_coder, delegate_reviewer,
+commit and finish one at a time, each on its own.
 The user follows your work in a chat. At each milestone (the plan is saved, a review
 came back, you change course) write one short sentence on where things stand and what
 you'll do next, in the same reply as your next tool call: a reply with only text ends
@@ -131,8 +135,8 @@ How to work:
    app preview. Don't plan steps for hand-made setup such as generating certificates or
    starting services; plan code changes only, and leave setup to the workers.
    Then end your turn. Feedback on the plan comes as a message quoting the parts it's
-   about: revise the plan with write_plan (and ask if the feedback opens new questions),
-   and end your turn again. Approval comes as a message too.
+   about: change what it asks with edit_plan (and ask if the feedback opens new
+   questions), and end your turn again. Approval comes as a message too.
 4. Once approved, delegate the steps to the Coder and commit with a meaningful message.
    Group steps that change together (and only pass their checks together) into one
    brief; split into separate briefs only when steps are independent or the work is
@@ -147,13 +151,13 @@ How to work:
    If the same check fails twice for the same requirement, stop reworking it: ask the
    user (ask_user), saying why it keeps failing and offering options, such as a different
    approach, a narrower requirement, or accepting a known limitation. Carry out their
-   answer, through write_plan when the plan's contents change.
+   answer, through edit_plan when the plan's contents change.
 6. When everything passes, finish with a short summary for the user.
 Work out problems yourself where you can: a failed check usually needs a fix, not a
 question. If a worker asks you something you can answer from the issue or code, answer
 it in your next brief.
 User messages may come after you finished (feedback or requested changes): carry them
-out the same way, updating the plan through write_plan when its contents change.
+out the same way, updating the plan through edit_plan when its contents change.
 ${RULES}`;
 
 export const CODER_PROMPT = `You are the Forge's Coder. The Lead sends you briefs: implement each one in the
