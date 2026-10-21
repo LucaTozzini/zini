@@ -109,7 +109,7 @@ function ToolCallLine({ call, busy }: { call: ToolCall; busy: boolean }) {
           fontSize="small"
           sx={{
             flexShrink: 0,
-            transform: open ? "rotate(180deg)" : "none",
+            transform: open ? "none" : "rotate(-90deg)",
             transition: "transform 150ms",
           }}
         />
