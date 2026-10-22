@@ -36,6 +36,7 @@ import { logTo, openRunLog, type RunLog } from "./runLog.js";
 import { LEAD_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem } from "./tools.js";
 import { forgeSkillsMiddleware } from "./forgeSkills.js";
+import { restartApp } from "../workspaces/appLaunches.js";
 import { coderWorker, reviewerWorker, runWorker } from "./workers.js";
 
 export { loadSetup, forgeThreadId, outsideAgentRun, forgeRun, type Run, type Setup } from "./run.js";
@@ -280,6 +281,8 @@ function leadTools(issueId: string, need: () => Run) {
         const { steps, ...report } = await runWorker(run, await coderWorker(run, await issue(), plan), brief, {
           thread: workerThreadId(issueId, "coder", runtime.toolCallId),
         });
+        // The user's app, if it's running, restarts with the changes.
+        void restartApp(issueId);
         const changes = await workspaceChanges(issueId, true);
         const statuses = new Map(steps.map(({ id, status }) => [id, status]));
         const next = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: statuses.get(step.id) ?? step.status })) };

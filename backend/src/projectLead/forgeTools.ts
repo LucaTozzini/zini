@@ -26,6 +26,7 @@ import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { listForges } from "../forge/listForges.js";
 import { launchWorkspaceApp } from "../workspaces/workspaceApps.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { stopApp } from "../workspaces/appLaunches.js";
 import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
 import { syncWorkspace } from "../repositories/git.js";
 import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js";
@@ -64,7 +65,7 @@ export function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
         "Read the user app session's status, previewUrl (Zini's preview page), its address inside the workspace, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
-    tool(async ({ issueId }) => JSON.stringify(await workspaceApps.stop(await toIssueId(linear, issueId))), {
+    tool(async ({ issueId }) => (await stopApp(await toIssueId(linear, issueId)), JSON.stringify({ status: "stopped" })), {
       name: "stop_workspace_app",
       description: "Stop all processes in a user app session without stopping Forge or QA processes.",
       schema: z.object({ issueId: ISSUE_ID }),

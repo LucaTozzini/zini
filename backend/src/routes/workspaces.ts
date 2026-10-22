@@ -9,6 +9,7 @@ import { getSetting } from "../core/settings.js";
 import { errorMessage } from "../core/errors.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
+import { appState, startApp, stopApp } from "../workspaces/appLaunches.js";
 import { previewDownload } from "../browser/previewBrowser.js";
 import { syncWorkspace } from "../repositories/git.js";
 import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
@@ -69,10 +70,35 @@ workspaces.get("/:issueId", async (req, res) => {
 // The user's app in the workspace, for its preview page.
 workspaces.get("/:issueId/app", async (req, res) => {
   try {
-    const { status, error } = await workspaceApps.refresh(req.params.issueId);
-    res.json({ status, error: error ?? null } satisfies WorkspaceAppState);
+    res.json(appState(await workspaceApps.refresh(req.params.issueId), req.params.issueId) satisfies WorkspaceAppState);
   } catch (error) {
     res.status(500).json({ error: `Couldn't read the app: ${lastLine(error)}` });
+  }
+});
+
+// Starts the app from its preview page, with the Project Lead's launcher. Answers once
+// it's started; GET /app shows how it goes.
+workspaces.post("/:issueId/app/start", async (req, res) => {
+  const { issueId } = req.params;
+  if (!(await getWorkspace(issueId))) {
+    res.status(404).json({ error: "This issue has no workspace" });
+    return;
+  }
+  try {
+    const problem = await startApp(issueId);
+    if (problem) res.status(409).json({ error: problem });
+    else res.status(202).end();
+  } catch (error) {
+    res.status(500).json({ error: `Couldn't start the app: ${lastLine(error)}` });
+  }
+});
+
+workspaces.post("/:issueId/app/stop", async (req, res) => {
+  try {
+    await stopApp(req.params.issueId);
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({ error: `Couldn't stop the app: ${lastLine(error)}` });
   }
 });
 

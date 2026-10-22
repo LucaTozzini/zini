@@ -99,11 +99,20 @@ export function useOpenPullRequest(issueId: string) {
 }
 
 // The user's app in the workspace, for its preview page. Polled while it isn't ready,
-// since the Project Lead starts and stops it.
+// since it's started in the background, and the Project Lead starts and stops it too.
 export function useWorkspaceApp(issueId: string) {
   return useQuery({
     queryKey: [...workspaceKey(issueId), "app"],
     queryFn: () => api.get(`workspaces/${issueId}/app`).json<WorkspaceAppState>(),
     refetchInterval: (query) => (query.state.data?.status === "ready" ? 15000 : 3000),
+  });
+}
+
+// Starts the app from its preview page (with the Project Lead's launcher), or stops it.
+export function useWorkspaceAppControl(issueId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "start" | "stop") => api.post(`workspaces/${issueId}/app/${action}`, { timeout: false }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...workspaceKey(issueId), "app"] }),
   });
 }

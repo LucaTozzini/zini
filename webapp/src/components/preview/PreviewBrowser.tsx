@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CloseIcon from "@mui/icons-material/Close";
@@ -45,8 +54,9 @@ const readBase64 = (file: File) =>
   });
 
 // The workspace's preview browser: its screen, streamed as JPEG frames over a WebSocket,
-// which takes the user's mouse, keyboard and pasted text back to the page.
-function PreviewBrowser({ issueId }: { issueId: string }) {
+// which takes the user's mouse, keyboard and pasted text back to the page. actions go at
+// the end of its toolbar.
+function PreviewBrowser({ issueId, actions }: { issueId: string; actions?: ReactNode }) {
   const socket = useRef<WebSocket | null>(null);
   const area = useRef<HTMLDivElement>(null);
   const screen = useRef<HTMLImageElement>(null);
@@ -345,6 +355,7 @@ function PreviewBrowser({ issueId }: { issueId: string }) {
             <KeyboardOutlinedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        {actions}
       </Stack>
       {connection === "closed" && (
         <Alert
