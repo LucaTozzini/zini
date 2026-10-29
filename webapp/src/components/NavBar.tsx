@@ -21,7 +21,6 @@ import {
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ScienceIcon from "@mui/icons-material/Science";
-import DescriptionIcon from "@mui/icons-material/Description";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useLinearIssues } from "../api/integrations.ts";
 import IssueItems from "./navbar/IssueItems.tsx";
@@ -32,6 +31,7 @@ import { useDeleteThread, useThreads } from "../api/projectLead.ts";
 import SessionItem from "./navbar/SessionItem";
 import AddIcon from "@mui/icons-material/Add";
 import ZiniIcon from "./icons/ZiniIcon.tsx";
+import OpenWikiIcon from "./icons/OpenWikiIcon.tsx";
 import { useId, useState } from "react";
 import type { ThreadSummary } from "shared";
 import { errorMessage } from "../api/client.ts";
@@ -209,7 +209,7 @@ const NavBar = () => {
       <Box>
         <Divider sx={{ mb: 1 }} />
         <NavBarItem icon={<ScienceIcon />} title="Evals" to="/evals" />
-        <NavBarItem icon={<DescriptionIcon />} title="Docs" to="/docs" />
+        <NavBarItem icon={<OpenWikiIcon />} title="OpenWiki" to="/docs" />
         <NavBarItem icon={<SettingsIcon />} title="Settings" to="/settings" />
         <Profile />
       </Box>

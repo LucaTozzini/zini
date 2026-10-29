@@ -10,6 +10,7 @@ import Container from "@mui/material/Container";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import LinearProgress from "@mui/material/LinearProgress";
+import Link from "@mui/material/Link";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
@@ -20,7 +21,6 @@ import Typography from "@mui/material/Typography";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CloseIcon from "@mui/icons-material/Close";
 import CommitIcon from "@mui/icons-material/Commit";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
 import SyncIcon from "@mui/icons-material/Sync";
@@ -36,6 +36,7 @@ import {
   useWikiPage,
   useWikiPages,
 } from "../api/openwiki.ts";
+import OpenWikiIcon from "../components/icons/OpenWikiIcon.tsx";
 import MarkdownText, { type LinkTarget } from "../components/MarkdownText.tsx";
 import { useSettings } from "../api/settings.ts";
 
@@ -153,7 +154,7 @@ function EmptyDocs({
 }) {
   const refresh = useRefreshServing();
   return (
-    <DocsMessage icon={<MenuBookIcon />} title="No docs yet">
+    <DocsMessage icon={<OpenWikiIcon />} title="No docs yet">
       <Typography color="text.secondary">
         Zini researches the connected repo, writes a linked architecture wiki, and opens a pull request with it. The Project Lead
         and the Forge&apos;s agents read it to orient themselves before planning.
@@ -349,6 +350,15 @@ function SearchResults({
   );
 }
 
+// A link in the page's breadcrumb.
+function CrumbLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link component={RouterLink} to={to} variant="caption" color="text.secondary" underline="hover">
+      {children}
+    </Link>
+  );
+}
+
 // The wiki's pages, grouped by folder.
 function PageNav({
   sections,
@@ -360,7 +370,7 @@ function PageNav({
   onNavigate: () => void;
 }) {
   return (
-    <Stack component="nav" aria-label="Docs pages" spacing={1.5}>
+    <Stack component="nav" aria-label="OpenWiki pages" spacing={1.5}>
       {sections.map(({ folder, pages }) => (
         <div key={folder}>
           {folder && (
@@ -459,9 +469,12 @@ function ReadyDocs({
           spacing={2}
           sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1, px: { xs: 2, md: 3 }, py: 1.5 }}
         >
-          <Typography variant="h6" component="h1">
-            Docs
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <OpenWikiIcon sx={{ fontSize: 20, color: "primary.main" }} />
+            <Typography variant="h6" component="h1">
+              OpenWiki
+            </Typography>
+          </Stack>
           <ServeStatus />
           <Box sx={{ flex: 1 }} />
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
@@ -557,14 +570,20 @@ function ReadyDocs({
             <Box sx={{ px: { xs: 2, md: 6 }, py: { xs: 2, md: 4 }, maxWidth: 880, mx: "auto" }}>
               {activePage && (
                 <Breadcrumbs separator="›" sx={{ mb: 2 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Docs
-                  </Typography>
-                  {folder && (
-                    <Typography variant="caption" color="text.secondary">
-                      {folderLabel(folder)}
-                    </Typography>
-                  )}
+                  <CrumbLink to="/docs">OpenWiki</CrumbLink>
+                  {/* Each folder on the way, linking to its index when it has one. */}
+                  {(folder ? folder.split("/") : []).map((part, i, parts) => {
+                    const index = findPage(`${parts.slice(0, i + 1).join("/")}/`, pageList);
+                    return index ? (
+                      <CrumbLink key={i} to={docsUrl(index)}>
+                        {pageLabel(part)}
+                      </CrumbLink>
+                    ) : (
+                      <Typography key={i} variant="caption" color="text.secondary">
+                        {pageLabel(part)}
+                      </Typography>
+                    );
+                  })}
                   <Typography variant="caption" color="text.primary">
                     {pageLabel(activePage)}
                   </Typography>
