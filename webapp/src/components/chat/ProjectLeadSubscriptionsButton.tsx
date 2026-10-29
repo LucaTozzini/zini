@@ -41,7 +41,7 @@ export default function ProjectLeadSubscriptionsButton({ threadId }: { threadId?
       <Tooltip title="Forge subscriptions">
         <span>
           <IconButton size="small" aria-label="Forge subscriptions" disabled={!threadId} onClick={() => setOpen(true)}>
-            <NotificationsActiveIcon />
+            <NotificationsActiveIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>

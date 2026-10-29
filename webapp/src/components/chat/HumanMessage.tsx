@@ -95,7 +95,10 @@ export const HumanMessage = memo(function HumanMessage({ message, ref, lineLimit
             color,
             position: "relative",
             overflow: "hidden",
-            p: 1,
+            px: 1.5,
+            py: 1,
+            // Rounded, with a tighter corner on the sender's side.
+            borderRadius: "16px 16px 4px 16px",
           }}
         >
           <LineLimit key={message.content} lineLimit={lineLimit} fadeColor={bgcolor}>

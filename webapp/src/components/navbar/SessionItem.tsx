@@ -47,10 +47,11 @@ export default function SessionItem({
       <ListItemButton
         component={Link}
         to={itemId}
+        selected={selected}
         sx={{
           py: 0.375,
           px: 1,
-          borderRadius: 0.5,
+          borderRadius: 1,
           gap: 0.75,
           minWidth: 0,
           minHeight: { xs: 32, md: 26 },

@@ -3,7 +3,6 @@ import {
   fileInfo,
   type ChatEntry,
   type ProjectLeadMessage,
-  type ProjectLeadSubscriptions,
   type Decision,
   type Thread,
   type ThreadSummary,
@@ -14,14 +13,6 @@ import { userKey } from "./users.ts";
 
 export const threadsKey = ["project-lead", "threads"];
 export const threadKey = (id: string) => [...threadsKey, id];
-export const subscriptionsKey = ["project-lead", "subscriptions"];
-
-export function useProjectLeadSubscriptions() {
-  return useQuery({
-    queryKey: subscriptionsKey,
-    queryFn: () => api.get("project-lead/subscriptions").json<ProjectLeadSubscriptions[]>(),
-  });
-}
 
 export function useThreads() {
   return useQuery({

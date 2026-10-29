@@ -1,4 +1,6 @@
 import { useLocation, useParams } from "react-router";
+import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import { useThreads } from "../api/projectLead.ts";
 import Chat from "../components/Chat.tsx";
 import ProjectLeadBrowserButton from "../components/chat/ProjectLeadBrowserButton.tsx";
 import ProjectLeadSubscriptionsButton from "../components/chat/ProjectLeadSubscriptionsButton.tsx";
@@ -6,10 +8,18 @@ import { useChat, type CreatedChatState } from "../hooks/useChat.ts";
 
 const BASE_PATH = "/project-lead";
 
+const SUGGESTIONS = [
+  { label: "Plan a feature", message: "I'd like to plan a new feature: " },
+  { label: "Report a bug", message: "I found a bug: " },
+  { label: "Review the backlog", message: "Go through the backlog and suggest what to work on next." },
+];
+
 // Keyed in the page (see chatKey), so switching chats starts with a fresh draft,
 // request and scroll state.
 function ProjectLeadChat({ threadId }: { threadId?: string }) {
   const chat = useChat(threadId, BASE_PATH);
+  const threads = useThreads();
+  const title = (threadId && threads.data?.find((thread) => thread.id === threadId)?.title) || "New chat";
   return (
     <Chat
       chat={chat}
@@ -19,11 +29,11 @@ function ProjectLeadChat({ threadId }: { threadId?: string }) {
           <ProjectLeadSubscriptionsButton threadId={threadId} />
         </>
       }
-      avatar={{
-        src: "/project-lead-avatar.jpg",
-        label: "Project Lead",
-      }}
-      emptyText="Talk through an idea or a bug, and I'll help turn it into Linear issues"
+      title={title}
+      agent={{ name: "Project Lead", icon: <SupportAgentIcon /> }}
+      emptyTitle="What are we working on?"
+      emptyText="Talk through an idea or a bug, and I'll help turn it into Linear issues."
+      suggestions={SUGGESTIONS}
       placeholder="Message the project lead"
     />
   );

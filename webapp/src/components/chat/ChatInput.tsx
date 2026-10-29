@@ -112,7 +112,15 @@ const ChatInput = ({
   }
 
   return (
-    <Paper sx={{ borderRadius: 2 }} variant="outlined">
+    <Paper
+      variant="outlined"
+      sx={{
+        borderRadius: 3,
+        overflow: "hidden",
+        transition: "border-color 150ms",
+        "&:focus-within": { borderColor: "primary.main" },
+      }}
+    >
       <input
         ref={fileInput}
         type="file"

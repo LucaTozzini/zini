@@ -21,7 +21,7 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
       <Tooltip title="Project Lead browser">
         <span>
           <IconButton size="small" aria-label="Project Lead browser" disabled={!threadId} onClick={() => setOpen(true)}>
-            <LanguageIcon />
+            <LanguageIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>

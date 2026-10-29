@@ -9,7 +9,8 @@ import {
   Typography,
   type TypographyProps,
 } from "@mui/material";
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
+import { Link as RouterLink } from "react-router";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -64,17 +65,49 @@ const markdownComponents: Components = {
   ),
   // Links open in a new tab instead of replacing the chat. noreferrer also stops the
   // new page from reaching back into this one through window.opener.
-  a: ({ node: _node, ...props }) => (
+  a: ({ node: _node, ...props }) => <ExternalLink {...props} />,
+};
+
+function ExternalLink(props: ComponentProps<"a">) {
+  return (
     <Typography component={"a"} {...props} target="_blank" rel="noreferrer" sx={{ color: "DarkSeaGreen" }}>
       <LaunchIcon sx={{ fontSize: 12, mx: 0.3 }} />
       {props.children}
     </Typography>
-  ),
-};
+  );
+}
+
+// Where a link goes instead of its href: a route in the app (opened in place), or
+// another URL (opened in a new tab). undefined keeps the href.
+export type LinkTarget = { to: string } | { href: string } | undefined;
 
 // Markdown text (an agent's reply, an issue description), without its outer
-// paragraph margins.
-function MarkdownText({ children, ...props }: { children: string } & TypographyProps<"div">) {
+// paragraph margins. resolveLink, if given, decides where each link goes.
+function MarkdownText({
+  children,
+  resolveLink,
+  ...props
+}: { children: string; resolveLink?: (href: string) => LinkTarget } & TypographyProps<"div">) {
+  const components = useMemo<Components>(
+    () =>
+      resolveLink
+        ? {
+            ...markdownComponents,
+            a: ({ node: _node, href, ...linkProps }) => {
+              const target = href ? resolveLink(href) : undefined;
+              if (target && "to" in target)
+                return (
+                  <Typography component={RouterLink} to={target.to} sx={{ color: "primary.main" }}>
+                    {linkProps.children}
+                  </Typography>
+                );
+              return <ExternalLink {...linkProps} href={target?.href ?? href} />;
+            },
+          }
+        : markdownComponents,
+    [resolveLink],
+  );
+
   return (
     <Typography
       component="div"
@@ -90,7 +123,7 @@ function MarkdownText({ children, ...props }: { children: string } & TypographyP
         ...(Array.isArray(props.sx) ? props.sx : [props.sx]),
       ]}
     >
-      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <Markdown remarkPlugins={[remarkGfm]} components={components}>
         {children}
       </Markdown>
     </Typography>

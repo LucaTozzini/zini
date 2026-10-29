@@ -1,8 +1,30 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Link from "@mui/material/Link";
+import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import ListSubheader from "@mui/material/ListSubheader";
+import type { SvgIconComponent } from "@mui/icons-material";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import AutoModeIcon from "@mui/icons-material/AutoMode";
+import ConstructionIcon from "@mui/icons-material/Construction";
+import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import PaletteOutlinedIcon from "@mui/icons-material/PaletteOutlined";
+import DescriptionIcon from "@mui/icons-material/Description";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import LinearIcon from "../components/icons/LinearIcon.tsx";
+import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
+import OpenRouterIcon from "../components/icons/OpenRouterIcon.tsx";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -18,18 +40,29 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  FormControlLabel,
   MenuItem,
   Switch,
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
-import DevelopmentEnvironmentCard from "../components/DevelopmentEnvironmentCard.tsx";
+import DevelopmentEnvironmentRow from "../components/DevelopmentEnvironmentRow.tsx";
 
-type KeyCardProps = { provider: Provider; name: string; helperText: string };
+// A card's title, with the service's icon in front when it has one.
+function CardTitle({ icon: Icon, children }: { icon?: SvgIconComponent; children: ReactNode }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+      {Icon && <Icon />}
+      <Typography variant="h6">{children}</Typography>
+    </Stack>
+  );
+}
 
-function KeyCard({ provider, name, helperText }: KeyCardProps) {
+// instructions, if given, show above the key field: how to create the key.
+type KeyFormProps = { provider: Provider; name: string; helperText: string; instructions?: ReactNode };
+
+// A service's API key: the connected key's hint, or a field to paste one.
+function KeyForm({ provider, name, helperText, instructions }: KeyFormProps) {
   const integrations = useIntegrations();
   const connect = useConnectIntegration(provider);
   const disconnect = useDisconnectIntegration(provider);
@@ -51,133 +84,212 @@ function KeyCard({ provider, name, helperText }: KeyCardProps) {
   }
 
   return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">{name}</Typography>
+    <Stack spacing={2}>
+      {integrations.isPending && <Typography color="text.secondary">Loading…</Typography>}
+      {integrations.isError && <Alert severity="error">{errorMessage(integrations.error)}</Alert>}
 
-          {integrations.isPending && <Typography color="text.secondary">Loading…</Typography>}
-          {integrations.isError && <Alert severity="error">{errorMessage(integrations.error)}</Alert>}
-
-          {integrations.isSuccess && connected && !replacing && (
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <Typography sx={{ flexGrow: 1 }}>
-                Connected · key ending in <code>{status?.keyHint}</code>
-              </Typography>
-              <Button onClick={() => setReplacing(true)}>Replace key</Button>
-              <Button color="error" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
-                Disconnect
-              </Button>
-            </Stack>
-          )}
-
-          {integrations.isSuccess && showForm && (
-            <Stack component="form" spacing={2} onSubmit={handleSubmit}>
-              <TextField
-                label={`${name} API key`}
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                helperText={helperText}
-                autoComplete="off"
-                required
-              />
-              {connect.isError && <Alert severity="error">{errorMessage(connect.error)}</Alert>}
-              <Stack direction="row" spacing={1}>
-                <Button type="submit" variant="contained" loading={connect.isPending}>
-                  Connect
-                </Button>
-                {replacing && <Button onClick={() => setReplacing(false)}>Cancel</Button>}
-              </Stack>
-            </Stack>
-          )}
+      {integrations.isSuccess && connected && !replacing && (
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <Typography sx={{ flexGrow: 1 }}>
+            Connected · key ending in <code>{status?.keyHint}</code>
+          </Typography>
+          <Button onClick={() => setReplacing(true)}>Replace key</Button>
+          <Button color="error" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
+            Disconnect
+          </Button>
         </Stack>
-      </CardContent>
+      )}
+
+      {integrations.isSuccess && showForm && (
+        <Stack component="form" spacing={2} onSubmit={handleSubmit}>
+          {instructions}
+          <TextField
+            label={`${name} API key`}
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            helperText={helperText}
+            autoComplete="off"
+            required
+          />
+          {connect.isError && <Alert severity="error">{errorMessage(connect.error)}</Alert>}
+          <Stack direction="row" spacing={1}>
+            <Button type="submit" variant="contained" loading={connect.isPending}>
+              Connect
+            </Button>
+            {replacing && <Button onClick={() => setReplacing(false)}>Cancel</Button>}
+          </Stack>
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
+// A service zini connects to, shown as a row that opens a dialog with its settings.
+type Service = { name: string; icon: SvgIconComponent; description: string; settings: ReactNode };
+
+function ConnectionChip({ connected }: { connected: boolean | undefined }) {
+  if (connected === undefined) return null;
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      color={connected ? "success" : "default"}
+      label={connected ? "Connected" : "Not connected"}
+    />
+  );
+}
+
+function ServiceDialog({ service, onClose }: { service: Service | null; onClose: () => void }) {
+  return (
+    <Dialog open={Boolean(service)} onClose={onClose} maxWidth="sm" fullWidth>
+      {service && (
+        <>
+          <IconDialogTitle icon={service.icon}>{service.name}</IconDialogTitle>
+          <DialogContent>
+            <Stack spacing={2}>
+              <DialogContentText>{service.description}</DialogContentText>
+              {service.settings}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={onClose}>Close</Button>
+          </DialogActions>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+const CONNECTIONS: Record<"linear" | "github", Service> = {
+  linear: {
+    name: "Linear",
+    icon: LinearIcon,
+    description: "Your issues: the Project Lead manages them and Forges implement them.",
+    settings: <KeyForm provider="linear" name="Linear" helperText="Create a personal API key in your Linear settings." />,
+  },
+  github: {
+    name: "GitHub",
+    icon: GitHubIcon,
+    description: "Your code: agents clone the repo, push branches and open pull requests.",
+    settings: (
+      <KeyForm
+        provider="github"
+        name="GitHub"
+        helperText="Paste the token here."
+        instructions={
+          <Box component="ol" sx={{ m: 0, pl: 3, typography: "body2", "& li + li": { mt: 0.5 } }}>
+            <li>
+              Create a fine-grained token at{" "}
+              <Link href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noreferrer">
+                github.com/settings/personal-access-tokens
+              </Link>
+              .
+            </li>
+            <li>Under Repository access, select your repo.</li>
+            <li>Under Permissions, set Contents and Pull requests to Read and write.</li>
+          </Box>
+        }
+      />
+    ),
+  },
+};
+
+const CONNECTION_IDS = Object.keys(CONNECTIONS) as (keyof typeof CONNECTIONS)[];
+
+function ConnectionsCard() {
+  const integrations = useIntegrations();
+  const [open, setOpen] = useState<keyof typeof CONNECTIONS | null>(null);
+
+  return (
+    <Card variant="outlined">
+      <List disablePadding>
+        {CONNECTION_IDS.map((id, i) => (
+          <SettingRow
+            key={id}
+            icon={CONNECTIONS[id].icon}
+            name={CONNECTIONS[id].name}
+            description={CONNECTIONS[id].description}
+            onClick={() => setOpen(id)}
+            status={<ConnectionChip connected={integrations.data?.[id].connected} />}
+            divider={i < CONNECTION_IDS.length - 1}
+          />
+        ))}
+      </List>
+      {integrations.isError && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {errorMessage(integrations.error)}
+        </Alert>
+      )}
+      <ServiceDialog service={open && CONNECTIONS[open]} onClose={() => setOpen(null)} />
     </Card>
   );
 }
 
-// One text field for one setting. An optional one can be left empty, which clears it.
-type SettingField = {
-  setting: keyof Settings;
-  label: string;
-  placeholder: string;
-  helperText: string;
-  optional?: boolean;
-};
-
-// A card of setting fields saved together.
-function SettingCard({ title, fields }: { title: string; fields: SettingField[] }) {
+// The repo the agents work on: a row showing it, opening a dialog to set or switch it.
+function RepositoryRow() {
   const settings = useSettings();
+  const [open, setOpen] = useState(false);
+  const repo = settings.data?.githubRepo;
+
+  return (
+    <>
+      <SettingRow
+        icon={GitHubIcon}
+        name="GitHub repository"
+        description="The repo your Linear issues are about."
+        onClick={() => setOpen(true)}
+        divider={Boolean(repo)}
+        status={
+          settings.isSuccess &&
+          (repo ? (
+            <Chip size="small" variant="outlined" label={repo} sx={{ maxWidth: 240 }} />
+          ) : (
+            <Chip size="small" variant="outlined" color="warning" label="Not set" />
+          ))
+        }
+      />
+      {settings.isError && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {errorMessage(settings.error)}
+        </Alert>
+      )}
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+        {open && <RepositoryForm current={repo ?? ""} onClose={() => setOpen(false)} />}
+      </Dialog>
+    </>
+  );
+}
+
+// Mounted only while its dialog is open. Switching to another repo deletes every
+// workspace, so it warns as soon as the name differs, then asks to confirm.
+function RepositoryForm({ current, onClose }: { current: string; onClose: () => void }) {
   const save = useSaveSettings();
-  // Only the edited fields; the others show their saved value.
-  const [drafts, setDrafts] = useState<Partial<Record<keyof Settings, string>>>({});
-  const [confirmRepoChange, setConfirmRepoChange] = useState(false);
-  const edited = Object.keys(drafts).length > 0;
-  const valueOf = (setting: keyof Settings) => drafts[setting] ?? settings.data?.[setting] ?? "";
+  const [repo, setRepo] = useState(current);
+  const [confirming, setConfirming] = useState(false);
+  const trimmed = repo.trim();
+  const switching = Boolean(current) && trimmed.toLowerCase() !== current.toLowerCase();
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (drafts.githubRepo && drafts.githubRepo.trim().toLowerCase() !== (settings.data?.githubRepo ?? "").toLowerCase()) {
+    if (switching && !confirming) {
       save.reset();
-      setConfirmRepoChange(true);
+      setConfirming(true);
       return;
     }
-    save.mutate(drafts, { onSuccess: () => setDrafts({}) });
+    save.mutate(switching ? { githubRepo: trimmed, confirmWorkspaceDeletion: true } : { githubRepo: trimmed }, {
+      onSuccess: onClose,
+    });
   }
 
-  return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">{title}</Typography>
-
-          {settings.isPending && <Typography color="text.secondary">Loading…</Typography>}
-          {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
-
-          {settings.isSuccess && (
-            <Stack component="form" spacing={2} onSubmit={handleSubmit}>
-              {fields.map(({ setting, label, placeholder, helperText, optional }) => (
-                <TextField
-                  key={setting}
-                  label={label}
-                  value={valueOf(setting)}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [setting]: e.target.value }))}
-                  placeholder={placeholder}
-                  helperText={helperText}
-                  autoComplete="off"
-                  required={!optional}
-                  disabled={save.isPending}
-                />
-              ))}
-              {fields.some((field) => field.setting === "githubRepo") && (
-                <Alert severity="warning">
-                  Switching repositories deletes all workspaces, their Docker containers and volumes, and Forge history and logs.
-                  Local changes and unpushed commits will be lost. Pause running Forges and stop app launches before switching.
-                </Alert>
-              )}
-              {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
-              <Stack direction="row">
-                <Button type="submit" variant="contained" loading={save.isPending} disabled={!edited}>
-                  Save
-                </Button>
-              </Stack>
-            </Stack>
-          )}
-        </Stack>
-      </CardContent>
-      <Dialog
-        open={confirmRepoChange}
-        onClose={() => !save.isPending && setConfirmRepoChange(false)}
-        aria-labelledby="repo-change-title"
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle id="repo-change-title">Delete workspaces and switch repository?</DialogTitle>
+  if (confirming)
+    return (
+      <Box component="form" onSubmit={handleSubmit}>
+        <DialogTitle>Delete workspaces and switch repository?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Switching to {drafts.githubRepo?.trim()} permanently deletes all workspaces, their Docker containers, volumes, Forge
-            history and logs. Uncommitted changes and unpushed commits will be lost. This cannot be undone.
+            Switching to {trimmed} permanently deletes all workspaces, their Docker containers, volumes, Forge history and logs.
+            Uncommitted changes and unpushed commits will be lost. This cannot be undone.
           </DialogContentText>
           {save.isError && (
             <Alert severity="error" sx={{ mt: 2 }}>
@@ -186,145 +298,254 @@ function SettingCard({ title, fields }: { title: string; fields: SettingField[] 
           )}
         </DialogContent>
         <DialogActions>
-          <Button disabled={save.isPending} onClick={() => setConfirmRepoChange(false)}>
-            Cancel
+          <Button disabled={save.isPending} onClick={() => setConfirming(false)}>
+            Back
           </Button>
-          <Button
-            color="error"
-            variant="contained"
-            loading={save.isPending}
-            onClick={() =>
-              save.mutate(
-                { ...drafts, confirmWorkspaceDeletion: true },
-                {
-                  onSuccess: () => {
-                    setDrafts({});
-                    setConfirmRepoChange(false);
-                  },
-                },
-              )
-            }
-          >
+          <Button type="submit" color="error" variant="contained" loading={save.isPending}>
             Delete workspaces and switch
           </Button>
         </DialogActions>
-      </Dialog>
-    </Card>
+      </Box>
+    );
+
+  return (
+    <Box component="form" onSubmit={handleSubmit}>
+      <IconDialogTitle icon={GitHubIcon}>GitHub repository</IconDialogTitle>
+      <DialogContent>
+        <Stack spacing={2}>
+          <DialogContentText>
+            The repo your Linear issues are about. Agents clone it into their workspaces.
+            {current && (
+              <>
+                {" "}
+                Currently{" "}
+                <Link href={`https://github.com/${current}`} target="_blank" rel="noreferrer">
+                  {current}
+                </Link>
+                .
+              </>
+            )}
+          </DialogContentText>
+          <TextField
+            label="Repository"
+            placeholder="owner/name"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            helperText="As owner/name. Connect GitHub first; the token needs access to this repo."
+            autoComplete="off"
+            autoFocus
+            required
+            disabled={save.isPending}
+            sx={{ mt: 1 }}
+          />
+          {switching && (
+            <Alert severity="warning">
+              Switching repositories deletes all workspaces, their Docker containers and volumes, and Forge history and logs.
+              Pause running Forges and stop app launches first.
+            </Alert>
+          )}
+          {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button type="submit" variant="contained" loading={save.isPending} disabled={!trimmed || trimmed === current}>
+          {switching ? "Switch…" : "Save"}
+        </Button>
+      </DialogActions>
+    </Box>
   );
 }
 
 // Sign in with ChatGPT, to run models on your ChatGPT plan. Its callback goes to this
 // machine's 127.0.0.1, so the sign-in only works in a browser on the computer running
 // zini.
-function ChatGptCard() {
+function ChatGptSettings() {
   const status = useChatGpt();
   const signIn = useChatGptSignIn();
   const signOut = useChatGptSignOut();
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 
   return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">ChatGPT plan</Typography>
-          {status.isError && <Alert severity="error">{errorMessage(status.error)}</Alert>}
-          {signIn.isError && <Alert severity="error">{errorMessage(signIn.error)}</Alert>}
-          {signOut.isError && <Alert severity="error">{errorMessage(signOut.error)}</Alert>}
-          {status.data?.connected ? (
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <Typography sx={{ flexGrow: 1 }}>Signed in as {status.data.email ?? "your ChatGPT account"}</Typography>
-              <Button color="error" loading={signOut.isPending} onClick={() => signOut.mutate()}>
-                Sign out
-              </Button>
-            </Stack>
-          ) : (
-            status.isSuccess && (
-              <>
-                <Typography variant="body2" color="text.secondary">
-                  Run models on your ChatGPT plan (Plus or Pro) instead of OpenRouter. Usage counts against your plan&apos;s
-                  limits.
-                </Typography>
-                {local ? (
-                  <Stack direction="row">
-                    <Button variant="contained" loading={signIn.isPending} onClick={() => signIn.mutate()}>
-                      Sign in with ChatGPT
-                    </Button>
-                  </Stack>
-                ) : (
-                  <Alert severity="info">Sign in from a browser on the computer running zini.</Alert>
-                )}
-              </>
-            )
-          )}
+    <Stack spacing={2}>
+      {status.isError && <Alert severity="error">{errorMessage(status.error)}</Alert>}
+      {signIn.isError && <Alert severity="error">{errorMessage(signIn.error)}</Alert>}
+      {signOut.isError && <Alert severity="error">{errorMessage(signOut.error)}</Alert>}
+      {status.data?.connected ? (
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <Typography sx={{ flexGrow: 1 }}>Signed in as {status.data.email ?? "your ChatGPT account"}</Typography>
+          <Button color="error" loading={signOut.isPending} onClick={() => signOut.mutate()}>
+            Sign out
+          </Button>
         </Stack>
-      </CardContent>
-    </Card>
+      ) : (
+        status.isSuccess &&
+        (local ? (
+          <Stack direction="row">
+            <Button variant="contained" loading={signIn.isPending} onClick={() => signIn.mutate()}>
+              Sign in with ChatGPT
+            </Button>
+          </Stack>
+        ) : (
+          <Alert severity="info">Sign in from a browser on the computer running zini.</Alert>
+        ))
+      )}
+    </Stack>
   );
 }
 
-// A role's model and where it runs: an OpenRouter model id, or one of the ChatGPT plan's
-// models. Both are saved together.
-function ModelCard({
-  title,
-  provider: providerSetting,
-  model: modelSetting,
-  helperText,
-}: {
-  title: string;
+const PROVIDERS: Record<ModelProvider, Service> = {
+  openrouter: {
+    name: "OpenRouter",
+    icon: OpenRouterIcon,
+    description: "Models from many labs, paid per use with an OpenRouter API key.",
+    settings: <KeyForm provider="openrouter" name="OpenRouter" helperText="Create an API key at openrouter.ai/keys." />,
+  },
+  chatgpt: {
+    name: "ChatGPT plan",
+    icon: OpenAIIcon,
+    description: "OpenAI models on your ChatGPT Plus or Pro plan. Usage counts against your plan's limits.",
+    settings: <ChatGptSettings />,
+  },
+};
+
+const PROVIDER_IDS = Object.keys(PROVIDERS) as ModelProvider[];
+
+type Agent = {
+  name: string;
+  description: string;
+  icon: SvgIconComponent;
   provider: "projectLeadProvider" | "forgeProvider" | "openwikiProvider";
   model: "projectLeadModel" | "forgeModel" | "openwikiModel";
   helperText: string;
+};
+
+const AGENTS: Agent[] = [
+  {
+    name: "Project Lead",
+    description: "Plans the work with you in chat and manages your Linear issues.",
+    icon: SupportAgentIcon,
+    provider: "projectLeadProvider",
+    model: "projectLeadModel",
+    helperText: "An OpenRouter model ID that supports tool calling.",
+  },
+  {
+    name: "Forge",
+    description: "Implements an issue in its workspace, from plan to pull request.",
+    icon: ConstructionIcon,
+    provider: "forgeProvider",
+    model: "forgeModel",
+    helperText: "An OpenRouter model ID that supports tool calling.",
+  },
+  {
+    name: "OpenWiki",
+    description: "Writes the repo's wiki docs.",
+    icon: DescriptionIcon,
+    provider: "openwikiProvider",
+    model: "openwikiModel",
+    helperText: "An OpenRouter model ID.",
+  },
+];
+
+// A clickable row that opens a dialog: icon, name and description, then a status on the right.
+function SettingRow({
+  icon: Icon,
+  name,
+  description,
+  status,
+  onClick,
+  divider,
+}: {
+  icon: SvgIconComponent;
+  name: string;
+  description: string;
+  status: ReactNode;
+  onClick: () => void;
+  divider?: boolean;
 }) {
+  return (
+    <ListItemButton onClick={onClick} divider={divider} sx={{ gap: 2, px: 2 }}>
+      <ListItemIcon sx={{ minWidth: 0 }}>
+        <Icon />
+      </ListItemIcon>
+      <ListItemText primary={name} secondary={description} />
+      {status}
+      <ChevronRightIcon color="action" />
+    </ListItemButton>
+  );
+}
+
+// A dialog's title, with the icon of what it's about.
+function IconDialogTitle({ icon, children }: { icon: SvgIconComponent; children: ReactNode }) {
+  return (
+    <DialogTitle component="div">
+      <CardTitle icon={icon}>{children}</CardTitle>
+    </DialogTitle>
+  );
+}
+
+// An agent's provider and model, saved together. Mounted only while its dialog is open,
+// so unsaved changes are dropped when it closes.
+function AgentModelForm({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const settings = useSettings();
   const save = useSaveSettings();
   const chatGpt = useChatGpt();
   const [drafts, setDrafts] = useState<Partial<Record<keyof Settings, string>>>({});
-  const provider = (drafts[providerSetting] ?? settings.data?.[providerSetting] ?? "openrouter") as ModelProvider;
-  const model = drafts[modelSetting] ?? settings.data?.[modelSetting] ?? "";
+  const provider = (drafts[agent.provider] ?? settings.data?.[agent.provider] ?? "openrouter") as ModelProvider;
+  const model = drafts[agent.model] ?? settings.data?.[agent.model] ?? "";
   const models = useChatGptModels(provider === "chatgpt" && Boolean(chatGpt.data?.connected));
+  const formId = useId();
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    save.mutate(drafts, { onSuccess: () => setDrafts({}) });
+    save.mutate(drafts, { onSuccess: onClose });
   }
 
   return (
-    <Card variant="outlined">
-      <CardContent>
+    <>
+      <DialogContent>
         <Stack spacing={2}>
-          <Typography variant="h6">{title}</Typography>
+          <DialogContentText>{agent.description}</DialogContentText>
           {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
-          <Alert severity="info">The model must support text and image inputs.</Alert>
           {settings.isSuccess && (
-            <Stack component="form" spacing={2} onSubmit={handleSubmit}>
+            <Stack component="form" id={formId} spacing={2} onSubmit={handleSubmit} sx={{ pt: 1 }}>
               <TextField
                 select
                 label="Provider"
                 value={provider}
                 // A model id belongs to its provider, so switching starts the model afresh.
-                onChange={(e) => setDrafts((d) => ({ ...d, [providerSetting]: e.target.value, [modelSetting]: "" }))}
+                onChange={(e) => setDrafts((d) => ({ ...d, [agent.provider]: e.target.value, [agent.model]: "" }))}
               >
-                <MenuItem value="openrouter">OpenRouter</MenuItem>
-                <MenuItem value="chatgpt">ChatGPT plan</MenuItem>
+                {PROVIDER_IDS.map((id) => {
+                  const { name, icon: Icon } = PROVIDERS[id];
+                  return (
+                    <MenuItem key={id} value={id}>
+                      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+                        <Icon fontSize="small" />
+                        <span>{name}</span>
+                      </Stack>
+                    </MenuItem>
+                  );
+                })}
               </TextField>
               {provider === "openrouter" ? (
                 <TextField
                   label="Model"
                   value={model}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [modelSetting]: e.target.value }))}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [agent.model]: e.target.value }))}
                   placeholder="anthropic/claude-sonnet-5"
-                  helperText={helperText}
+                  helperText={`${agent.helperText} It must accept text and image inputs.`}
                   autoComplete="off"
                   required
                 />
               ) : !chatGpt.data?.connected ? (
-                <Alert severity="info">Sign in with ChatGPT above to choose one of your plan&apos;s models.</Alert>
+                <Alert severity="info">Sign in with ChatGPT under Providers to choose one of your plan&apos;s models.</Alert>
               ) : (
                 <TextField
                   select
                   label="Model"
                   value={models.data?.some((m) => m.slug === model) ? model : ""}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [modelSetting]: e.target.value }))}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [agent.model]: e.target.value }))}
                   helperText={models.isError ? errorMessage(models.error) : "One of the models your ChatGPT plan offers."}
                   error={models.isError}
                   required
@@ -337,68 +558,198 @@ function ModelCard({
                 </TextField>
               )}
               {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
-              <Stack direction="row">
-                <Button type="submit" variant="contained" loading={save.isPending} disabled={!drafts[modelSetting]}>
-                  Save
-                </Button>
-              </Stack>
             </Stack>
           )}
         </Stack>
-      </CardContent>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button type="submit" form={formId} variant="contained" loading={save.isPending} disabled={!drafts[agent.model]}>
+          Save
+        </Button>
+      </DialogActions>
+    </>
+  );
+}
+
+// The providers models run on and the model each agent uses, each opening a dialog
+// with its settings so the page stays short.
+function ModelsCard() {
+  const integrations = useIntegrations();
+  const chatGpt = useChatGpt();
+  const settings = useSettings();
+  const [openProvider, setOpenProvider] = useState<ModelProvider | null>(null);
+  const [openAgent, setOpenAgent] = useState<Agent | null>(null);
+  const connected: Record<ModelProvider, boolean | undefined> = {
+    openrouter: integrations.data?.openrouter.connected,
+    chatgpt: chatGpt.data?.connected,
+  };
+  const subheader = (title: string) => (
+    <ListSubheader disableSticky sx={{ bgcolor: "transparent", lineHeight: 2.5, pt: 1 }}>
+      {title}
+    </ListSubheader>
+  );
+
+  return (
+    <Card variant="outlined">
+      <List disablePadding subheader={subheader("Providers")}>
+        {PROVIDER_IDS.map((id) => (
+          <SettingRow
+            key={id}
+            icon={PROVIDERS[id].icon}
+            name={PROVIDERS[id].name}
+            description={PROVIDERS[id].description}
+            onClick={() => setOpenProvider(id)}
+            status={<ConnectionChip connected={connected[id]} />}
+          />
+        ))}
+      </List>
+      <Divider />
+      <List disablePadding subheader={subheader("Agents")}>
+        {AGENTS.map((agent) => {
+          const provider = (settings.data?.[agent.provider] ?? "openrouter") as ModelProvider;
+          const model = settings.data?.[agent.model];
+          const ProviderIcon = PROVIDERS[provider].icon;
+          return (
+            <SettingRow
+              key={agent.name}
+              icon={agent.icon}
+              name={agent.name}
+              description={agent.description}
+              onClick={() => setOpenAgent(agent)}
+              status={
+                settings.isSuccess &&
+                (model ? (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    icon={<ProviderIcon />}
+                    label={model}
+                    title={`${model} on ${PROVIDERS[provider].name}`}
+                    sx={{ maxWidth: 240 }}
+                  />
+                ) : (
+                  <Chip size="small" variant="outlined" color="warning" label="No model" />
+                ))
+              }
+            />
+          );
+        })}
+      </List>
+      <ServiceDialog service={openProvider && PROVIDERS[openProvider]} onClose={() => setOpenProvider(null)} />
+      <Dialog open={Boolean(openAgent)} onClose={() => setOpenAgent(null)} maxWidth="sm" fullWidth>
+        {openAgent && (
+          <>
+            <IconDialogTitle icon={openAgent.icon}>{openAgent.name} model</IconDialogTitle>
+            <AgentModelForm agent={openAgent} onClose={() => setOpenAgent(null)} />
+          </>
+        )}
+      </Dialog>
     </Card>
   );
 }
 
-// setMode also saves the choice in localStorage, so it survives reloads.
-function AppearanceCard() {
+// A titled group of settings cards.
+function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <Stack component="section" spacing={2}>
+      <div>
+        <Typography variant="h5" component="h2">
+          {title}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {description}
+        </Typography>
+      </div>
+      {children}
+    </Stack>
+  );
+}
+
+// A row with its control on the right, for settings changed in place: icon, name and
+// description, then the control.
+function ControlRow({
+  icon: Icon,
+  name,
+  description,
+  control,
+  divider,
+}: {
+  icon: SvgIconComponent;
+  name: string;
+  description: string;
+  control: ReactNode;
+  divider?: boolean;
+}) {
+  return (
+    <ListItem divider={divider} sx={{ gap: 2, px: 2, py: 1.5 }}>
+      <ListItemIcon sx={{ minWidth: 0 }}>
+        <Icon />
+      </ListItemIcon>
+      <ListItemText primary={name} secondary={description} />
+      <Box sx={{ flexShrink: 0 }}>{control}</Box>
+    </ListItem>
+  );
+}
+
+// Conductor and appearance, each changed in place: the conductor's switch saves at
+// once, and setMode also saves the theme in localStorage, so it survives reloads.
+function GeneralCard() {
+  const settings = useSettings();
+  const save = useSaveSettings();
   const { mode, setMode } = useColorScheme();
 
   return (
     <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">Appearance</Typography>
-          <ToggleButtonGroup
-            exclusive
-            value={mode ?? "dark"}
-            onChange={(_e, value: "light" | "dark" | null) => value && setMode(value)}
-          >
-            <ToggleButton value="dark">Dark</ToggleButton>
-            <ToggleButton value="light">Light</ToggleButton>
-          </ToggleButtonGroup>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ConductorCard() {
-  const settings = useSettings();
-  const save = useSaveSettings();
-  return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">Conductor</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Automatically start Forges for unstarted Linear issues. Turning this off prevents new starts; existing Forge runs
-            continue.
-          </Typography>
-          <FormControlLabel
-            label="Enable conductor"
-            control={
-              <Switch
-                checked={settings.data?.conductorEnabled !== "false"}
-                disabled={!settings.isSuccess || save.isPending}
-                onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })}
-              />
-            }
-          />
-          {settings.isError && <Alert severity="error">{errorMessage(settings.error)}</Alert>}
-          {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
-        </Stack>
-      </CardContent>
+      <List disablePadding>
+        <ControlRow
+          icon={AutoModeIcon}
+          name="Conductor"
+          description="Automatically starts Forges for unstarted Linear issues. Turning it off stops new starts; running Forges continue."
+          divider
+          control={
+            <Switch
+              checked={settings.data?.conductorEnabled !== "false"}
+              disabled={!settings.isSuccess || save.isPending}
+              onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })}
+              slotProps={{ input: { "aria-label": "Enable conductor" } }}
+            />
+          }
+        />
+        <ControlRow
+          icon={PaletteOutlinedIcon}
+          name="Appearance"
+          description="How zini looks on this browser."
+          control={
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={mode ?? "dark"}
+              onChange={(_e, value: "light" | "dark" | null) => value && setMode(value)}
+              aria-label="Theme"
+            >
+              <ToggleButton value="dark" sx={{ gap: 0.75, px: 1.5 }}>
+                <DarkModeOutlinedIcon fontSize="small" />
+                Dark
+              </ToggleButton>
+              <ToggleButton value="light" sx={{ gap: 0.75, px: 1.5 }}>
+                <LightModeOutlinedIcon fontSize="small" />
+                Light
+              </ToggleButton>
+            </ToggleButtonGroup>
+          }
+        />
+      </List>
+      {settings.isError && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {errorMessage(settings.error)}
+        </Alert>
+      )}
+      {save.isError && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {errorMessage(save.error)}
+        </Alert>
+      )}
     </Card>
   );
 }
@@ -410,50 +761,26 @@ function SettingsPage() {
       <Typography variant="h4" component="h1" gutterBottom>
         Settings
       </Typography>
-      <Stack spacing={2}>
-        <KeyCard provider="linear" name="Linear" helperText="Create a personal API key in your Linear settings." />
-        <KeyCard provider="openrouter" name="OpenRouter" helperText="Create an API key at openrouter.ai/keys." />
-        <KeyCard
-          provider="github"
-          name="GitHub"
-          helperText="Create a fine-grained token at github.com/settings/personal-access-tokens. Under Repository access, select your repo; under Permissions, set Contents and Pull requests to Read and write, so agents can push branches and open PRs."
-        />
-        <SettingCard
-          title="Repository"
-          fields={[
-            {
-              setting: "githubRepo",
-              label: "GitHub repository",
-              placeholder: "owner/name",
-              helperText:
-                "The repo your Linear issues are about, as owner/name. Connect GitHub first; the token needs access to this repo.",
-            },
-          ]}
-        />
-        {settings.data?.githubRepo && (
-          <DevelopmentEnvironmentCard key={settings.data.githubRepo} repository={settings.data.githubRepo} />
-        )}
-        <ChatGptCard />
-        <ModelCard
-          title="Project Lead"
-          provider="projectLeadProvider"
-          model="projectLeadModel"
-          helperText="An OpenRouter model ID that supports tool calling."
-        />
-        <ModelCard
-          title="Forge"
-          provider="forgeProvider"
-          model="forgeModel"
-          helperText="An OpenRouter model ID for the Forge, which guides implementing an issue in its workspace."
-        />
-        <ModelCard
-          title="OpenWiki"
-          provider="openwikiProvider"
-          model="openwikiModel"
-          helperText="An OpenRouter model ID used to generate the repo's wiki docs."
-        />
-        <AppearanceCard />
-        <ConductorCard />
+      <Stack spacing={5}>
+        <Section title="Connections" description="The services zini works with: your issues in Linear and your code on GitHub.">
+          <ConnectionsCard />
+        </Section>
+        <Section title="Models" description="Where the agents' models run, and which model each agent uses.">
+          <ModelsCard />
+        </Section>
+        <Section title="Repository" description="The repo the agents work on, and how its app runs in a workspace.">
+          <Card variant="outlined">
+            <List disablePadding>
+              <RepositoryRow />
+              {settings.data?.githubRepo && (
+                <DevelopmentEnvironmentRow key={settings.data.githubRepo} repository={settings.data.githubRepo} />
+              )}
+            </List>
+          </Card>
+        </Section>
+        <Section title="General" description="Automation and how zini looks.">
+          <GeneralCard />
+        </Section>
       </Stack>
     </Container>
   );

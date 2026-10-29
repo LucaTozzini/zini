@@ -1,7 +1,6 @@
 import {
   Badge,
   Box,
-  ButtonGroup,
   Checkbox,
   CircularProgress,
   Dialog,
@@ -13,7 +12,7 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Paper,
+  Stack,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -73,63 +72,77 @@ const MyDialog = ({
 );
 
 type ChatHeaderProps = {
-  src: string;
-  label: string;
+  // The chat's title, and the agent it's with, under it.
+  title: string;
+  agent: string;
+  icon: ReactNode;
   // The agent's to-do list and project notes (markdown), for the dialogs.
   todos: Todo[];
   notes: string;
   actions?: ReactNode;
 };
-const ChatHeader = ({ todos, notes, actions }: ChatHeaderProps) => {
+const ChatHeader = ({ title, agent, icon, todos, notes, actions }: ChatHeaderProps) => {
   const [showModal, setShowModal] = useState(0);
   const openTodos = todos.filter((todo) => todo.status !== "completed").length;
 
   return (
     <>
-      <Box
+      <Stack
+        direction="row"
+        spacing={1.5}
         sx={{
           position: "sticky",
           top: 0,
           // Above the messages it scrolls over: tool call lines are positioned (ButtonBase).
           zIndex: 1,
-          left: 0,
-          right: 0,
-          display: "flex",
-          justifyContent: "center",
-          pointerEvents: "none",
-
-          p: 1,
-          backgroundImage: (theme) => `linear-gradient(${(theme.vars || theme).palette.background.default}, transparent)`,
+          alignItems: "center",
+          px: 2,
+          py: 1,
+          bgcolor: "background.default",
+          borderBottom: 1,
+          borderColor: "divider",
         }}
       >
-        <Paper
+        <Box
           sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.5,
-            pointerEvents: "all",
-            p: 1,
+            display: "grid",
+            placeItems: "center",
+            flexShrink: 0,
+            width: 32,
+            height: 32,
+            borderRadius: 1,
+            bgcolor: "action.selected",
+            color: "primary.main",
+            "& .MuiSvgIcon-root": { fontSize: 18 },
           }}
         >
-          <ButtonGroup>
-            {actions}
-            <Tooltip title="To-Do">
-              <IconButton onClick={() => setShowModal(2)} size="small">
-                {/* Hidden when there are none. */}
-                <Badge badgeContent={openTodos} color="primary">
-                  <FormatListNumberedRtlIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="Project notes">
-              <IconButton onClick={() => setShowModal(3)} size="small">
-                <StickyNote2Icon />
-              </IconButton>
-            </Tooltip>
-          </ButtonGroup>
-        </Paper>
-      </Box>
+          {icon}
+        </Box>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="subtitle2" noWrap>
+            {title}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" noWrap component="div">
+            {agent}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.5} sx={{ color: "text.secondary" }}>
+          {actions}
+          <Tooltip title="To-Do">
+            <IconButton onClick={() => setShowModal(2)} size="small" aria-label="To-Do">
+              {/* Hidden when there are none. */}
+              <Badge badgeContent={openTodos} color="primary">
+                <FormatListNumberedRtlIcon fontSize="small" />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Project notes">
+            <IconButton onClick={() => setShowModal(3)} size="small" aria-label="Project notes">
+              <StickyNote2Icon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </Stack>
 
       <MyDialog open={showModal === 2} title="To-Do" setShowModal={setShowModal}>
         {todos.length > 0 && (

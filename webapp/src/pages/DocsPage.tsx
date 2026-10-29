@@ -1,21 +1,33 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Link as RouterLink, useNavigate, useParams } from "react-router";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
+import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Container from "@mui/material/Container";
-import Link from "@mui/material/Link";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import LinearProgress from "@mui/material/LinearProgress";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import CloseIcon from "@mui/icons-material/Close";
+import CommitIcon from "@mui/icons-material/Commit";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import SearchIcon from "@mui/icons-material/Search";
+import SyncIcon from "@mui/icons-material/Sync";
 import { errorMessage } from "../api/client.ts";
 import {
   type OpenWikiProgress,
+  type OpenWikiSearchResult,
   useOpenWikiStatus,
   useRefreshServing,
   useSearchWiki,
@@ -24,9 +36,107 @@ import {
   useWikiPage,
   useWikiPages,
 } from "../api/openwiki.ts";
-import MarkdownText from "../components/MarkdownText.tsx";
+import MarkdownText, { type LinkTarget } from "../components/MarkdownText.tsx";
+import { useSettings } from "../api/settings.ts";
 
 const shortHash = (hash: string | null) => (hash ? hash.slice(0, 7) : "—");
+
+// "concepts/ai-quoting.md" → "Ai quoting"; a folder's index.md is its "Overview".
+function pageLabel(path: string) {
+  const name = path.split("/").pop()!.replace(/\.md$/, "");
+  if (name === "index") return "Overview";
+  const words = name.replace(/[-_]+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+const folderLabel = (folder: string) => folder.split("/").map(pageLabel).join(" / ");
+const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+const isIndex = (path: string) => path === "index.md" || path.endsWith("/index.md");
+
+// The docs route for a wiki page: "architecture/index.md" → "/docs/architecture/",
+// "quickstart.md" → "/docs/quickstart".
+const docsUrl = (path: string) => `/docs/${path.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "")}`;
+
+// The wiki page at a path, which may leave out ".md" or point at a folder (its
+// index.md): what a docs route or a wiki link names. null if there's none.
+function findPage(path: string, pages: string[]) {
+  const folder = path && !path.endsWith("/") ? `${path}/` : path;
+  return [path, `${path}.md`, `${folder}index.md`].find((candidate) => pages.includes(candidate)) ?? null;
+}
+
+// "a/b/../c/./d" → "a/c/d", keeping a trailing slash; null if it climbs above the root.
+function normalizePath(path: string) {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+    } else if (part && part !== ".") parts.push(part);
+  }
+  return parts.join("/") + (path.endsWith("/") && parts.length ? "/" : "");
+}
+
+// Where a link in a wiki page goes. A link to another wiki page opens it here; one to
+// a file in the repo (the wiki lives in its openwiki/ folder) opens it on GitHub.
+// Relative links are from the page's folder. Links starting with "/" are from the
+// wiki's root, or the repo's when no wiki page is there. URLs and #anchors are kept.
+function resolveWikiLink(href: string, from: string, pages: string[], repo: string | undefined): LinkTarget {
+  if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith("#")) return undefined;
+  const hashAt = href.indexOf("#");
+  const path = hashAt === -1 ? href : href.slice(0, hashAt);
+  const hash = hashAt === -1 ? "" : href.slice(hashAt);
+  const absolute = path.startsWith("/");
+  const wikiPath = normalizePath(absolute ? path.replace(/^\/openwiki\//, "/") : `${folderOf(from)}/${path}`);
+  const page = wikiPath !== null ? findPage(wikiPath, pages) : null;
+  if (page) return { to: docsUrl(page) + hash };
+  const repoPath = normalizePath(absolute ? path : `openwiki/${folderOf(from)}/${path}`);
+  return repo && repoPath ? { href: `https://github.com/${repo}/blob/HEAD/${repoPath}${hash}` } : undefined;
+}
+
+// The wiki's readable pages, grouped by folder: the root's first, then each folder's
+// in order, each led by its index. openwiki's own files (dot-prefixed, e.g. .claims/)
+// are left out.
+function navSections(pages: string[]) {
+  const docs = pages.filter((p) => p.endsWith(".md") && !p.split("/").some((part) => part.startsWith(".")));
+  const folders = new Map<string, string[]>();
+  for (const page of docs.length ? docs : pages) {
+    folders.set(folderOf(page), [...(folders.get(folderOf(page)) ?? []), page]);
+  }
+  return [...folders.entries()]
+    .sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)))
+    .map(([folder, folderPages]) => ({
+      folder,
+      pages: folderPages.sort((a, b) => Number(isIndex(b)) - Number(isIndex(a)) || a.localeCompare(b)),
+    }));
+}
+
+// A docs state with no wiki to read: an icon, a heading and what to do next.
+function DocsMessage({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <Container maxWidth="sm" sx={{ my: { xs: 5, md: 10 } }}>
+      <Stack spacing={2.5} sx={{ alignItems: "center", textAlign: "center" }}>
+        <Box
+          sx={{
+            display: "grid",
+            placeItems: "center",
+            width: 56,
+            height: 56,
+            borderRadius: 3,
+            bgcolor: "action.selected",
+            color: "primary.main",
+            "& .MuiSvgIcon-root": { fontSize: 30 },
+          }}
+        >
+          {icon}
+        </Box>
+        <Typography variant="h5" component="h1">
+          {title}
+        </Typography>
+        {children}
+      </Stack>
+    </Container>
+  );
+}
 
 // No wiki on main yet: explain, and offer to generate one. Also the landing state
 // when the last scan failed, with its error and a retry.
@@ -43,48 +153,47 @@ function EmptyDocs({
 }) {
   const refresh = useRefreshServing();
   return (
-    <Container maxWidth="md" sx={{ my: 5 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Docs
+    <DocsMessage icon={<MenuBookIcon />} title="No docs yet">
+      <Typography color="text.secondary">
+        Zini researches the connected repo, writes a linked architecture wiki, and opens a pull request with it. The Project Lead
+        and the Forge&apos;s agents read it to orient themselves before planning.
       </Typography>
-      <Stack spacing={2}>
-        <Typography color="text.secondary">
-          Generate architecture docs for the connected repo. Zini researches the codebase and writes a linked wiki, then opens a
-          pull request with it. The Project Lead and the ForgeThe Project Lead and the Forge&apos;s planner use the wiki to
-          orientapos;s agents use the wiki to orient themselves before planning.
-        </Typography>
-        {failedError && <Alert severity="error">The last scan failed: {failedError}</Alert>}
-        {scanError && <Alert severity="error">{scanError}</Alert>}
-        <Stack direction="row">
-          <Button variant="contained" loading={scanning} disabled={scanning} onClick={onScan}>
-            {failedError ? "Try again" : "Generate docs"}
-          </Button>
-        </Stack>
+      {failedError && (
+        <Alert severity="error" sx={{ textAlign: "left", width: "100%" }}>
+          The last scan failed: {failedError}
+        </Alert>
+      )}
+      {scanError && (
+        <Alert severity="error" sx={{ textAlign: "left", width: "100%" }}>
+          {scanError}
+        </Alert>
+      )}
+      <Button variant="contained" startIcon={<AutoAwesomeIcon />} loading={scanning} disabled={scanning} onClick={onScan}>
+        {failedError ? "Try again" : "Generate docs"}
+      </Button>
+      <Typography variant="body2" color="text.secondary">
+        The scan runs in the background and can take a while on a big repo. It uses the OpenWiki model from Settings.
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <Typography variant="body2" color="text.secondary">
-          The scan runs in the background and can take a while on a big repo. Docs are generated with the OpenWiki model from
-          Settings.
+          Merged the docs PR?
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Merged the docs PR? Pull the latest main to see them here.
-        </Typography>
-        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-          <Button
-            variant="outlined"
-            size="small"
-            loading={refresh.isPending}
-            disabled={refresh.isPending}
-            onClick={() => refresh.mutate()}
-          >
-            Pull latest main
-          </Button>
-          {refresh.isError && (
-            <Typography variant="body2" color="error">
-              {errorMessage(refresh.error)}
-            </Typography>
-          )}
-        </Stack>
+        <Button
+          size="small"
+          startIcon={<SyncIcon />}
+          loading={refresh.isPending}
+          disabled={refresh.isPending}
+          onClick={() => refresh.mutate()}
+        >
+          Pull latest main
+        </Button>
       </Stack>
-    </Container>
+      {refresh.isError && (
+        <Typography variant="body2" color="error">
+          {errorMessage(refresh.error)}
+        </Typography>
+      )}
+    </DocsMessage>
   );
 }
 
@@ -101,6 +210,28 @@ function progressText(progress: OpenWikiProgress | null) {
   return progress.stage;
 }
 
+// A bar for the scan: filling up while it writes pages, moving otherwise.
+function ScanProgress({ progress }: { progress: OpenWikiProgress | null }) {
+  const percent =
+    progress?.stage === "generating" && progress.pageIndex && progress.pageCount
+      ? (progress.pageIndex / progress.pageCount) * 100
+      : null;
+  return (
+    <Stack spacing={1} sx={{ width: "100%" }}>
+      <LinearProgress
+        variant={percent === null ? "indeterminate" : "determinate"}
+        value={percent ?? undefined}
+        sx={{ borderRadius: 1 }}
+      />
+      {progress && (
+        <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
+          {progressText(progress)}
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
 // A scan is going and there's no wiki to show yet.
 function GeneratingDocs({
   startedAt,
@@ -112,57 +243,44 @@ function GeneratingDocs({
   progress: OpenWikiProgress | null;
 }) {
   return (
-    <Container maxWidth="md" sx={{ my: 5 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Docs
+    <DocsMessage icon={<AutoAwesomeIcon />} title="Generating docs…">
+      <ScanProgress progress={progress} />
+      <Typography variant="body2" color="text.secondary">
+        {startedAt && `Started ${new Date(startedAt).toLocaleString()}. `}
+        {ignoreUsed && (ignoreUsed === "repo" ? "Using the repo's .openwikiignore. " : "Using zini's default ignore rules. ")}
+        This page updates when the scan finishes.
       </Typography>
-      <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
-        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-          <CircularProgress size={24} />
-          <Typography>Generating docs…</Typography>
-        </Stack>
-        {progress && <Typography>{progressText(progress)}</Typography>}
-        {startedAt && (
-          <Typography variant="body2" color="text.secondary">
-            Started {new Date(startedAt).toLocaleString()}
-          </Typography>
-        )}
-        {ignoreUsed && (
-          <Typography variant="body2" color="text.secondary">
-            {ignoreUsed === "repo" ? "Using the repo's .openwikiignore." : "Using zini's default ignore rules."}
-          </Typography>
-        )}
-        <Typography variant="body2" color="text.secondary">
-          This page updates when the scan finishes.
-        </Typography>
-      </Stack>
-    </Container>
+    </DocsMessage>
   );
 }
 
-// The served wiki checkout vs main, with a manual refresh.
-function ServeStatusRow() {
+// Which commit of main the docs come from, and a button to pull the latest.
+function ServeStatus() {
   const serve = useServeStatus();
   const refresh = useRefreshServing();
   if (!serve.data) return null;
   const { commit, mainCommit } = serve.data;
   const upToDate = Boolean(commit && mainCommit && commit === mainCommit);
   return (
-    <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
-      <Typography variant="body2" color="text.secondary">
-        Showing docs from main at {shortHash(commit)}
-        {upToDate ? " · up to date" : ` · main is at ${shortHash(mainCommit)}`}
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
+      <Chip size="small" variant="outlined" icon={<CommitIcon />} label={`main @ ${shortHash(commit)}`} />
+      <Typography variant="body2" color={upToDate ? "text.secondary" : "warning.main"}>
+        {upToDate ? "Up to date" : `main is at ${shortHash(mainCommit)}`}
       </Typography>
-      <Button
-        size="small"
-        variant="outlined"
-        loading={refresh.isPending}
-        // Not disabled when up to date: main is as of zini's last fetch, and this fetches.
-        disabled={refresh.isPending}
-        onClick={() => refresh.mutate()}
-      >
-        Pull latest main
-      </Button>
+      <Tooltip title="Pull latest main">
+        <span>
+          {/* Not disabled when up to date: main is as of zini's last fetch, and this fetches. */}
+          <IconButton
+            size="small"
+            aria-label="Pull latest main"
+            loading={refresh.isPending}
+            disabled={refresh.isPending}
+            onClick={() => refresh.mutate()}
+          >
+            <SyncIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
       {refresh.isError && (
         <Typography variant="body2" color="error">
           {errorMessage(refresh.error)}
@@ -174,67 +292,52 @@ function ServeStatusRow() {
 
 // Search-only Q&A over the wiki: ranked sections, no model call. Clicking a result
 // opens its page.
-function WikiSearch({ onOpenPage }: { onOpenPage: (page: string) => void }) {
-  const [query, setQuery] = useState("");
-  const search = useSearchWiki();
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const q = query.trim();
-    if (q) search.mutate({ query: q });
-  }
-
+function SearchResults({
+  query,
+  results,
+  onOpenPage,
+  onClose,
+}: {
+  query: string;
+  results: OpenWikiSearchResult[];
+  onOpenPage: (page: string) => void;
+  onClose: () => void;
+}) {
   return (
-    <Stack spacing={1}>
-      <Stack component="form" direction="row" spacing={1} onSubmit={handleSubmit}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Search the docs…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search the docs"
-        />
-        <Button type="submit" variant="outlined" loading={search.isPending} disabled={!query.trim()}>
-          Search
-        </Button>
-      </Stack>
-      {search.isError && <Alert severity="error">{errorMessage(search.error)}</Alert>}
-      {search.isSuccess && search.data.length === 0 && (
-        <Typography variant="body2" color="text.secondary">
-          No sections matched.
+    <>
+      <Stack direction="row" sx={{ alignItems: "center", px: 2, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
+        <Typography variant="subtitle2" sx={{ flex: 1 }}>
+          {results.length ? `${results.length} result${results.length === 1 ? "" : "s"}` : "No results"} for “{query}”
         </Typography>
-      )}
-      {search.isSuccess && search.data.length > 0 && (
+        <Tooltip title="Close search">
+          <IconButton size="small" aria-label="Close search" onClick={onClose}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+      {results.length === 0 ? (
+        <Typography color="text.secondary" sx={{ p: 4, textAlign: "center" }}>
+          No sections matched. Try other words.
+        </Typography>
+      ) : (
         <List disablePadding>
-          {search.data.map((r, i) => (
-            <ListItemButton
-              key={`${r.page}#${r.section}#${i}`}
-              onClick={() => {
-                onOpenPage(r.page);
-                search.reset();
-                setQuery("");
-              }}
-              sx={{ borderRadius: 1 }}
-            >
+          {results.map((r, i) => (
+            <ListItemButton key={`${r.page}#${r.section}#${i}`} divider onClick={() => onOpenPage(r.page)} sx={{ px: 2 }}>
               <ListItemText
-                primary={r.section || r.page}
+                // Sections are slugs, e.g. "webhook-handling", so they're labelled like pages.
+                primary={pageLabel(r.section || r.page)}
                 secondary={
                   <>
-                    <Typography component="span" variant="body2" color="text.secondary">
-                      {r.page}
+                    <Typography component="span" variant="caption" color="primary" sx={{ display: "block" }}>
+                      {folderOf(r.page) && `${folderLabel(folderOf(r.page))} › `}
+                      {pageLabel(r.page)}
                     </Typography>
-                    {r.excerpt && ` — ${r.excerpt}`}
+                    {r.excerpt}
                   </>
                 }
                 slotProps={{
                   secondary: {
-                    sx: {
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    },
+                    sx: { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" },
                   },
                 }}
               />
@@ -242,6 +345,57 @@ function WikiSearch({ onOpenPage }: { onOpenPage: (page: string) => void }) {
           ))}
         </List>
       )}
+    </>
+  );
+}
+
+// The wiki's pages, grouped by folder.
+function PageNav({
+  sections,
+  activePage,
+  onNavigate,
+}: {
+  sections: ReturnType<typeof navSections>;
+  activePage: string | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <Stack component="nav" aria-label="Docs pages" spacing={1.5}>
+      {sections.map(({ folder, pages }) => (
+        <div key={folder}>
+          {folder && (
+            <Typography
+              variant="caption"
+              component="div"
+              sx={{
+                px: 1,
+                pb: 0.5,
+                color: "text.secondary",
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+              }}
+            >
+              {folderLabel(folder)}
+            </Typography>
+          )}
+          <List disablePadding dense>
+            {pages.map((p) => (
+              <ListItemButton
+                key={p}
+                component={RouterLink}
+                to={docsUrl(p)}
+                selected={p === activePage}
+                onClick={onNavigate}
+                title={p}
+                sx={{ borderRadius: 1, py: 0.25, color: p === activePage ? "text.primary" : "text.secondary" }}
+              >
+                <ListItemText primary={pageLabel(p)} slotProps={{ primary: { variant: "body2", noWrap: true } }} />
+              </ListItemButton>
+            ))}
+          </List>
+        </div>
+      ))}
     </Stack>
   );
 }
@@ -263,67 +417,177 @@ function ReadyDocs({
   scanning: boolean;
   scanError: string | null;
 }) {
-  const [selectedPage, setSelectedPage] = useState<string | null>(null);
-  const activePage = selectedPage ?? pageList[0] ?? null;
+  const sections = navSections(pageList);
+  const navPages = sections.flatMap((section) => section.pages);
+  // The open page is in the URL (/docs/<page>), so the browser's back and forward move
+  // between pages. /docs alone opens the wiki's index.
+  const { "*": splat = "" } = useParams();
+  const navigate = useNavigate();
+  const activePage = splat ? findPage(splat, pageList) : navPages.includes("index.md") ? "index.md" : (navPages[0] ?? null);
   const page = useWikiPage(activePage);
+  const settings = useSettings();
+  const repo = settings.data?.githubRepo ?? undefined;
+  const resolveLink = useCallback(
+    (href: string) => (activePage ? resolveWikiLink(href, activePage, pageList, repo) : undefined),
+    [activePage, pageList, repo],
+  );
+  const [query, setQuery] = useState("");
+  const [searched, setSearched] = useState("");
+  const search = useSearchWiki();
+  const folder = activePage ? folderOf(activePage) : "";
 
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    setSearched(q);
+    search.mutate({ query: q });
+  }
+
+  function openPage(path: string) {
+    navigate(docsUrl(path));
+    search.reset();
+  }
+
+  // Fills the window: a fixed header, then the page list and the page, each scrolling
+  // on its own, so the header and list stay in place while reading.
   return (
-    <Container maxWidth="lg" sx={{ my: 4 }}>
-      <Stack spacing={2}>
-        <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
-          <Typography variant="h4" component="h1" sx={{ flexGrow: 1 }}>
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <Box sx={{ flexShrink: 0, borderBottom: 1, borderColor: "divider" }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1, px: { xs: 2, md: 3 }, py: 1.5 }}
+        >
+          <Typography variant="h6" component="h1">
             Docs
           </Typography>
-          {pullRequestUrl && (
-            <Link href={pullRequestUrl} target="_blank" rel="noreferrer">
-              Last docs PR
-            </Link>
-          )}
-          <Button variant="outlined" size="small" loading={scanning} disabled={running || scanning} onClick={onScan}>
-            Regenerate docs (opens a PR)
-          </Button>
+          <ServeStatus />
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            {pullRequestUrl && (
+              <Button size="small" href={pullRequestUrl} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon />}>
+                Last docs PR
+              </Button>
+            )}
+            <Tooltip title="Writes the wiki again and opens a pull request with it">
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AutoAwesomeIcon />}
+                  loading={scanning}
+                  disabled={running || scanning}
+                  onClick={onScan}
+                >
+                  Regenerate
+                </Button>
+              </span>
+            </Tooltip>
+          </Stack>
         </Stack>
-        {running && (
-          <Alert severity="info">
-            Regenerating docs in the background — this page keeps showing the current version until the new one lands.
-            {progress && <div>{progressText(progress)}</div>}
-          </Alert>
+        {(running || scanError) && (
+          <Stack spacing={1} sx={{ px: { xs: 2, md: 3 }, pb: 1.5 }}>
+            {running && (
+              <Alert severity="info" icon={false}>
+                <Stack spacing={1}>
+                  <Typography variant="body2">
+                    Regenerating docs in the background. This page shows the current version until the new one lands.
+                  </Typography>
+                  <ScanProgress progress={progress} />
+                </Stack>
+              </Alert>
+            )}
+            {scanError && <Alert severity="error">{scanError}</Alert>}
+          </Stack>
         )}
-        {scanError && <Alert severity="error">{scanError}</Alert>}
-        <ServeStatusRow />
-        <WikiSearch onOpenPage={setSelectedPage} />
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: "flex-start" }}>
-          <Card variant="outlined" sx={{ width: { xs: "100%", md: 280 }, flexShrink: 0 }}>
-            <List disablePadding sx={{ maxHeight: 600, overflow: "auto" }}>
-              {pageList.map((p) => (
-                <ListItemButton key={p} selected={p === activePage} onClick={() => setSelectedPage(p)} sx={{ borderRadius: 1 }}>
-                  <ListItemText
-                    primary={p}
-                    slotProps={{
-                      primary: {
-                        variant: "body2",
-                        sx: { overflowWrap: "anywhere" },
-                      },
-                    }}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          </Card>
-          <Card variant="outlined" sx={{ flex: 1, minWidth: 0 }}>
-            <CardContent>
-              {page.isPending && (
-                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+      </Box>
+
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: { xs: "column", md: "row" } }}>
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+            width: { xs: "100%", md: 260 },
+            maxHeight: { xs: 260, md: "none" },
+            borderRight: { md: 1 },
+            borderBottom: { xs: 1, md: 0 },
+            borderColor: "divider",
+          }}
+        >
+          <Box component="form" onSubmit={handleSearch} sx={{ p: 2, pb: 1.5 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Search the docs"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search the docs"
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      {search.isPending ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />}
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          </Box>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", px: 1, pb: 2 }}>
+            <PageNav sections={sections} activePage={search.isSuccess ? null : activePage} onNavigate={() => search.reset()} />
+          </Box>
+        </Box>
+
+        {/* Keyed, so opening another page starts at its top. */}
+        <Box
+          key={search.isSuccess ? "search" : activePage}
+          component="main"
+          sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto" }}
+        >
+          {search.isError && (
+            <Alert severity="error" sx={{ m: 2 }}>
+              {errorMessage(search.error)}
+            </Alert>
+          )}
+          {search.isSuccess ? (
+            <SearchResults query={searched} results={search.data} onOpenPage={openPage} onClose={() => search.reset()} />
+          ) : (
+            <Box sx={{ px: { xs: 2, md: 6 }, py: { xs: 2, md: 4 }, maxWidth: 880, mx: "auto" }}>
+              {activePage && (
+                <Breadcrumbs separator="›" sx={{ mb: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Docs
+                  </Typography>
+                  {folder && (
+                    <Typography variant="caption" color="text.secondary">
+                      {folderLabel(folder)}
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.primary">
+                    {pageLabel(activePage)}
+                  </Typography>
+                </Breadcrumbs>
+              )}
+              {!activePage && splat && <Alert severity="warning">There&apos;s no docs page at {splat}.</Alert>}
+              {activePage && page.isPending && (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
                   <CircularProgress size={24} />
                 </Box>
               )}
               {page.isError && <Alert severity="error">{errorMessage(page.error)}</Alert>}
-              {page.data !== undefined && <MarkdownText>{page.data}</MarkdownText>}
-            </CardContent>
-          </Card>
-        </Stack>
-      </Stack>
-    </Container>
+              {page.data !== undefined && (
+                <Box sx={{ "& > :first-of-type": { mt: 0 } }}>
+                  {/* Without the page's YAML front matter, which would show as a stray heading. */}
+                  <MarkdownText resolveLink={resolveLink}>{page.data.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")}</MarkdownText>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </Box>
   );
 }
 
@@ -331,6 +595,8 @@ function DocsPage() {
   const status = useOpenWikiStatus();
   const pages = useWikiPages();
   const scan = useStartScan();
+  // Kept the same between renders, so the page's link handling doesn't change each time.
+  const pageList = useMemo(() => [...(pages.data ?? [])].sort((a, b) => a.localeCompare(b)), [pages.data]);
 
   function handleScan() {
     scan.reset();
@@ -354,7 +620,6 @@ function DocsPage() {
     );
   }
 
-  const pageList = [...(pages.data ?? [])].sort((a, b) => a.localeCompare(b));
   const hasWiki = pageList.length > 0;
   const running = status.data?.state === "running";
 

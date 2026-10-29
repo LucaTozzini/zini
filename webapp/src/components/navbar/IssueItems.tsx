@@ -29,8 +29,8 @@ export default function IssueItems({ issues }: { issues: LinearIssue[] | undefin
     return (
       <ListItem sx={{ px: 1, py: 0.25 }}>
         <ListItemText
-          primary={issues ? "No issues of this type" : "Loading..."}
-          slotProps={{ primary: { variant: "body2", color: "textSecondary" } }}
+          primary={issues ? "No issues" : "Loading..."}
+          slotProps={{ primary: { variant: "caption", color: "textSecondary" } }}
         />
       </ListItem>
     );

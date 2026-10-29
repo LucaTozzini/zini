@@ -5,7 +5,7 @@ import { approvalsKey, forgeKey, forgeMessagesKey } from "./forge.ts";
 import { chatGptKey } from "./chatgpt.ts";
 import { evalsKey } from "./evals.ts";
 import { openwikiKey } from "./openwiki.ts";
-import { subscriptionsKey, threadKey, threadsKey } from "./projectLead.ts";
+import { threadKey, threadsKey } from "./projectLead.ts";
 import { workspaceKey, workspacesKey } from "./workspaces.ts";
 
 // Keeps the app up to date, from one connection to the server's events (mounted once,
@@ -23,7 +23,6 @@ export function useServerEvents() {
     const events = new EventSource("/api/events");
     events.onopen = () => {
       refetch(threadsKey);
-      refetch(subscriptionsKey);
       refetch(workspacesKey);
       refetch(["forge"]);
     };
@@ -32,7 +31,6 @@ export function useServerEvents() {
       if (event.type === "thread.updated") {
         refetch(threadKey(event.threadId));
         refetch(threadsKey, true);
-        refetch(subscriptionsKey);
       } else if (event.type === "workspace.updated") {
         refetch(workspaceKey(event.issueId));
       } else if (event.type === "chatgpt.updated") {

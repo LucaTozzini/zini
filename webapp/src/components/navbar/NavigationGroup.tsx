@@ -1,16 +1,20 @@
 import { useId, useState, type ReactNode } from "react";
-import { Box, Collapse, List, ListItem, ListItemButton, ListItemText } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { Box, Collapse, List, ListItem, ListItemButton, ListItemText, Typography } from "@mui/material";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useLocation } from "react-router";
 
 export default function NavigationGroup({
   title,
+  icon,
+  count,
   defaultOpen,
   active,
   children,
 }: {
   title: string;
+  icon?: ReactNode;
+  // How many items the group holds; undefined while loading.
+  count?: number;
   defaultOpen: boolean;
   active: boolean;
   children: ReactNode;
@@ -26,25 +30,35 @@ export default function NavigationGroup({
       <ListItemButton
         aria-expanded={open}
         aria-controls={id}
-        sx={{ px: 0.5, py: 0.25, borderRadius: 0.5, minHeight: { xs: 32, md: 26 } }}
+        sx={{ px: 1, py: 0.25, gap: 1, borderRadius: 1, minHeight: 30, color: "text.secondary" }}
         onClick={() => {
           setExpanded(!open);
           setCollapsedRoute(open ? pathname : null);
         }}
       >
-        {open ? (
-          <ExpandMoreIcon sx={{ fontSize: 14, mr: 0.5, color: "text.secondary" }} />
-        ) : (
-          <ChevronRightIcon sx={{ fontSize: 14, mr: 0.5, color: "text.secondary" }} />
+        {icon && <Box sx={{ display: "inline-flex", "& .MuiSvgIcon-root": { fontSize: 14 } }}>{icon}</Box>}
+        <ListItemText
+          sx={{ my: 0, flex: "0 1 auto" }}
+          primary={title}
+          slotProps={{ primary: { variant: "body2", noWrap: true, sx: { fontWeight: 600, color: "text.primary" } } }}
+        />
+        {/* Muted, right after the title, so the count reads as part of it. */}
+        {count !== undefined && (
+          <Typography
+            variant="caption"
+            aria-label={`${count} issues`}
+            sx={{ ml: -0.5, color: "text.disabled", fontVariantNumeric: "tabular-nums" }}
+          >
+            {count}
+          </Typography>
         )}
-        <ListItemText sx={{ my: 0 }} primary={title} slotProps={{ primary: { variant: "body2", sx: { fontWeight: 600 } } }} />
+        <Box sx={{ flex: 1 }} />
+        <ChevronRightIcon sx={{ fontSize: 16, transition: "transform 150ms", transform: open ? "rotate(90deg)" : "none" }} />
       </ListItemButton>
       <Collapse in={open} unmountOnExit>
-        <Box sx={{ pl: 1.5 }}>
-          <List id={id} disablePadding aria-label={title}>
-            {children}
-          </List>
-        </Box>
+        <List id={id} disablePadding aria-label={title} sx={{ pl: 1, ml: 1.75, borderLeft: 1, borderColor: "divider" }}>
+          {children}
+        </List>
       </Collapse>
     </ListItem>
   );

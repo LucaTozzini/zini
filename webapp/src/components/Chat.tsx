@@ -57,15 +57,20 @@ export type ChatState = {
 
 type ChatProps = {
   chat: ChatState;
-  avatar: { src: string; label: string };
-  // Shown in an empty chat.
+  // The chat's title, and the agent it's with.
+  title: string;
+  agent: { name: string; icon: ReactNode };
+  // Shown in an empty chat: a heading, a line under it, and messages to start from,
+  // each put in the input when clicked.
+  emptyTitle: string;
   emptyText: string;
+  suggestions?: { label: string; message: string }[];
   placeholder: string;
   headerActions?: ReactNode;
 };
 
 // A chat with any agent role: messages, approvals and the input box.
-function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps) {
+function Chat({ chat, title, agent, emptyTitle, emptyText, suggestions = [], placeholder, headerActions }: ChatProps) {
   const {
     loading,
     content,
@@ -122,13 +127,39 @@ function Chat({ chat, avatar, emptyText, placeholder, headerActions }: ChatProps
           scrollbarWidth: "none",
         }}
       >
-        <ChatHeader src={avatar.src} label={avatar.label} todos={todos} notes={notes} actions={headerActions} />
+        <ChatHeader title={title} agent={agent.name} icon={agent.icon} todos={todos} notes={notes} actions={headerActions} />
         <Container maxWidth={"md"}>
           <Stack spacing={3} sx={{ pt: 3 }}>
             {messages.length === 0 && !sending && !loading && (
-              <Typography color="text.secondary" align="center" sx={{ pt: "20vh" }}>
-                {emptyText}
-              </Typography>
+              <Stack spacing={2} sx={{ pt: "16vh", alignItems: "center", textAlign: "center" }}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    placeItems: "center",
+                    width: 56,
+                    height: 56,
+                    borderRadius: 3,
+                    bgcolor: "action.selected",
+                    color: "primary.main",
+                    "& .MuiSvgIcon-root": { fontSize: 30 },
+                  }}
+                >
+                  {agent.icon}
+                </Box>
+                <Box>
+                  <Typography variant="h5" component="h1" gutterBottom>
+                    {emptyTitle}
+                  </Typography>
+                  <Typography color="text.secondary">{emptyText}</Typography>
+                </Box>
+                {suggestions.length > 0 && (
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", justifyContent: "center", pt: 1 }}>
+                    {suggestions.map(({ label, message }) => (
+                      <Chip key={label} label={label} variant="outlined" clickable onClick={() => setDraft(message)} />
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
             )}
             {loading && <Typography color="text.secondary">Loading…</Typography>}
             <MessageList entries={messages} busy={busy} lastMessageRef={lastMessageRef} />
