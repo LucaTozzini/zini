@@ -20,6 +20,7 @@ import {
   Typography,
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
+import StorageIcon from "@mui/icons-material/Storage";
 import ScienceIcon from "@mui/icons-material/Science";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useLinearIssues } from "../api/integrations.ts";
@@ -32,7 +33,6 @@ import SessionItem from "./navbar/SessionItem";
 import AddIcon from "@mui/icons-material/Add";
 import ZiniIcon from "./icons/ZiniIcon.tsx";
 import OpenWikiIcon from "./icons/OpenWikiIcon.tsx";
-import PostgresIcon from "./icons/PostgresIcon.tsx";
 import { useId, useState } from "react";
 import type { ThreadSummary } from "shared";
 import { errorMessage } from "../api/client.ts";
@@ -211,7 +211,7 @@ const NavBar = () => {
         <Divider sx={{ mb: 1 }} />
         <NavBarItem icon={<ScienceIcon />} title="Evals" to="/evals" />
         <NavBarItem icon={<OpenWikiIcon />} title="OpenWiki" to="/docs" />
-        <NavBarItem icon={<PostgresIcon />} title="Database" to="/database" />
+        <NavBarItem icon={<StorageIcon />} title="Database" to="/database" />
         <NavBarItem icon={<SettingsIcon />} title="Settings" to="/settings" />
         <Profile />
       </Box>
