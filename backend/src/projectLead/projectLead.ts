@@ -36,6 +36,7 @@ import { SYSTEM_PROMPT } from "./systemPrompt.js";
 import { linearTools, toIssueId } from "./linearTools.js";
 import { forgeTools, workspaceAppTools } from "./forgeTools.js";
 import { pullRequestTools } from "./pullRequestTools.js";
+import { databaseTools } from "./databaseTools.js";
 import { linearFileTools } from "../agents/linearFileTools.js";
 import { chatFilesMiddleware, uploadFileTool } from "./chatFiles.js";
 
@@ -84,6 +85,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       ...wikiTools,
       exploreCodeTool,
       ...pullRequestTools(repo),
+      ...databaseTools,
       ...npmTools,
       ...browserTools(`project-lead:${threadId}`, () => sendEvent({ type: "thread.updated", threadId }), { external: true }),
     ],

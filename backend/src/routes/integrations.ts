@@ -5,6 +5,7 @@ import { getIntegrations, isProvider, removeKey, saveKeys } from "../integration
 import { InvalidInputLinearError } from "@linear/sdk";
 import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
 import { parse } from "./http.js";
+import { errorMessage } from "../core/errors.js";
 
 export const integrations = Router();
 
@@ -40,7 +41,15 @@ integrations.put("/", async (req, res) => {
   const keys = parse(apiKeys, req.body, res);
   if (!keys) return;
 
-  const rejectedBy = await saveKeys(keys);
+  // A check that fails rather than rejecting the key (e.g. the service is unreachable)
+  // says why, instead of a bare 500.
+  let rejectedBy: string | null;
+  try {
+    rejectedBy = await saveKeys(keys);
+  } catch (error) {
+    res.status(400).json({ error: errorMessage(error) });
+    return;
+  }
   if (rejectedBy) {
     res.status(400).json({ error: `${rejectedBy} rejected this API key` });
     return;

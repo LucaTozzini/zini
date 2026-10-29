@@ -277,7 +277,7 @@ export type ForgeState = {
 };
 
 // Services zini connects to with an API key.
-export const PROVIDERS = ["linear", "openrouter", "github"] as const;
+export const PROVIDERS = ["linear", "openrouter", "github", "postgres"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 // As returned by GET /api/integrations. Never the full key; the last 3 characters
@@ -514,3 +514,16 @@ export type PreviewClientMessage =
   | { type: "closeTab"; id: number }
   // The last frame is on screen: the next one can come.
   | { type: "frame" };
+
+// The connected database's structure, as returned by GET /api/database/schema: its tables
+// (id "schema.name"), each column with whether it's part of the primary key, and the
+// foreign keys between them, from the referencing table to the referenced one.
+export type DatabaseSchema = {
+  tables: {
+    id: string;
+    schema: string;
+    name: string;
+    columns: { name: string; type: string; nullable: boolean; primaryKey: boolean }[];
+  }[];
+  relations: { from: string; fromColumns: string[]; to: string; toColumns: string[] }[];
+};

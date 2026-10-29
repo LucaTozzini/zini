@@ -27,6 +27,8 @@
     "langchain": "^1.5.12",
     "micromatch": "^4.0.8",
     "openwiki": "0.7.2",
+    "pg": "^8.23.1",
+    "pg-cursor": "^2.22.1",
     "playwright": "^1.63.0",
     "sequelize": "^6.37.8",
     "shared": "*",
@@ -41,6 +43,8 @@
     "@types/express": "^5.0.6",
     "@types/micromatch": "^4.0.10",
     "@types/node": "^24.13.6",
+    "@types/pg": "^8.23.1",
+    "@types/pg-cursor": "^2.7.2",
     "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2"

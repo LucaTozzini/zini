@@ -8,6 +8,7 @@ import { initDb } from "./db.js";
 import { subscribe } from "./core/events.js";
 import { forge } from "./routes/forge.js";
 import { integrations } from "./routes/integrations.js";
+import { database } from "./routes/database.js";
 import { projectLead } from "./routes/projectLead.js";
 import { evals } from "./routes/evals.js";
 import { chatgpt } from "./routes/chatgpt.js";
@@ -45,6 +46,7 @@ app.get("/api/events", (_req, res) => {
 
 app.use("/api/forge", forge);
 app.use("/api/integrations", integrations);
+app.use("/api/database", database);
 app.use("/api/project-lead", projectLead);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);

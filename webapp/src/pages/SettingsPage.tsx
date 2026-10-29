@@ -21,6 +21,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
+import PostgresIcon from "../components/icons/PostgresIcon.tsx";
 import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
 import OpenRouterIcon from "../components/icons/OpenRouterIcon.tsx";
 import Button from "@mui/material/Button";
@@ -58,11 +59,20 @@ function CardTitle({ icon: Icon, children }: { icon?: SvgIconComponent; children
   );
 }
 
-// instructions, if given, show above the key field: how to create the key.
-type KeyFormProps = { provider: Provider; name: string; helperText: string; instructions?: ReactNode };
+// instructions, if given, show above the key field: how to create the key. input, if
+// given, replaces the key field with fields of its own that pass up the key they build.
+type KeyFormProps = {
+  provider: Provider;
+  name: string;
+  helperText?: string;
+  instructions?: ReactNode;
+  input?: (onChange: (key: string) => void) => ReactNode;
+  // What the connected key is shown as, from its hint; "key ending in <hint>" by default.
+  connectedAs?: (hint: string) => ReactNode;
+};
 
 // A service's API key: the connected key's hint, or a field to paste one.
-function KeyForm({ provider, name, helperText, instructions }: KeyFormProps) {
+function KeyForm({ provider, name, helperText, instructions, input, connectedAs }: KeyFormProps) {
   const integrations = useIntegrations();
   const connect = useConnectIntegration(provider);
   const disconnect = useDisconnectIntegration(provider);
@@ -91,7 +101,14 @@ function KeyForm({ provider, name, helperText, instructions }: KeyFormProps) {
       {integrations.isSuccess && connected && !replacing && (
         <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
           <Typography sx={{ flexGrow: 1 }}>
-            Connected · key ending in <code>{status?.keyHint}</code>
+            Connected ·{" "}
+            {connectedAs ? (
+              connectedAs(status?.keyHint ?? "")
+            ) : (
+              <>
+                key ending in <code>{status?.keyHint}</code>
+              </>
+            )}
           </Typography>
           <Button onClick={() => setReplacing(true)}>Replace key</Button>
           <Button color="error" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
@@ -103,15 +120,19 @@ function KeyForm({ provider, name, helperText, instructions }: KeyFormProps) {
       {integrations.isSuccess && showForm && (
         <Stack component="form" spacing={2} onSubmit={handleSubmit}>
           {instructions}
-          <TextField
-            label={`${name} API key`}
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            helperText={helperText}
-            autoComplete="off"
-            required
-          />
+          {input ? (
+            input(setApiKey)
+          ) : (
+            <TextField
+              label={`${name} API key`}
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              helperText={helperText}
+              autoComplete="off"
+              required
+            />
+          )}
           {connect.isError && <Alert severity="error">{errorMessage(connect.error)}</Alert>}
           <Stack direction="row" spacing={1}>
             <Button type="submit" variant="contained" loading={connect.isPending}>
@@ -121,6 +142,95 @@ function KeyForm({ provider, name, helperText, instructions }: KeyFormProps) {
           </Stack>
         </Stack>
       )}
+    </Stack>
+  );
+}
+
+type PostgresConnection = { host: string; port: string; database: string; user: string; password: string; ssl: string };
+
+const SSL_MODES = [
+  { value: "no-verify", label: "On, without checking the certificate", help: "Heroku and most hosted databases" },
+  { value: "verify-full", label: "On, checking the certificate", help: "The server's certificate is from a trusted authority" },
+  { value: "disable", label: "Off", help: "A database on this machine or a private network" },
+];
+
+// The connection string the fields make: the user, password and database encoded, the
+// SSL mode always set. Empty until the required fields are filled.
+function postgresUrl({ host, port, database, user, password, ssl }: PostgresConnection) {
+  if (!host.trim() || !database.trim() || !user.trim()) return "";
+  const auth = `${encodeURIComponent(user.trim())}${password ? `:${encodeURIComponent(password)}` : ""}`;
+  return `postgres://${auth}@${host.trim()}:${port.trim() || "5432"}/${encodeURIComponent(database.trim())}?sslmode=${ssl}`;
+}
+
+// A connection string split into the fields, e.g. one pasted from Heroku; null if it isn't one.
+function parsePostgresUrl(text: string): PostgresConnection | null {
+  const match = text.trim().match(/^postgres(?:ql)?:\/\/([^:@/]*)(?::([^@/]*))?@([^:/?]+)(?::(\d+))?\/([^?]*)(?:\?(.*))?$/);
+  if (!match) return null;
+  const [, user = "", password = "", host = "", port = "", database = "", query = ""] = match;
+  const sslmode = new URLSearchParams(query).get("sslmode");
+  return {
+    host,
+    port: port || "5432",
+    database: decodeURIComponent(database),
+    user: decodeURIComponent(user),
+    password: decodeURIComponent(password),
+    // Kept only when it's one zini offers: require would fail on Heroku's certificate.
+    ssl: SSL_MODES.some((mode) => mode.value === sslmode) ? sslmode! : "no-verify",
+  };
+}
+
+// The database's host, port, name, user, password and SSL, built into a connection
+// string as they change, so it's never written by hand. Pasting a whole connection
+// string into Host fills them all.
+function PostgresFields({ onChange }: { onChange: (url: string) => void }) {
+  const [fields, setFields] = useState<PostgresConnection>({
+    host: "",
+    port: "5432",
+    database: "",
+    user: "",
+    password: "",
+    ssl: "no-verify",
+  });
+  function update(next: PostgresConnection) {
+    setFields(next);
+    onChange(postgresUrl(next));
+  }
+  const field = (key: keyof PostgresConnection) => ({
+    value: fields[key],
+    onChange: (e: { target: { value: string } }) => update({ ...fields, [key]: e.target.value }),
+    autoComplete: "off",
+    size: "small" as const,
+  });
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" spacing={1.5}>
+        <TextField
+          {...field("host")}
+          label="Host"
+          placeholder="ec2-…compute-1.amazonaws.com"
+          helperText="Or paste a whole postgres:// URL here to fill everything in."
+          required
+          sx={{ flex: 1 }}
+          onChange={(e) => {
+            const parsed = parsePostgresUrl(e.target.value);
+            update(parsed ?? { ...fields, host: e.target.value });
+          }}
+        />
+        <TextField {...field("port")} label="Port" sx={{ width: 100 }} slotProps={{ htmlInput: { inputMode: "numeric" } }} />
+      </Stack>
+      <TextField {...field("database")} label="Database" required />
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+        <TextField {...field("user")} label="User" placeholder="zini_readonly" required sx={{ flex: 1 }} />
+        <TextField {...field("password")} label="Password" type="password" sx={{ flex: 1 }} />
+      </Stack>
+      <TextField {...field("ssl")} select label="SSL" helperText={SSL_MODES.find((mode) => mode.value === fields.ssl)?.help}>
+        {SSL_MODES.map((mode) => (
+          <MenuItem key={mode.value} value={mode.value}>
+            {mode.label}
+          </MenuItem>
+        ))}
+      </TextField>
     </Stack>
   );
 }
@@ -161,7 +271,7 @@ function ServiceDialog({ service, onClose }: { service: Service | null; onClose:
   );
 }
 
-const CONNECTIONS: Record<"linear" | "github", Service> = {
+const CONNECTIONS: Record<"linear" | "github" | "postgres", Service> = {
   linear: {
     name: "Linear",
     icon: LinearIcon,
@@ -193,6 +303,44 @@ const CONNECTIONS: Record<"linear" | "github", Service> = {
       />
     ),
   },
+  postgres: {
+    name: "Postgres database",
+    icon: PostgresIcon,
+    description: "Optional: lets the Project Lead query your production PostgreSQL database, read-only.",
+    settings: (
+      <KeyForm
+        provider="postgres"
+        name="Postgres database"
+        input={(onChange) => <PostgresFields onChange={onChange} />}
+        connectedAs={(hint) => (
+          <>
+            as <code>{hint}</code>
+          </>
+        )}
+        instructions={
+          <Stack spacing={1.5}>
+            <Typography variant="body2">
+              Connect as a database user that can only read. zini also runs every query in a read-only transaction that&apos;s
+              rolled back, but the user is what guarantees nothing can be changed. For example:
+            </Typography>
+            <Box
+              component="pre"
+              sx={{ m: 0, p: 1.5, borderRadius: 1, bgcolor: "background.default", fontSize: 12, overflowX: "auto" }}
+            >
+              {`CREATE ROLE zini_readonly LOGIN PASSWORD '…';
+GRANT pg_read_all_data TO zini_readonly;
+ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Rows the Project Lead reads are sent to its model provider. To keep some tables out, grant SELECT on the tables it
+              may read instead of pg_read_all_data. On Heroku, create a credential with heroku pg:credentials:create and grant it
+              SELECT; heroku pg:credentials:url shows its details.
+            </Typography>
+          </Stack>
+        }
+      />
+    ),
+  },
 };
 
 const CONNECTION_IDS = Object.keys(CONNECTIONS) as (keyof typeof CONNECTIONS)[];
@@ -211,7 +359,7 @@ function ConnectionsCard() {
             name={CONNECTIONS[id].name}
             description={CONNECTIONS[id].description}
             onClick={() => setOpen(id)}
-            status={<ConnectionChip connected={integrations.data?.[id].connected} />}
+            status={<ConnectionChip connected={integrations.data?.[id]?.connected} />}
             divider={i < CONNECTION_IDS.length - 1}
           />
         ))}
@@ -762,7 +910,10 @@ function SettingsPage() {
         Settings
       </Typography>
       <Stack spacing={5}>
-        <Section title="Connections" description="The services zini works with: your issues in Linear and your code on GitHub.">
+        <Section
+          title="Connections"
+          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database."
+        >
           <ConnectionsCard />
         </Section>
         <Section title="Models" description="Where the agents' models run, and which model each agent uses.">
