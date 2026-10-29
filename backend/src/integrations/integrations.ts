@@ -3,6 +3,7 @@ import { testGitHubKey } from "./github.js";
 import { testLinearKey } from "./linear.js";
 import { googleDriveHint, testGoogleDriveKey } from "./googleDrive.js";
 import { postgresHint, testPostgresUrl } from "./postgres.js";
+import { testPapertrailToken } from "./papertrail.js";
 import { Integration } from "../models/Integration.js";
 import { testOpenRouterKey } from "../providers/openrouter.js";
 
@@ -15,6 +16,7 @@ const SERVICES: Record<Provider, { name: string; testKey: (apiKey: string) => Pr
   github: { name: "GitHub", testKey: testGitHubKey },
   postgres: { name: "Postgres database", testKey: testPostgresUrl },
   googleDrive: { name: "Google Drive", testKey: testGoogleDriveKey },
+  papertrail: { name: "Papertrail", testKey: testPapertrailToken },
 };
 
 export const isProvider = (value: string): value is Provider => (PROVIDERS as readonly string[]).includes(value);

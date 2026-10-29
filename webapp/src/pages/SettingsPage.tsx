@@ -23,6 +23,7 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import PostgresIcon from "../components/icons/PostgresIcon.tsx";
 import GoogleDriveIcon from "../components/icons/GoogleDriveIcon.tsx";
+import PapertrailIcon from "../components/icons/PapertrailIcon.tsx";
 import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
 import OpenRouterIcon from "../components/icons/OpenRouterIcon.tsx";
 import Button from "@mui/material/Button";
@@ -311,7 +312,7 @@ function ServiceDialog({ service, onClose }: { service: Service | null; onClose:
   );
 }
 
-const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive", Service> = {
+const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive" | "papertrail", Service> = {
   linear: {
     name: "Linear",
     icon: LinearIcon,
@@ -415,6 +416,33 @@ ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
             <Typography variant="body2" color="text.secondary">
               The Project Lead sees only what&apos;s shared with that email, and files it reads are sent to its model provider. On
               Google Workspace, sharing with it needs sharing outside your organization to be allowed.
+            </Typography>
+          </Stack>
+        }
+      />
+    ),
+  },
+  papertrail: {
+    name: "Papertrail",
+    icon: PapertrailIcon,
+    description: "Optional: lets the Project Lead search your production app's logs.",
+    settings: (
+      <KeyForm
+        provider="papertrail"
+        name="Papertrail"
+        helperText="Paste the token here."
+        instructions={
+          <Stack spacing={1.5}>
+            <Box component="ol" sx={{ m: 0, pl: 3, typography: "body2", "& li + li": { mt: 0.5 } }}>
+              <li>
+                Open Papertrail. On Heroku, click it under your app&apos;s Resources, or run{" "}
+                <code>heroku addons:open papertrail -a &lt;app&gt;</code>.
+              </li>
+              <li>Papertrail now runs on SolarWinds Observability: in its Settings, under API Tokens, create a token.</li>
+              <li>Paste the token below.</li>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              zini only ever searches logs with it. Log lines the Project Lead reads are sent to its model provider.
             </Typography>
           </Stack>
         }
@@ -992,7 +1020,7 @@ function SettingsPage() {
       <Stack spacing={5}>
         <Section
           title="Connections"
-          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database and Google Drive."
+          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database, Google Drive and logs."
         >
           <ConnectionsCard />
         </Section>

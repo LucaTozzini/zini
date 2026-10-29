@@ -277,7 +277,7 @@ export type ForgeState = {
 };
 
 // Services zini connects to with an API key.
-export const PROVIDERS = ["linear", "openrouter", "github", "postgres", "googleDrive"] as const;
+export const PROVIDERS = ["linear", "openrouter", "github", "postgres", "googleDrive", "papertrail"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 // As returned by GET /api/integrations. Never the full key; the last 3 characters
