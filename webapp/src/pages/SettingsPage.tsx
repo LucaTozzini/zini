@@ -22,6 +22,7 @@ import GitHubIcon from "@mui/icons-material/GitHub";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import PostgresIcon from "../components/icons/PostgresIcon.tsx";
+import GoogleDriveIcon from "../components/icons/GoogleDriveIcon.tsx";
 import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
 import OpenRouterIcon from "../components/icons/OpenRouterIcon.tsx";
 import Button from "@mui/material/Button";
@@ -235,6 +236,45 @@ function PostgresFields({ onChange }: { onChange: (url: string) => void }) {
   );
 }
 
+// A service account's JSON key, pasted or picked as the file Google downloads.
+function ServiceAccountKeyField({ onChange }: { onChange: (key: string) => void }) {
+  const [key, setKey] = useState("");
+  function update(next: string) {
+    setKey(next);
+    onChange(next.trim());
+  }
+
+  return (
+    <Stack spacing={1} sx={{ alignItems: "flex-start" }}>
+      <TextField
+        label="Service account key (JSON)"
+        value={key}
+        onChange={(e) => update(e.target.value)}
+        placeholder='{ "type": "service_account", … }'
+        multiline
+        minRows={4}
+        maxRows={8}
+        required
+        fullWidth
+        autoComplete="off"
+        slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: "monospace", fontSize: 12 } } }}
+      />
+      <Button component="label" size="small">
+        Choose key file
+        <input
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(e) => {
+            void e.target.files?.[0]?.text().then(update);
+            e.target.value = "";
+          }}
+        />
+      </Button>
+    </Stack>
+  );
+}
+
 // A service zini connects to, shown as a row that opens a dialog with its settings.
 type Service = { name: string; icon: SvgIconComponent; description: string; settings: ReactNode };
 
@@ -271,7 +311,7 @@ function ServiceDialog({ service, onClose }: { service: Service | null; onClose:
   );
 }
 
-const CONNECTIONS: Record<"linear" | "github" | "postgres", Service> = {
+const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive", Service> = {
   linear: {
     name: "Linear",
     icon: LinearIcon,
@@ -335,6 +375,46 @@ ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
               Rows the Project Lead reads are sent to its model provider. To keep some tables out, grant SELECT on the tables it
               may read instead of pg_read_all_data. On Heroku, create a credential with heroku pg:credentials:create and grant it
               SELECT; heroku pg:credentials:url shows its details.
+            </Typography>
+          </Stack>
+        }
+      />
+    ),
+  },
+  googleDrive: {
+    name: "Google Drive",
+    icon: GoogleDriveIcon,
+    description: "Optional: lets the Project Lead search and read the Drive files you share with it, read-only.",
+    settings: (
+      <KeyForm
+        provider="googleDrive"
+        name="Google Drive"
+        input={(onChange) => <ServiceAccountKeyField onChange={onChange} />}
+        connectedAs={(hint) => (
+          <>
+            as <code>{hint}</code>. Share folders with this email for the Project Lead to see them.
+          </>
+        )}
+        instructions={
+          <Stack spacing={1.5}>
+            <Box component="ol" sx={{ m: 0, pl: 3, typography: "body2", "& li + li": { mt: 0.5 } }}>
+              <li>
+                In the{" "}
+                <Link href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">
+                  Google Cloud console
+                </Link>
+                , create or pick a project and enable the Google Drive API.
+              </li>
+              <li>Under IAM &amp; Admin → Service accounts, create a service account. It needs no roles.</li>
+              <li>On its Keys tab, add a JSON key and paste the downloaded file below.</li>
+              <li>
+                In Google Drive, share the folders the Project Lead may read with the service account&apos;s email, as Viewer. For
+                a shared drive, add it as a member instead.
+              </li>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              The Project Lead sees only what&apos;s shared with that email, and files it reads are sent to its model provider. On
+              Google Workspace, sharing with it needs sharing outside your organization to be allowed.
             </Typography>
           </Stack>
         }
@@ -912,7 +992,7 @@ function SettingsPage() {
       <Stack spacing={5}>
         <Section
           title="Connections"
-          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database."
+          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database and Google Drive."
         >
           <ConnectionsCard />
         </Section>

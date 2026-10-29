@@ -1,6 +1,7 @@
 import { PROVIDERS, type Integrations, type Provider } from "shared";
 import { testGitHubKey } from "./github.js";
 import { testLinearKey } from "./linear.js";
+import { googleDriveHint, testGoogleDriveKey } from "./googleDrive.js";
 import { postgresHint, testPostgresUrl } from "./postgres.js";
 import { Integration } from "../models/Integration.js";
 import { testOpenRouterKey } from "../providers/openrouter.js";
@@ -13,6 +14,7 @@ const SERVICES: Record<Provider, { name: string; testKey: (apiKey: string) => Pr
   openrouter: { name: "OpenRouter", testKey: testOpenRouterKey },
   github: { name: "GitHub", testKey: testGitHubKey },
   postgres: { name: "Postgres database", testKey: testPostgresUrl },
+  googleDrive: { name: "Google Drive", testKey: testGoogleDriveKey },
 };
 
 export const isProvider = (value: string): value is Provider => (PROVIDERS as readonly string[]).includes(value);
@@ -21,8 +23,14 @@ export async function getIntegrations() {
   const rows = await Integration.findAll({ where: { provider: [...PROVIDERS] } });
   const integrations = Object.fromEntries(PROVIDERS.map((provider) => [provider, { connected: false }])) as Integrations;
   for (const row of rows) {
-    // A database is shown by who it connects as and where, never its password.
-    const keyHint = row.provider === "postgres" ? postgresHint(row.apiKey) : row.apiKey.slice(-3);
+    // A database is shown by who it connects as and where, never its password, and Google
+    // Drive by its service account's email.
+    const keyHint =
+      row.provider === "postgres"
+        ? postgresHint(row.apiKey)
+        : row.provider === "googleDrive"
+          ? googleDriveHint(row.apiKey)
+          : row.apiKey.slice(-3);
     integrations[row.provider as Provider] = { connected: true, keyHint };
   }
   return integrations;
