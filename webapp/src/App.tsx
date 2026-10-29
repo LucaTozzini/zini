@@ -2,6 +2,7 @@ import { Box, Divider, Drawer, IconButton, useMediaQuery, useTheme } from "@mui/
 import MenuIcon from "@mui/icons-material/Menu";
 import NavBar from "./components/NavBar.tsx";
 import SetupBanner from "./components/SetupBanner.tsx";
+import DockerBanner from "./components/DockerBanner.tsx";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import { useServerEvents } from "./api/events.ts";
@@ -31,13 +32,16 @@ function SignedInApp() {
     setup?.linear && setup.modelProvider && setup.github && setup.repo && setup.model ? <ProjectLeadPage /> : null;
 
   return (
-    <>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
+      <DockerBanner />
+      <SetupBanner missing={setup?.missing} />
       <Box
         sx={{
           display: "flex",
           flexDirection: small ? "column" : "row",
           overflow: "hidden",
-          height: "100dvh",
+          flex: 1,
+          minHeight: 0,
         }}
       >
         {small ? (
@@ -66,7 +70,6 @@ function SignedInApp() {
           </>
         )}
         <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto" }}>
-          <SetupBanner missing={setup?.missing} />
           <Routes>
             <Route path="/" element={<Navigate to="/project-lead" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
@@ -80,7 +83,7 @@ function SignedInApp() {
           </Routes>
         </Box>
       </Box>
-    </>
+    </Box>
   );
 }
 

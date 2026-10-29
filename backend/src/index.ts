@@ -23,6 +23,7 @@ import { startConductor } from "./conductor/conductor.js";
 import conductorRouter from "./routes/conductor.js";
 import { openwiki } from "./openwiki/routes.js";
 import { openwikiServe } from "./openwiki/serveRoutes.js";
+import { dockerRouter } from "./routes/docker.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -56,6 +57,7 @@ app.use("/api/users", usersRouter);
 app.use("/api/conductor", conductorRouter);
 app.use("/api/openwiki", openwiki);
 app.use("/api/openwiki", openwikiServe);
+app.use("/api/docker", dockerRouter);
 
 // The built webapp (npm run build), so one server runs the whole app. Any other GET
 // gets its index.html, so the webapp's own routes work on reload. In development the

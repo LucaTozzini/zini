@@ -1,7 +1,6 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import type { EvalBatch, EvalKind, EvalScenario, EvalStatus, RunMetrics } from "shared";
 import { sendEvent } from "../core/events.js";
 import { loadConnection, type ModelConnection } from "../providers/modelProvider.js";
@@ -9,6 +8,7 @@ import { getSetting } from "../core/settings.js";
 import { createEvalCredentials } from "./evalCredentials.js";
 import { killTree } from "../core/processes.js";
 import { BatchConsole, followConsole, readConsoleTail } from "./batchConsole.js";
+import { dockerRunning } from "../workspaces/docker.js";
 
 // zini's evals (see evals/README.md, at the repo's root): runs of the forge on test
 // issues with a trusted host harness and an isolated workspace container per run.
@@ -89,13 +89,6 @@ export async function evalSettings() {
   const evalModel = process.env.EVAL_MODEL ?? model;
   if (!evalModel) return "No Forge model set";
   return { connection, model: evalModel };
-}
-
-export async function dockerRunning() {
-  return promisify(execFile)("docker", ["info"], { timeout: 15_000 }).then(
-    () => true,
-    () => false,
-  );
 }
 
 // Builds the common workspace image, then runs a trusted host harness. Credentials

@@ -24,6 +24,7 @@ import LinearIcon from "../components/icons/LinearIcon.tsx";
 import PostgresIcon from "../components/icons/PostgresIcon.tsx";
 import GoogleDriveIcon from "../components/icons/GoogleDriveIcon.tsx";
 import PapertrailIcon from "../components/icons/PapertrailIcon.tsx";
+import DockerIcon from "../components/icons/DockerIcon.tsx";
 import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
 import OpenRouterIcon from "../components/icons/OpenRouterIcon.tsx";
 import Button from "@mui/material/Button";
@@ -34,6 +35,7 @@ import Typography from "@mui/material/Typography";
 import { errorMessage } from "../api/client.ts";
 import { useConnectIntegration, useDisconnectIntegration, useIntegrations } from "../api/integrations.ts";
 import { useSaveSettings, useSettings } from "../api/settings.ts";
+import { useDocker, useStartDocker } from "../api/docker.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
 import type { ModelProvider, Provider, Settings } from "shared";
 import {
@@ -948,6 +950,43 @@ function ControlRow({
   );
 }
 
+// Docker on the machine running zini: whether it's up, and a button to start it when it isn't.
+function DockerRow() {
+  const docker = useDocker();
+  const start = useStartDocker();
+  const status = docker.data?.running ? "running" : docker.data?.starting ? "starting" : docker.data ? "stopped" : null;
+
+  return (
+    <>
+      <ControlRow
+        icon={DockerIcon}
+        name="Docker"
+        description="Runs the Forges' workspaces, QA and previews, on the machine running zini."
+        divider
+        control={
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            {status === "running" && <Chip label="Running" color="success" size="small" variant="outlined" />}
+            {status === "starting" && <Chip label="Starting…" color="warning" size="small" variant="outlined" />}
+            {status === "stopped" && (
+              <>
+                <Chip label="Not running" color="error" size="small" variant="outlined" />
+                <Button size="small" variant="outlined" disabled={start.isPending} onClick={() => start.mutate()}>
+                  Start
+                </Button>
+              </>
+            )}
+          </Stack>
+        }
+      />
+      {(docker.isError || start.isError) && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {errorMessage(docker.error ?? start.error)}
+        </Alert>
+      )}
+    </>
+  );
+}
+
 // Conductor and appearance, each changed in place: the conductor's switch saves at
 // once, and setMode also saves the theme in localStorage, so it survives reloads.
 function GeneralCard() {
@@ -958,6 +997,7 @@ function GeneralCard() {
   return (
     <Card variant="outlined">
       <List disablePadding>
+        <DockerRow />
         <ControlRow
           icon={AutoModeIcon}
           name="Conductor"
@@ -1037,7 +1077,7 @@ function SettingsPage() {
             </List>
           </Card>
         </Section>
-        <Section title="General" description="Automation and how zini looks.">
+        <Section title="General" description="Docker, automation and how zini looks.">
           <GeneralCard />
         </Section>
       </Stack>
