@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@googleapis/drive": "^27.0.0",
+    "@googleapis/searchconsole": "^11.0.1",
     "@langchain/core": "^1.2.12",
     "@langchain/langgraph": "^1.4.17",
     "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",

@@ -280,15 +280,21 @@ export type ForgeState = {
 // Services zini connects to with an API key: some shared by every project, the rest
 // connected per project, since each app has its own database, docs and logs.
 export const SHARED_PROVIDERS = ["linear", "openrouter", "github"] as const;
-export const PROJECT_PROVIDERS = ["postgres", "googleDrive", "papertrail"] as const;
+export const PROJECT_PROVIDERS = ["postgres", "googleDrive", "googleSearchConsole", "papertrail"] as const;
 export type SharedProvider = (typeof SHARED_PROVIDERS)[number];
 export type ProjectProvider = (typeof PROJECT_PROVIDERS)[number];
 export type Provider = SharedProvider | ProjectProvider;
 
+// What PUT /api/projects/:projectId/integrations takes for Google Search Console: the
+// service account's key, and the one property (site) the project reads. Every other
+// service takes its key alone.
+export type SearchConsoleConnection = { key: string; site: string };
+
 // As returned by GET /api/integrations (the shared ones) and
 // /api/projects/:projectId/integrations (the project's). Never the full key; the last
-// 3 characters are enough to recognise it.
-type IntegrationStatus = { connected: boolean; keyHint?: string };
+// 3 characters are enough to recognise it. site is the project's Google Search Console
+// property.
+type IntegrationStatus = { connected: boolean; keyHint?: string; site?: string };
 export type Integrations<P extends Provider = SharedProvider> = Record<P, IntegrationStatus>;
 
 // A repo zini works on, with the Linear team whose issues are its work, as returned by

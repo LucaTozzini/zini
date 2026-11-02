@@ -12,15 +12,25 @@ import {
 import { currentProject, parse } from "./http.js";
 import { errorMessage } from "../core/errors.js";
 
-// API keys to save, by service, e.g. { "linear": "lin_api_..." }.
-const apiKey = z.string({ error: "API key is required" }).trim().min(1, "API key is required").optional();
+// API keys to save, by service, e.g. { "linear": "lin_api_..." }. Google Search Console
+// takes its key with the property it reads: { "googleSearchConsole": { key, site } }.
+const key = z.string({ error: "API key is required" }).trim().min(1, "API key is required");
+const apiKey = key.optional();
+const searchConsole = z
+  .object({ key, site: z.string({ error: "Property is required" }).trim().min(1, "Property is required") })
+  .optional();
 const apiKeys = (providers: readonly Provider[]) =>
-  z.strictObject(Object.fromEntries(providers.map((provider) => [provider, apiKey])) as Record<Provider, typeof apiKey>, {
-    error: (issue) =>
-      issue.code === "unrecognized_keys"
-        ? `Unknown integration "${issue.keys[0]}". Known: ${providers.join(", ")}`
-        : "Expected an object of API keys",
-  });
+  z.strictObject(
+    Object.fromEntries(
+      providers.map((provider) => [provider, provider === "googleSearchConsole" ? searchConsole : apiKey]),
+    ) as Record<Provider, typeof apiKey | typeof searchConsole>,
+    {
+      error: (issue) =>
+        issue.code === "unrecognized_keys"
+          ? `Unknown integration "${issue.keys[0]}". Known: ${providers.join(", ")}`
+          : "Expected an object of API keys",
+    },
+  );
 
 // The services one set of keys is for: the shared ones at /api/integrations, or a
 // project's at /api/projects/:projectId/integrations (projectId reads it from the request).

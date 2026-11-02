@@ -5,6 +5,7 @@ import type {
   LinearIssueDetails,
   ProjectProvider,
   Provider,
+  SearchConsoleConnection,
   SharedProvider,
   StatusType,
 } from "shared";
@@ -43,11 +44,13 @@ export function useIntegrationStatus(projectId?: number) {
   });
 }
 
-// Saves a key: a shared service's, or with projectId, the project's.
+// Saves a key: a shared service's, or with projectId, the project's. Google Search
+// Console's comes with its property.
 export function useConnectIntegration(provider: Provider, projectId?: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (apiKey: string) => api.put(integrationsPath(projectId), { json: { [provider]: apiKey } }).json(),
+    mutationFn: (apiKey: string | SearchConsoleConnection) =>
+      api.put(integrationsPath(projectId), { json: { [provider]: apiKey } }).json(),
     onSuccess: (data) => {
       queryClient.setQueryData(keyFor(projectId), data);
       // A new Linear key can see different issues.

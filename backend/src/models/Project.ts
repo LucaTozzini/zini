@@ -2,12 +2,14 @@ import { DataTypes, Model, type CreationOptional, type InferAttributes, type Inf
 import { sequelize } from "../db.js";
 
 // A repo zini works on, with the Linear team whose issues are its work. Each team
-// belongs to one project at most. The team's name and key are read from Linear.
+// belongs to one project at most. The team's name and key are read from Linear. Its
+// Google Search Console property is set when Search Console is connected.
 export class Project extends Model<InferAttributes<Project>, InferCreationAttributes<Project>> {
   declare id: CreationOptional<number>;
   declare name: string;
   declare githubRepo: string;
   declare linearTeamId: string;
+  declare googleSearchConsoleSite: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -18,6 +20,7 @@ Project.init(
     name: { type: DataTypes.STRING, allowNull: false },
     githubRepo: { type: DataTypes.STRING, allowNull: false, unique: true },
     linearTeamId: { type: DataTypes.STRING, allowNull: false, unique: true },
+    googleSearchConsoleSite: { type: DataTypes.STRING, allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

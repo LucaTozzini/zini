@@ -41,6 +41,7 @@ import { forgeTools, workspaceAppTools } from "./forgeTools.js";
 import { pullRequestTools } from "./pullRequestTools.js";
 import { databaseTools } from "./databaseTools.js";
 import { googleDriveTools } from "./googleDriveTools.js";
+import { googleSearchConsoleTools } from "./googleSearchConsoleTools.js";
 import { logTools } from "./logTools.js";
 import { linearFileTools } from "../agents/linearFileTools.js";
 import { chatFilesMiddleware, uploadFileTool } from "./chatFiles.js";
@@ -93,6 +94,7 @@ function buildAgent({ linear, connection, model, project }: Setup, threadId: str
       ...pullRequestTools(repo),
       ...databaseTools(project.id),
       ...googleDriveTools(project.id),
+      ...googleSearchConsoleTools(project.id),
       ...logTools(project.id),
       ...npmTools,
       ...browserTools(`project-lead:${threadId}`, () => sendEvent({ type: "thread.updated", threadId }), { external: true }),

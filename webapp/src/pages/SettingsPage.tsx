@@ -22,6 +22,7 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import LinearIcon from "../components/icons/LinearIcon.tsx";
 import PostgresIcon from "../components/icons/PostgresIcon.tsx";
 import GoogleDriveIcon from "../components/icons/GoogleDriveIcon.tsx";
+import GoogleSearchConsoleIcon from "../components/icons/GoogleSearchConsoleIcon.tsx";
 import PapertrailIcon from "../components/icons/PapertrailIcon.tsx";
 import DockerIcon from "../components/icons/DockerIcon.tsx";
 import OpenAIIcon from "../components/icons/OpenAIIcon.tsx";
@@ -37,7 +38,7 @@ import { useSaveSettings, useSettings } from "../api/settings.ts";
 import { useParams } from "react-router";
 import { useDocker, useStartDocker } from "../api/docker.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
-import type { ModelProvider, Provider, Settings } from "shared";
+import type { ModelProvider, Provider, SearchConsoleConnection, Settings } from "shared";
 import {
   Container,
   Dialog,
@@ -62,15 +63,17 @@ function CardTitle({ icon: Icon, children }: { icon?: SvgIconComponent; children
 }
 
 // instructions, if given, show above the key field: how to create the key. input, if
-// given, replaces the key field with fields of its own that pass up the key they build.
+// given, replaces the key field with fields of its own that pass up the key they build
+// (for Google Search Console, with its property).
 type KeyFormProps = {
   provider: Provider;
   name: string;
   helperText?: string;
   instructions?: ReactNode;
-  input?: (onChange: (key: string) => void) => ReactNode;
-  // What the connected key is shown as, from its hint; "key ending in <hint>" by default.
-  connectedAs?: (hint: string) => ReactNode;
+  input?: (onChange: (key: string | SearchConsoleConnection) => void) => ReactNode;
+  // What the connected key is shown as, from its hint (and Google Search Console's
+  // property); "key ending in <hint>" by default.
+  connectedAs?: (hint: string, site?: string) => ReactNode;
 };
 
 // A service's API key: the connected key's hint, or a field to paste one. On a project's
@@ -81,12 +84,12 @@ function KeyForm({ provider, name, helperText, instructions, input, connectedAs 
   const integrations = useIntegrationStatus(projectId);
   const connect = useConnectIntegration(provider, projectId);
   const disconnect = useDisconnectIntegration(provider, projectId);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState<string | SearchConsoleConnection>("");
   const [replacing, setReplacing] = useState(false);
 
-  const status = (integrations.data as Partial<Record<Provider, { connected: boolean; keyHint?: string }>> | undefined)?.[
-    provider
-  ];
+  const status = (
+    integrations.data as Partial<Record<Provider, { connected: boolean; keyHint?: string; site?: string }>> | undefined
+  )?.[provider];
   const connected = status?.connected ?? false;
   const showForm = !connected || replacing;
 
@@ -110,7 +113,7 @@ function KeyForm({ provider, name, helperText, instructions, input, connectedAs 
           <Typography sx={{ flexGrow: 1 }}>
             Connected ·{" "}
             {connectedAs ? (
-              connectedAs(status?.keyHint ?? "")
+              connectedAs(status?.keyHint ?? "", status?.site)
             ) : (
               <>
                 key ending in <code>{status?.keyHint}</code>
@@ -133,7 +136,7 @@ function KeyForm({ provider, name, helperText, instructions, input, connectedAs 
             <TextField
               label={`${name} API key`}
               type="password"
-              value={apiKey}
+              value={typeof apiKey === "string" ? apiKey : ""}
               onChange={(e) => setApiKey(e.target.value)}
               helperText={helperText}
               autoComplete="off"
@@ -281,6 +284,31 @@ function ServiceAccountKeyField({ onChange }: { onChange: (key: string) => void 
   );
 }
 
+// A service account's key and the Search Console property it reads, passed up together.
+function GoogleSearchConsoleFields({ onChange }: { onChange: (connection: SearchConsoleConnection) => void }) {
+  const [connection, setConnection] = useState<SearchConsoleConnection>({ key: "", site: "" });
+  function update(next: SearchConsoleConnection) {
+    setConnection(next);
+    onChange({ key: next.key, site: next.site.trim() });
+  }
+
+  return (
+    <Stack spacing={2}>
+      <ServiceAccountKeyField onChange={(key) => update({ ...connection, key })} />
+      <TextField
+        label="Property"
+        value={connection.site}
+        onChange={(e) => update({ ...connection, site: e.target.value })}
+        placeholder="sc-domain:example.com"
+        helperText="Shown as just a domain (example.com)? Enter sc-domain:example.com. Shown as a URL (https://example.com/)? Enter the URL."
+        required
+        autoComplete="off"
+        slotProps={{ htmlInput: { spellCheck: false } }}
+      />
+    </Stack>
+  );
+}
+
 // A service zini connects to, shown as a row that opens a dialog with its settings.
 type Service = { name: string; icon: SvgIconComponent; description: string; settings: ReactNode };
 
@@ -317,7 +345,10 @@ function ServiceDialog({ service, onClose }: { service: Service | null; onClose:
   );
 }
 
-const CONNECTIONS: Record<Provider & ("linear" | "github" | "postgres" | "googleDrive" | "papertrail"), Service> = {
+const CONNECTIONS: Record<
+  Provider & ("linear" | "github" | "postgres" | "googleDrive" | "googleSearchConsole" | "papertrail"),
+  Service
+> = {
   linear: {
     name: "Linear",
     icon: LinearIcon,
@@ -427,6 +458,54 @@ ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
       />
     ),
   },
+  googleSearchConsole: {
+    name: "Google Search Console",
+    icon: GoogleSearchConsoleIcon,
+    description: "Optional: lets the Project Lead read your site's Google Search clicks, impressions and rankings.",
+    settings: (
+      <KeyForm
+        provider="googleSearchConsole"
+        name="Google Search Console"
+        input={(onChange) => <GoogleSearchConsoleFields onChange={onChange} />}
+        connectedAs={(hint, site) => (
+          <>
+            to <code>{site}</code> as <code>{hint}</code>
+          </>
+        )}
+        instructions={
+          <Stack spacing={1.5}>
+            <Box component="ol" sx={{ m: 0, pl: 3, typography: "body2", "& li + li": { mt: 0.5 } }}>
+              <li>
+                In the{" "}
+                <Link href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">
+                  Google Cloud console
+                </Link>
+                , create or pick a project and enable the Google Search Console API.
+              </li>
+              <li>Under IAM &amp; Admin → Service accounts, create a service account. It needs no roles.</li>
+              <li>On its Keys tab, add a JSON key and paste the downloaded file below.</li>
+              <li>
+                In{" "}
+                <Link href="https://search.google.com/search-console" target="_blank" rel="noreferrer">
+                  Search Console
+                </Link>
+                , pick the property in the top-left menu, open Settings → Users and permissions and add the service account&apos;s
+                email (shown on the Service accounts page) with Restricted permission.
+              </li>
+              <li>
+                Enter the property as the menu shows it: just a domain, like <code>example.com</code>, is entered as{" "}
+                <code>sc-domain:example.com</code>; a full URL, like <code>https://example.com/</code>, is entered as it is.
+              </li>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              The Project Lead reads only this property&apos;s search performance, and what it reads is sent to its model
+              provider.
+            </Typography>
+          </Stack>
+        }
+      />
+    ),
+  },
   papertrail: {
     name: "Papertrail",
     icon: PapertrailIcon,
@@ -458,7 +537,7 @@ ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
 
 type ConnectionId = keyof typeof CONNECTIONS;
 const SHARED_CONNECTIONS: ConnectionId[] = ["linear", "github"];
-const PROJECT_CONNECTIONS: ConnectionId[] = ["postgres", "googleDrive", "papertrail"];
+const PROJECT_CONNECTIONS: ConnectionId[] = ["postgres", "googleDrive", "googleSearchConsole", "papertrail"];
 
 // The services in ids, each a row opening its settings: the shared ones, or with
 // projectId, the project's.

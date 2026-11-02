@@ -1,4 +1,5 @@
 import { auth, drive as driveApi, type drive_v3 } from "@googleapis/drive";
+import { isRejectedKey, parseServiceAccountKey } from "./googleServiceAccount.js";
 
 // Read-only access to Google Drive as a service account: it sees only the files, folders
 // and shared drives shared with its email, and the key is saved as its whole JSON file.
@@ -20,39 +21,14 @@ const EXPORTS: Record<string, string> = {
   "application/vnd.google-apps.presentation": "text/plain",
 };
 
-type ServiceAccountKey = { client_email: string; private_key: string };
-
-// The key's JSON, checked to be a service account's, with what's wrong if it isn't.
-function parseKey(key: string): ServiceAccountKey {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(key);
-  } catch {
-    throw new Error("That isn't a service account key: paste the whole JSON file you downloaded.");
-  }
-  const { type, client_email, private_key } = (parsed ?? {}) as Record<string, unknown>;
-  if (type !== "service_account" || typeof client_email !== "string" || typeof private_key !== "string")
-    throw new Error("That JSON isn't a service account key: create a key for a service account and paste its JSON file.");
-  return { client_email, private_key };
-}
-
 function client(key: string) {
   return driveApi({
     version: "v3",
     auth: new auth.GoogleAuth({
-      credentials: parseKey(key),
+      credentials: parseServiceAccountKey(key),
       scopes: ["https://www.googleapis.com/auth/drive.readonly"],
     }),
   });
-}
-
-// The service account's email: what to share files with, and how a connected key is shown.
-export function googleDriveHint(key: string) {
-  try {
-    return parseKey(key).client_email;
-  } catch {
-    return "a service account";
-  }
 }
 
 // true if Google accepts the key, false if it rejects it (a deleted or disabled key).
@@ -65,7 +41,7 @@ export async function testGoogleDriveKey(key: string) {
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/invalid_grant|invalid_client|unauthorized_client/i.test(message)) return false;
+    if (isRejectedKey(message)) return false;
     throw new Error(`Couldn't reach Google Drive: ${message}`);
   }
 }
