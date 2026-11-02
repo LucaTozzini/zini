@@ -8,6 +8,7 @@ import { compactionMiddleware } from "../agents/compaction.js";
 import { npmTools } from "../agents/npmTools.js";
 import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
 import { wikiTools } from "../openwiki/wikiTools.js";
+import { workspaceProject } from "../projects/projects.js";
 import { workspaceContext } from "../workspaces/workspaceIntegration.js";
 import { workspaceRevision } from "../workspaces/workspaceFiles.js";
 import { CODER_REPORT, REVIEW_REPORT } from "./documents.js";
@@ -40,7 +41,7 @@ async function context(issueId: string, issue: LinearIssueDetails) {
   return [
     `# The Linear issue\n\n${issueText(issue)}`,
     `# Workspace starting point\n\n${JSON.stringify(await workspaceContext(issueId))}`,
-    `# Configured development variable names (values are private)\n\n${await developmentEnvironmentContext()}`,
+    `# Configured development variable names (values are private)\n\n${await developmentEnvironmentContext(issueId)}`,
   ].join("\n\n");
 }
 
@@ -66,7 +67,7 @@ export async function coderWorker(run: Run, issue: LinearIssueDetails, plan: For
       ...commandTools(issueId),
       ...serviceTools(issueId),
       ...npmTools,
-      ...wikiTools,
+      ...wikiTools(() => workspaceProject(issueId)),
     ],
     schema: CODER_REPORT,
     validate: (report) => {
@@ -96,7 +97,7 @@ export async function reviewerWorker(
       ...browserTools(issueId, notify),
       ...serviceTools(issueId),
       ...npmTools,
-      ...wikiTools,
+      ...wikiTools(() => workspaceProject(issueId)),
     ],
     schema: REVIEW_REPORT,
     validate: async (review) => {

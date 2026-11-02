@@ -8,10 +8,12 @@ test("the message worker is woken when messages are queued and when a chat's run
   process.env.DB_PATH = join(await mkdtemp(join(tmpdir(), "zini-wake-")), "wake.sqlite");
   const { sequelize, initDb } = await import("../db.js");
   const { ProjectLeadThread } = await import("../models/ProjectLeadThread.js");
+  const { Project } = await import("../models/Project.js");
   const { enqueueMessages, onEnqueue } = await import("./messageQueue.js");
   const { onRunEnd, startRun, stopRun } = await import("../agents/runs.js");
   await initDb();
-  await ProjectLeadThread.create({ id: "chat", title: "chat" });
+  const project = await Project.create({ name: "product", githubRepo: "owner/product", linearTeamId: "team" });
+  await ProjectLeadThread.create({ id: "chat", projectId: project.id, title: "chat" });
   const message = { eventId: "e1", source: "forge", sourceId: "issue", eventType: "completed", content: "Done" };
 
   await t.test("queued: once its transaction commits, never when it rolls back", async () => {

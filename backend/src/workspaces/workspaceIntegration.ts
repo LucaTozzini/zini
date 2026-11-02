@@ -1,11 +1,15 @@
 import type { IntegrationState, WorkspaceContext } from "shared";
-import { fetchRepo, git, workspacePath } from "../repositories/git.js";
+import { fetchRepo, git, pushBranch, workspacePath } from "../repositories/git.js";
+import { workspaceProject } from "../projects/projects.js";
 import { commitRound, conflictDetails, integrateBranch, mergeHead, unresolvedFiles } from "../repositories/integration.js";
 import { Workspace } from "../models/Workspace.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
 import { trustedGit } from "./trustedGit.js";
-import { refreshWorkspaceRefs } from "./workspaceVolumes.js";
+import { ensureWorkspaceVolume, refreshWorkspaceRefs } from "./workspaceVolumes.js";
 import { sendEvent } from "../core/events.js";
+
+// Fetches the repo of the project the workspace belongs to.
+const fetchWorkspaceRepo = async (id: string) => fetchRepo(await workspaceProject(id));
 
 const runner = (id: string) => (args: string[]) => git(["-C", workspacePath(id), ...args]);
 const locked = <T>(id: string, work: () => Promise<T>) => withWorkspaceLock(id, () => trustedGit(workspacePath(id), work));
@@ -22,7 +26,7 @@ export async function workspaceContext(id: string): Promise<WorkspaceContext> {
 export async function commitAndIntegrate(
   id: string,
   message: string,
-  refresh: () => Promise<void> = fetchRepo,
+  refresh: () => Promise<void> = () => fetchWorkspaceRepo(id),
 ): Promise<{ committed: boolean; integration: IntegrationState }> {
   const context = await workspaceContext(id);
   return locked(id, async () => {
@@ -38,7 +42,7 @@ export async function commitAndIntegrate(
 
 // Whether everything is committed and the branch has the latest target branch (fetched
 // first) merged in.
-export async function isUpToDate(id: string, refresh: () => Promise<void> = fetchRepo) {
+export async function isUpToDate(id: string, refresh: () => Promise<void> = () => fetchWorkspaceRepo(id)) {
   const context = await workspaceContext(id);
   return locked(id, async () => {
     const run = runner(id);
@@ -54,6 +58,12 @@ export async function isUpToDate(id: string, refresh: () => Promise<void> = fetc
       },
     );
   });
+}
+// Pushes the workspace's branch to GitHub as it's committed, e.g. for the Forge's Lead.
+export async function pushWorkspace(id: string) {
+  await ensureWorkspaceVolume(id);
+  await locked(id, () => pushBranch(id));
+  sendEvent({ type: "workspace.updated", issueId: id });
 }
 export const inspectConflicts = (id: string, path?: string) =>
   locked(id, async () =>

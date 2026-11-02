@@ -11,21 +11,13 @@ export function useSettings() {
   });
 }
 
-// Saves only the settings passed; returns all of them. No timeout, since saving the
-// repo waits for it to be cloned, which can take a while for a big repo.
+// Saves only the settings passed; returns all of them.
 export function useSaveSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (changes: Partial<Record<keyof Settings, string>> & { confirmWorkspaceDeletion?: boolean }) =>
-      api.put("settings", { json: changes, timeout: false }).json<Settings>(),
+    mutationFn: (changes: Partial<Record<keyof Settings, string>>) => api.put("settings", { json: changes }).json<Settings>(),
     onSuccess: (data) => {
       queryClient.setQueryData(settingsKey, data);
-    },
-    onSettled: (_data, _error, changes) => {
-      if (changes.githubRepo) {
-        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-        void queryClient.invalidateQueries({ queryKey: ["forge"] });
-      }
     },
   });
 }

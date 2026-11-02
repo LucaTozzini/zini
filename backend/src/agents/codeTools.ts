@@ -1,15 +1,16 @@
 import { createMiddleware, tool, ToolMessage } from "langchain";
 import { z } from "zod";
-import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode } from "../repositories/git.js";
+import { fetchRepo, listRepoFiles, readRepoFile, searchRepoCode, type Repo } from "../repositories/git.js";
 
-// Read-only tools over the repo's default branch. Fetching is left to fetchRepoMiddleware.
-export const codeTools = [
-  tool(async ({ path }) => listRepoFiles(path ?? ""), {
+// Read-only tools over the project's repo's default branch. Fetching is left to
+// fetchRepoMiddleware.
+export const codeTools = (repo: Repo) => [
+  tool(async ({ path }) => listRepoFiles(repo, path ?? ""), {
     name: "list_files",
     description: "List a folder's files and subfolders (subfolders end in /). Omit path for the root.",
     schema: z.object({ path: z.string().optional().describe('e.g. "src/components"') }),
   }),
-  tool(async ({ path, startLine, endLine }) => readRepoFile(path, startLine, endLine), {
+  tool(async ({ path, startLine, endLine }) => readRepoFile(repo, path, startLine, endLine), {
     name: "read_file",
     description:
       "Read a file, with line numbers. Long files are cut off with a note saying which " +
@@ -20,7 +21,7 @@ export const codeTools = [
       endLine: z.number().int().min(1).optional().describe("Last line to read, inclusive"),
     }),
   }),
-  tool(async ({ query, regex }) => searchRepoCode(query, regex), {
+  tool(async ({ query, regex }) => searchRepoCode(repo, query, regex), {
     name: "search_code",
     description:
       "Find lines containing some text (plain text, any case), as path:line:text. " +
@@ -34,28 +35,29 @@ export const codeTools = [
     }),
   }),
 ];
-const CODE_TOOL_NAMES = new Set<string>(codeTools.map((t) => t.name));
+const CODE_TOOL_NAMES = new Set(["list_files", "read_file", "search_code"]);
 
 // Brings the clone up to date before each code tool runs; other tools pass straight
 // through. Parallel code tools share one fetch (see fetchRepo). If the fetch fails,
 // the tool doesn't run on stale code: the model gets the error as its result.
-export const fetchRepoMiddleware = createMiddleware({
-  name: "FetchRepo",
-  wrapToolCall: async (request, handler) => {
-    if (!CODE_TOOL_NAMES.has(request.toolCall.name)) return handler(request);
-    try {
-      await fetchRepo();
-    } catch (err) {
-      console.error("Fetching the repo failed:", err);
-      // A failed git command's message ends with its "fatal: ..." line.
-      const reason = err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
-      return new ToolMessage({
-        tool_call_id: request.toolCall.id ?? "",
-        name: request.toolCall.name,
-        status: "error",
-        content: `Couldn't update the code from GitHub: ${reason}. Tell the user.`,
-      });
-    }
-    return handler(request);
-  },
-});
+export const fetchRepoMiddleware = (repo: Repo) =>
+  createMiddleware({
+    name: "FetchRepo",
+    wrapToolCall: async (request, handler) => {
+      if (!CODE_TOOL_NAMES.has(request.toolCall.name)) return handler(request);
+      try {
+        await fetchRepo(repo);
+      } catch (err) {
+        console.error("Fetching the repo failed:", err);
+        // A failed git command's message ends with its "fatal: ..." line.
+        const reason = err instanceof Error ? err.message.trim().split("\n").at(-1) : String(err);
+        return new ToolMessage({
+          tool_call_id: request.toolCall.id ?? "",
+          name: request.toolCall.name,
+          status: "error",
+          content: `Couldn't update the code from GitHub: ${reason}. Tell the user.`,
+        });
+      }
+      return handler(request);
+    },
+  });

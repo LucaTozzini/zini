@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, CardContent, Stack, TextField, Typography } from "@mui/material";
+import { Button, Card, CardContent, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import { PRIORITY_NAMES, type Decision, type PendingAction } from "shared";
 import MarkdownText from "./MarkdownText.tsx";
 
@@ -62,7 +62,8 @@ function CommitDetails({ action }: { action: PendingAction }) {
   );
 }
 
-// One pull_request_create, pull_request_comment or pull_request_resolve_thread call.
+// One pull_request_create, pull_request_comment or pull_request_resolve_thread call, or
+// the Forge Lead's open_pull_request.
 function PullRequestDetails({ action }: { action: PendingAction }) {
   const args = action.args as {
     issueId?: string;
@@ -74,13 +75,15 @@ function PullRequestDetails({ action }: { action: PendingAction }) {
     resolved?: boolean;
   };
   const heading =
-    action.name === "pull_request_create"
-      ? `Open a pull request for ${args.issueId}`
-      : action.name === "pull_request_comment"
-        ? args.replyTo
-          ? `Reply to review comment ${args.replyTo} on #${args.number}`
-          : `Comment on #${args.number}`
-        : `${args.resolved === false ? "Reopen" : "Resolve"} review thread ${args.threadId} on #${args.number}`;
+    action.name === "open_pull_request"
+      ? "Push the branch and open its pull request"
+      : action.name === "pull_request_create"
+        ? `Open a pull request for ${args.issueId}`
+        : action.name === "pull_request_comment"
+          ? args.replyTo
+            ? `Reply to review comment ${args.replyTo} on #${args.number}`
+            : `Comment on #${args.number}`
+          : `${args.resolved === false ? "Reopen" : "Resolve"} review thread ${args.threadId} on #${args.number}`;
   return (
     <Stack spacing={0.5}>
       <Typography variant="subtitle2">{heading}</Typography>
@@ -94,7 +97,10 @@ function PullRequestDetails({ action }: { action: PendingAction }) {
 function ActionDetails({ action }: { action: PendingAction }) {
   if (action.name === "reply_to_forge") return <ForgeReplyDetails action={action} />;
   if (action.name === "commit_and_push") return <CommitDetails action={action} />;
-  if (action.name.startsWith("pull_request_")) return <PullRequestDetails action={action} />;
+  if (action.name === "push")
+    return <Typography variant="subtitle2">Push the new commits to the branch and its pull request</Typography>;
+  if (action.name.startsWith("pull_request_") || action.name === "open_pull_request")
+    return <PullRequestDetails action={action} />;
   if (action.name === "set_blocker")
     return (
       <Typography variant="subtitle2">
@@ -154,7 +160,8 @@ function ActionDetails({ action }: { action: PendingAction }) {
   );
 }
 
-// The agent's paused tool calls. Approve or reject applies to all of them at once.
+// The agent's paused tool calls. Approve or reject applies to all of them at once. A note
+// only goes with a rejection, so while there is one, Approve is off.
 function ApprovalCard({
   actions,
   loading,
@@ -181,15 +188,24 @@ function ApprovalCard({
             onChange={(e) => setNote(e.target.value)}
           />
           <Stack direction="row" spacing={1}>
-            <Button variant="contained" loading={loading} onClick={() => onDecide({ type: "approve" })}>
-              Approve
-            </Button>
+            <Tooltip title={note.trim() ? "Clear the note to approve" : ""}>
+              <span>
+                <Button
+                  variant="contained"
+                  loading={loading}
+                  disabled={Boolean(note.trim())}
+                  onClick={() => onDecide({ type: "approve" })}
+                >
+                  Approve
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               color="error"
               disabled={loading}
               onClick={() => onDecide({ type: "reject", message: note.trim() || undefined })}
             >
-              Reject
+              {note.trim() ? "Reject with note" : "Reject"}
             </Button>
           </Stack>
         </Stack>

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Transaction } from "sequelize";
-import type { AgentRole, ForgePlan, ForgeWaiting } from "shared";
+import type { AgentRole, ForgePlan, ForgeWaiting, PullRequest } from "shared";
 import { sequelize } from "../db.js";
 import { ForgeSubscription } from "../models/ForgeSubscription.js";
 import { enqueueMessages } from "../projectLead/messageQueue.js";
@@ -9,7 +9,7 @@ export type ForgeLifecycleEvent =
   | { type: "stage_started"; role: AgentRole }
   | { type: "waiting"; waiting: ForgeWaiting }
   | { type: "plan_ready"; revision: number }
-  | { type: "completed"; plan: ForgePlan | null }
+  | { type: "pull_request_created"; pullRequest: PullRequest; plan: ForgePlan | null }
   | { type: "failed"; error: string }
   | { type: "stopped" };
 export function forgeEventContent(event: ForgeLifecycleEvent): string {
@@ -17,12 +17,14 @@ export function forgeEventContent(event: ForgeLifecycleEvent): string {
     case "stage_started":
       return `The Lead delegated to the ${event.role}.`;
     case "waiting":
-      return `The Lead needs answers:\n${event.waiting.questions.join("\n")}`;
+      return event.waiting.kind === "questions"
+        ? `The Lead needs answers:\n${event.waiting.questions.join("\n")}`
+        : `The Lead is waiting for the user to approve: ${event.waiting.actions.map((action) => action.name).join(", ")}.`;
     case "plan_ready":
       return `Plan revision ${event.revision} is ready for your review.`;
-    case "completed": {
+    case "pull_request_created": {
       const checks = event.plan?.qaChecklist ?? [];
-      return `Forge finished.${
+      return `Forge created pull request #${event.pullRequest.number}: ${event.pullRequest.url}${
         checks.length
           ? `\nQA checklist:\n${checks
               .map((check) => `- ${check.status}: ${check.condition}${check.note ? ` (${check.note})` : ""}`)

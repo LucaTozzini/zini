@@ -29,7 +29,7 @@ export type LinearIssueDetails = Omit<LinearIssue, "assignee"> & {
   description: string | null;
   branchName: string;
   assignee: { name: string; email: string } | null;
-  team: { key: string; name: string };
+  team: { id: string; key: string; name: string };
   // Oldest first.
   comments: LinearComment[];
   // Links on the issue, such as its pull requests.
@@ -62,6 +62,8 @@ export type LinearComment = { body: string; createdAt: string; user: { name: str
 export type Workspace = {
   context?: WorkspaceContext | null;
   issueId: string;
+  // The project whose repo it was cloned from.
+  projectId: number;
   branch: string;
   path: string;
   createdAt: string;
@@ -164,9 +166,6 @@ export type Settings = {
   forgeModel: string | null;
   openwikiProvider: string | null;
   openwikiModel: string | null;
-  githubRepo: string | null;
-  // Stored as "true" or "false"; null preserves the default enabled behavior.
-  conductorEnabled: string | null;
 };
 
 // Settings that can be cleared, by saving an empty value.
@@ -237,14 +236,16 @@ export type RepoCommand = {
 // GET /api/workspaces/:issueId/diff: a unified diff, new files included.
 export type WorkspaceDiff = { diff: string; truncated: boolean };
 
-// What the Forge is paused on, waiting for you: the Lead's questions. A plan waiting for
+// What the Forge is paused on, waiting for you: the Lead's questions, or its calls that
+// need your approval (pushing the branch, opening the pull request). A plan waiting for
 // approval isn't a pause: it's a plan that isn't approved (see ForgeState), approved with
 // POST /api/forge/:issueId/approve-plan { revision }, or answered with feedback as a
 // message to the Lead.
-export type ForgeWaiting = { kind: "questions"; questions: string[] };
+export type ForgeWaiting = { kind: "questions"; questions: string[] } | { kind: "approval"; actions: PendingAction[] };
 
-// Your answers to the Lead's questions (in order), as POSTed to /api/forge/:issueId/resume.
-export type ForgeResume = { answers: string[] };
+// What you POST to /api/forge/:issueId/resume: your answers to the Lead's questions (in
+// order), or your decision on each call waiting for approval.
+export type ForgeResume = { answers: string[] } | { decisions: Decision[] };
 
 // One entry of a Forge conversation, with the agent whose conversation it's from.
 export type ForgeMessage = ChatEntry & { t: string; agent: AgentRole | null };
@@ -269,21 +270,32 @@ export type ForgeState = {
   // The page the Reviewer's browser is on, while it's open: it can be watched live, at
   // GET /api/forge/:issueId/browser.
   browserUrl: string | null;
-  // The Lead finished: every step complete and every QA check passed or skipped. You
-  // can still message it for changes.
-  finished: boolean;
+  // The newest pull request from the Forge's branch, as GitHub has it now: once the Lead
+  // opened it (or you did), its work is done. You can still message it for changes.
+  pullRequest: PullRequest | null;
   // Why the last run failed, until the next one starts; lost if the server restarts.
   error: string | null;
 };
 
-// Services zini connects to with an API key.
-export const PROVIDERS = ["linear", "openrouter", "github", "postgres", "googleDrive", "papertrail"] as const;
-export type Provider = (typeof PROVIDERS)[number];
+// Services zini connects to with an API key: some shared by every project, the rest
+// connected per project, since each app has its own database, docs and logs.
+export const SHARED_PROVIDERS = ["linear", "openrouter", "github"] as const;
+export const PROJECT_PROVIDERS = ["postgres", "googleDrive", "papertrail"] as const;
+export type SharedProvider = (typeof SHARED_PROVIDERS)[number];
+export type ProjectProvider = (typeof PROJECT_PROVIDERS)[number];
+export type Provider = SharedProvider | ProjectProvider;
 
-// As returned by GET /api/integrations. Never the full key; the last 3 characters
-// are enough to recognise it.
+// As returned by GET /api/integrations (the shared ones) and
+// /api/projects/:projectId/integrations (the project's). Never the full key; the last
+// 3 characters are enough to recognise it.
 type IntegrationStatus = { connected: boolean; keyHint?: string };
-export type Integrations = Record<Provider, IntegrationStatus>;
+export type Integrations<P extends Provider = SharedProvider> = Record<P, IntegrationStatus>;
+
+// A repo zini works on, with the Linear team whose issues are its work, as returned by
+// GET /api/projects. The team's name and key come from Linear.
+export type Project = { id: number; name: string; githubRepo: string; linearTeamId: string };
+// As GET /api/projects lists them: with how many of their Forges are running.
+export type ProjectSummary = Project & { runningForges: number };
 
 // A subagent run's log, for debugging: one entry per line of its log file, written as
 // the run goes. A model call or tool call logs when it starts and when it ends, so
@@ -348,7 +360,7 @@ export type RoleMetrics = {
 export type RunMetrics = {
   scenario: string;
   model: string;
-  // Whether the Forge got to the end. Further revisions use redirect.
+  // Whether the Forge got to the end: it opened its pull request. Further revisions use redirect.
   finished: boolean;
   qaVerdict: "pass" | "fail" | "partial" | null;
   rateLimited?: boolean;
@@ -448,12 +460,6 @@ export const MAX_CHAT_IMAGES = 4;
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_CHAT_FILES = 4;
 export const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
-
-// Current conductor activity, as returned by GET /api/conductor/status.
-export type ConductorStatus = {
-  lastRan: null | Date;
-  running: boolean;
-};
 
 // The user's app in a workspace, as GET /api/workspaces/:issueId/app reports it.
 export type WorkspaceAppState = { status: "stopped" | "starting" | "ready" | "failed"; error?: string | null };

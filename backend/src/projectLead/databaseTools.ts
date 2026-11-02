@@ -1,25 +1,25 @@
 import { tool } from "langchain";
 import { z } from "zod";
-import { getKey } from "../models/Integration.js";
+import { getProjectKey } from "../models/ProjectIntegration.js";
 import { describeDatabase, MAX_ROWS, readOnlyQuery } from "../integrations/postgres.js";
 
-// Read-only access to the user's production database, when it's connected in Settings.
+// Read-only access to the user's production database, when it's connected in the project's settings.
 // The connection string is read per call, so a new one applies straight away.
-const database = async () => {
-  const url = await getKey("postgres");
-  if (!url) throw new Error("No production Postgres database is connected. The user can connect one in Settings.");
+const database = async (projectId: number) => {
+  const url = await getProjectKey(projectId, "postgres");
+  if (!url) throw new Error("No production Postgres database is connected. The user can connect one in the project's settings.");
   return url;
 };
 
-export const databaseTools = [
-  tool(async () => JSON.stringify(await describeDatabase(await database())), {
+export const databaseTools = (projectId: number) => [
+  tool(async () => JSON.stringify(await describeDatabase(await database(projectId))), {
     name: "describe_database",
     description:
       "List the production PostgreSQL database's tables and views, each with its columns and their " +
       "types. Use it before query_database to find the right tables and column names.",
     schema: z.object({}),
   }),
-  tool(async ({ sql }) => JSON.stringify(await readOnlyQuery(await database(), sql)), {
+  tool(async ({ sql }) => JSON.stringify(await readOnlyQuery(await database(projectId), sql)), {
     name: "query_database",
     description:
       "Run one read-only SQL statement on the production PostgreSQL database, e.g. to " +

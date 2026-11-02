@@ -10,19 +10,18 @@ import {
   DialogTitle,
   Menu,
   MenuItem,
-  Stack,
   List,
   ListItem,
   ListItemText,
   ListSubheader,
   IconButton,
   Tooltip,
-  Typography,
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorageIcon from "@mui/icons-material/Storage";
-import ScienceIcon from "@mui/icons-material/Science";
 import { Link, useLocation, useNavigate } from "react-router";
+import Sidebar from "./navbar/Sidebar.tsx";
+import ProjectSwitcher from "./navbar/ProjectSwitcher.tsx";
 import { useLinearIssues } from "../api/integrations.ts";
 import IssueItems from "./navbar/IssueItems.tsx";
 import NavigationGroup from "./navbar/NavigationGroup.tsx";
@@ -31,12 +30,12 @@ import NavBarItem from "./navbar/NavBarItem.tsx";
 import { useDeleteThread, useThreads } from "../api/projectLead.ts";
 import SessionItem from "./navbar/SessionItem";
 import AddIcon from "@mui/icons-material/Add";
-import ZiniIcon from "./icons/ZiniIcon.tsx";
 import OpenWikiIcon from "./icons/OpenWikiIcon.tsx";
 import { useId, useState } from "react";
 import type { ThreadSummary } from "shared";
 import { errorMessage } from "../api/client.ts";
 import StatusIcon from "./icons/StatusIcon.tsx";
+import { useProjectPath } from "../hooks/useProject.ts";
 
 const NavBar = () => {
   const sectionHeaderSx = {
@@ -51,6 +50,7 @@ const NavBar = () => {
   } as const;
   const navigate = useNavigate();
   const location = useLocation();
+  const projectPath = useProjectPath();
   const { data: linearIssuesUnstarted } = useLinearIssues(["unstarted"]);
   const { data: linearIssuesStarted } = useLinearIssues(["started"]);
   const { data: linearIssuesBacklog } = useLinearIssues(["backlog"]);
@@ -101,34 +101,16 @@ const NavBar = () => {
     deleteThread.mutate(threadToDelete.id, {
       onSuccess: () => {
         setThreadToDelete(null);
-        if (location.pathname === "/project-lead/" + threadToDelete.id) {
-          navigate("/project-lead");
+        if (location.pathname === projectPath("/project-lead/" + threadToDelete.id)) {
+          navigate(projectPath("/project-lead"));
         }
       },
     });
   }
 
   return (
-    <Stack
-      useFlexGap
-      spacing={2}
-      sx={{
-        height: "100dvh",
-        px: 1,
-        py: 1.5,
-        bgcolor: "background.paper",
-        width: 280,
-        maxWidth: "100%",
-        userSelect: "none",
-        overflow: "auto",
-      }}
-    >
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 1 }}>
-        <ZiniIcon sx={{ fontSize: 26 }} />
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: "0.02em" }}>
-          zini
-        </Typography>
-      </Stack>
+    <Sidebar>
+      <ProjectSwitcher />
 
       <Box component="nav" aria-label="Chats and Forges" sx={{ minWidth: 0 }}>
         <List
@@ -147,7 +129,7 @@ const NavBar = () => {
               <Tooltip title="New thread">
                 <IconButton
                   component={Link}
-                  to="/project-lead"
+                  to={projectPath("/project-lead")}
                   size="small"
                   aria-label="New thread"
                   sx={{
@@ -174,10 +156,10 @@ const NavBar = () => {
           {projectLeadThreads?.map((thread) => (
             <SessionItem
               key={thread.id}
-              itemId={`/project-lead/${thread.id}`}
+              itemId={projectPath(`/project-lead/${thread.id}`)}
               title={thread.title}
               updatedAt={thread.createdAt}
-              selected={location.pathname === `/project-lead/${thread.id}`}
+              selected={location.pathname === projectPath(`/project-lead/${thread.id}`)}
               loading={thread.running}
               onMenu={(position) => setMenu({ position, thread })}
             />
@@ -198,7 +180,7 @@ const NavBar = () => {
               icon={<StatusIcon type={group.type} name={group.title} />}
               count={group.issues?.length}
               defaultOpen={group.defaultOpen}
-              active={Boolean(group.issues?.some((issue) => location.pathname === `/issues/${issue.id}`))}
+              active={Boolean(group.issues?.some((issue) => location.pathname === projectPath(`/issues/${issue.id}`)))}
             >
               <IssueItems issues={group.issues} />
             </NavigationGroup>
@@ -209,10 +191,9 @@ const NavBar = () => {
       <Box sx={{ flex: 1 }} />
       <Box>
         <Divider sx={{ mb: 1 }} />
-        <NavBarItem icon={<ScienceIcon />} title="Evals" to="/evals" />
-        <NavBarItem icon={<OpenWikiIcon />} title="OpenWiki" to="/docs" />
-        <NavBarItem icon={<StorageIcon />} title="Database" to="/database" />
-        <NavBarItem icon={<SettingsIcon />} title="Settings" to="/settings" />
+        <NavBarItem icon={<OpenWikiIcon />} title="OpenWiki" to={projectPath("/docs")} />
+        <NavBarItem icon={<StorageIcon />} title="Database" to={projectPath("/database")} />
+        <NavBarItem icon={<SettingsIcon />} title="Settings" to={projectPath("/settings")} />
         <Profile />
       </Box>
       <Menu
@@ -275,7 +256,7 @@ const NavBar = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Stack>
+    </Sidebar>
   );
 };
 

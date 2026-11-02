@@ -24,7 +24,7 @@ export async function listForges(
         started: forge.started,
         running: forge.running,
         waiting: forge.waiting,
-        finished: forge.finished,
+        pullRequest: forge.pullRequest,
         error: forge.error,
         pausing: forge.pausing ?? false,
         canResume: forge.canResume ?? false,

@@ -9,8 +9,9 @@ import { alreadyRunning, beginRun, forgetRun, isRunning, runStatus, stopRun } fr
 import { forgeSubscriptions } from "../forge/forgeSubscriptions.js";
 import { addViewer, browserState } from "../browser/agentBrowser.js";
 import { projectLeadMessageInput } from "../projectLead/messageInput.js";
-import { parse } from "./http.js";
+import { currentProject, parse } from "./http.js";
 
+// The project's Project Lead chats, at /api/projects/:projectId/project-lead.
 export const projectLead = Router();
 
 const readMessage = (body: unknown, res: Response) => parse(projectLeadMessageInput, body, res);
@@ -29,7 +30,7 @@ const decisions: z.ZodType<{ decisions: Decision[] }> = z.object({
 
 // Everything the agent needs, or null after sending a 409 naming what's missing.
 async function loadSetup(res: Response) {
-  const setup = await loadProjectLeadSetup();
+  const setup = await loadProjectLeadSetup(currentProject(res));
   if (typeof setup === "string") {
     res.status(409).json({ error: setup });
     return null;
@@ -37,9 +38,9 @@ async function loadSetup(res: Response) {
   return setup;
 }
 
-// The chat with this id, or null after sending a 404.
+// The project's chat with this id, or null after sending a 404.
 async function findThread(id: string, res: Response) {
-  const thread = await ProjectLeadThread.findByPk(id);
+  const thread = await ProjectLeadThread.findOne({ where: { id, projectId: currentProject(res).id } });
   if (!thread) res.status(404).json({ error: "Chat not found" });
   return thread;
 }
@@ -55,6 +56,7 @@ const begin = (res: Response, threadId: string, start: Parameters<typeof beginRu
 // Newest first.
 projectLead.get("/threads", async (_req, res) => {
   const threads = await ProjectLeadThread.findAll({
+    where: { projectId: currentProject(res).id },
     attributes: ["id", "title", "createdAt"],
     order: [["createdAt", "DESC"]],
   });
@@ -68,9 +70,11 @@ projectLead.get("/threads", async (_req, res) => {
   );
 });
 
-// All chats following at least one Forge.
+// The project's chats following at least one Forge.
 projectLead.get("/subscriptions", async (_req, res) => {
-  res.json(await forgeSubscriptions.listAll());
+  const threads = await ProjectLeadThread.findAll({ where: { projectId: currentProject(res).id }, attributes: ["id"] });
+  const ids = new Set(threads.map(({ id }) => id));
+  res.json((await forgeSubscriptions.listAll()).filter(({ threadId }) => ids.has(threadId)));
 });
 
 // Starts a chat with its first message, which also becomes its title, answering once
@@ -84,7 +88,7 @@ projectLead.post("/threads", async (req, res) => {
   if (!setup) return;
 
   const title = message.trim().replace(/\s+/g, " ").slice(0, 60) || (files[0]?.name ?? "Image attachment");
-  const thread = await ProjectLeadThread.create({ id: randomUUID(), title });
+  const thread = await ProjectLeadThread.create({ id: randomUUID(), projectId: currentProject(res).id, title });
   const start = (signal: AbortSignal) => chat(setup, thread.id, message, req.user!.username, signal, images, files);
   if (!(await begin(res, thread.id, start))) {
     // Nothing was saved in it, so don't leave an empty chat behind.

@@ -10,28 +10,37 @@ import {
 } from "shared";
 import { api } from "./client.ts";
 import { userKey } from "./users.ts";
+import { projectApiPath, useProjectId } from "../hooks/useProject.ts";
 
 export const threadsKey = ["project-lead", "threads"];
 export const threadKey = (id: string) => [...threadsKey, id];
+// Each project's chat list.
+export const threadListsKey = [...threadsKey, "list"];
+const threadListKey = (projectId: number) => [...threadListsKey, projectId];
+
+// The project's Project Lead API path.
+const leadPath = (projectId: number, path: string) => projectApiPath(projectId, `project-lead/${path}`);
 
 export function useThreads() {
+  const projectId = useProjectId();
   return useQuery({
-    queryKey: threadsKey,
-    queryFn: () => api.get("project-lead/threads").json<ThreadSummary[]>(),
+    queryKey: threadListKey(projectId),
+    queryFn: () => api.get(leadPath(projectId, "threads")).json<ThreadSummary[]>(),
   });
 }
 
 export function useThread(id: string | undefined) {
+  const projectId = useProjectId();
   return useQuery({
     queryKey: threadKey(id ?? ""),
-    queryFn: () => api.get(`project-lead/threads/${id}`).json<Thread>(),
+    queryFn: () => api.get(leadPath(projectId, `threads/${id}`)).json<Thread>(),
     enabled: Boolean(id),
   });
 }
 
 // Sending answers once the message is saved, so any fetch of the chat after that has it;
 // the agent's reply comes through useServerEvents.
-const post = (path: string, json: object) => api.post(`project-lead/${path}`, { json });
+const post = (projectId: number, path: string, json: object) => api.post(leadPath(projectId, path), { json });
 
 // Shows a change to a conversation straight away, before the server has it: cancels
 // fetches that could overwrite it, applies it to the cached data, and returns a way to
@@ -60,8 +69,9 @@ function userMessage(queryClient: QueryClient, payload: ProjectLeadMessage): Cha
 // message and running, so opening it shows both at once.
 export function useCreateThread() {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: (message: ProjectLeadMessage) => post("threads", message).json<ThreadSummary>(),
+    mutationFn: (message: ProjectLeadMessage) => post(projectId, "threads", message).json<ThreadSummary>(),
     onSuccess: ({ id, title }, message) => {
       queryClient.setQueryData<Thread>(threadKey(id), {
         id,
@@ -74,7 +84,7 @@ export function useCreateThread() {
         running: true,
         error: null,
       });
-      void queryClient.invalidateQueries({ queryKey: threadsKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: threadListKey(projectId) });
     },
   });
 }
@@ -82,8 +92,9 @@ export function useCreateThread() {
 // The message shows in the chat, with "thinking", as soon as it's sent.
 export function useSendMessage(threadId: string) {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: (message: ProjectLeadMessage) => post(`threads/${threadId}/messages`, message),
+    mutationFn: (message: ProjectLeadMessage) => post(projectId, `threads/${threadId}/messages`, message),
     onMutate: (message) =>
       updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
@@ -100,8 +111,9 @@ export function useSendMessage(threadId: string) {
 // are.
 export function useStopThread(id: string) {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: () => post(`threads/${id}/stop`, {}),
+    mutationFn: () => post(projectId, `threads/${id}/stop`, {}),
     onMutate: () =>
       updateNow<Thread>(queryClient, threadKey(id), (thread) => ({
         ...thread,
@@ -116,8 +128,9 @@ export function useStopThread(id: string) {
 // on again, the way a sent one does.
 export function useSteerThread(threadId: string) {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: (message: ProjectLeadMessage) => post(`threads/${threadId}/steer`, message),
+    mutationFn: (message: ProjectLeadMessage) => post(projectId, `threads/${threadId}/steer`, message),
     onMutate: (message) =>
       updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
@@ -133,8 +146,9 @@ export function useSteerThread(threadId: string) {
 // approval card goes, and "thinking" shows, as soon as it's sent.
 export function useResumeThread(threadId: string) {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: (decisions: Decision[]) => post(`threads/${threadId}/resume`, { decisions }),
+    mutationFn: (decisions: Decision[]) => post(projectId, `threads/${threadId}/resume`, { decisions }),
     onMutate: () =>
       updateNow<Thread>(queryClient, threadKey(threadId), (thread) => ({
         ...thread,
@@ -149,11 +163,12 @@ export function useResumeThread(threadId: string) {
 // Deletes a chat and its saved conversation.
 export function useDeleteThread() {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`project-lead/threads/${id}`),
+    mutationFn: (id: string) => api.delete(leadPath(projectId, `threads/${id}`)),
     onSuccess: (_res, id) => {
       queryClient.removeQueries({ queryKey: threadKey(id) });
-      queryClient.invalidateQueries({ queryKey: threadsKey, exact: true });
+      queryClient.invalidateQueries({ queryKey: threadListKey(projectId) });
     },
   });
 }

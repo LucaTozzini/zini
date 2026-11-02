@@ -4,11 +4,12 @@ import { useLocation } from "react-router";
 import { useForge, usePendingApprovals } from "../../api/forge.ts";
 import PriorityIcon from "../icons/PriorityIcon.tsx";
 import SessionItem from "./SessionItem.tsx";
+import { useProjectPath } from "../../hooks/useProject.ts";
 
 function IssueItem({ issue, needsApproval }: { issue: LinearIssue; needsApproval: boolean }) {
   const forge = useForge(issue.id);
   const location = useLocation();
-  const itemId = `/issues/${issue.id}`;
+  const itemId = useProjectPath()(`/issues/${issue.id}`);
   return (
     <SessionItem
       itemId={itemId}

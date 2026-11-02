@@ -1,13 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  PullRequest,
-  PullRequestStatus,
-  Workspace,
-  WorkspaceDiff,
-  WorkspaceSelection,
-  WorkspaceGitStatus,
-  WorkspaceAppState,
-} from "shared";
+import type { Workspace, WorkspaceDiff, WorkspaceSelection, WorkspaceGitStatus, WorkspaceAppState } from "shared";
 import { api } from "./client.ts";
 import { forgeKey } from "./forge.ts";
 
@@ -72,29 +64,6 @@ export function useCommitAndPush(issueId: string) {
       queryClient.setQueryData(workspaceKey(issueId), workspace);
       queryClient.invalidateQueries({ queryKey: [...workspaceKey(issueId), "git-status"] });
     },
-  });
-}
-
-const pullRequestKey = (issueId: string) => [...workspaceKey(issueId), "pull-request"];
-
-// Whether the branch is on GitHub, and its pull request, fetched while enabled (e.g.
-// everything is pushed). Under the workspace's key, so a push refetches it.
-export function usePullRequest(issueId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: pullRequestKey(issueId),
-    queryFn: () => api.get(`workspaces/${issueId}/pull-request`).json<PullRequestStatus>(),
-    enabled,
-  });
-}
-
-// Opens the pull request, which then shows in place of the form.
-export function useOpenPullRequest(issueId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (pull: { title: string; body: string }) =>
-      api.post(`workspaces/${issueId}/pull-request`, { json: pull, timeout: false }).json<PullRequest>(),
-    onSuccess: (pullRequest) =>
-      queryClient.setQueryData<PullRequestStatus>(pullRequestKey(issueId), { pushed: true, pullRequest }),
   });
 }
 

@@ -8,8 +8,6 @@ import { initDb } from "./db.js";
 import { subscribe } from "./core/events.js";
 import { forge } from "./routes/forge.js";
 import { integrations } from "./routes/integrations.js";
-import { database } from "./routes/database.js";
-import { projectLead } from "./routes/projectLead.js";
 import { evals } from "./routes/evals.js";
 import { chatgpt } from "./routes/chatgpt.js";
 import { usersRouter } from "./routes/users.js";
@@ -19,17 +17,15 @@ import cookieParser from "cookie-parser";
 import { startProjectLeadMessageWorker } from "./projectLead/messageWorker.js";
 import { recoverMessageQueue } from "./projectLead/messageQueue.js";
 import { requireApiUser } from "./auth/session.js";
-import { startConductor } from "./conductor/conductor.js";
-import conductorRouter from "./routes/conductor.js";
-import { openwiki } from "./openwiki/routes.js";
-import { openwikiServe } from "./openwiki/serveRoutes.js";
+import { projects } from "./routes/projects.js";
+import { linear } from "./routes/linear.js";
 import { dockerRouter } from "./routes/docker.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
 // Up to 4 images of 5 MB and 4 files of 10 MB, base64 encoded.
-app.use("/api/project-lead", express.json({ limit: "90mb" }));
+app.use("/api/projects/:projectId/project-lead", express.json({ limit: "90mb" }));
 // Messages to a Forge's Lead can carry images too.
 app.use("/api/forge/:issueId/message", express.json({ limit: "30mb" }));
 app.use(express.json());
@@ -47,16 +43,13 @@ app.get("/api/events", (_req, res) => {
 
 app.use("/api/forge", forge);
 app.use("/api/integrations", integrations);
-app.use("/api/database", database);
-app.use("/api/project-lead", projectLead);
+app.use("/api/linear", linear);
+app.use("/api/projects", projects);
 app.use("/api/settings", settings);
 app.use("/api/workspaces", workspaces);
 app.use("/api/evals", evals);
 app.use("/api/chatgpt", chatgpt);
 app.use("/api/users", usersRouter);
-app.use("/api/conductor", conductorRouter);
-app.use("/api/openwiki", openwiki);
-app.use("/api/openwiki", openwikiServe);
 app.use("/api/docker", dockerRouter);
 
 // The built webapp (npm run build), so one server runs the whole app. Any other GET
@@ -74,7 +67,6 @@ if (existsSync(webapp)) {
 await initDb();
 await recoverMessageQueue();
 startProjectLeadMessageWorker();
-await startConductor();
 
 const server = createServer(app);
 previewSockets(server, async (issueId) => {

@@ -13,24 +13,29 @@ import {
   updateLinearIssue,
 } from "../integrations/linear.js";
 import { isIssueId } from "../workspaces/workspaces.js";
+import type { Project } from "../models/Project.js";
 
 // Names rather than ids, so the approval card shows what will be set.
 const STATUS = z.string().describe('A status name from the issue\'s team, e.g. "In Progress"');
 const ASSIGNEE = z.string().describe("Email of a member of the issue's team");
 
-// Reading and changing the Linear workspace's issues.
-export function linearTools(linear: LinearClient) {
+// Reading and changing the issues of the project's Linear team. Any issue can be read
+// by its id, e.g. one that blocks a team issue.
+export function linearTools(linear: LinearClient, project: Project) {
+  const teamId = project.linearTeamId;
   return [
-    tool(async ({ statusTypes }) => JSON.stringify(await fetchLinearIssues(linear, statusTypes ?? [])), {
+    tool(async ({ statusTypes }) => JSON.stringify(await fetchLinearIssues(linear, teamId, statusTypes ?? [])), {
       name: "list_issues",
       description:
-        "List up to 250 issues, most recently updated first, without descriptions. " + "Optionally filter by status type.",
+        "List up to 250 of the project team's issues, most recently updated first, without descriptions. " +
+        "Optionally filter by status type.",
       schema: z.object({ statusTypes: z.array(z.enum(STATUS_TYPES)).optional() }),
     }),
-    tool(async ({ query }) => JSON.stringify(await searchLinearIssues(linear, query)), {
+    tool(async ({ query }) => JSON.stringify(await searchLinearIssues(linear, teamId, query)), {
       name: "search_issues",
       description:
-        "Search issue titles and descriptions with Linear's full-text search, like its " + "search box. Up to 50 results.",
+        "Search the project team's issue titles and descriptions with Linear's full-text search, like its " +
+        "search box. Up to 50 results.",
       schema: z.object({ query: z.string().min(1) }),
     }),
     tool(
@@ -63,17 +68,21 @@ export function linearTools(linear: LinearClient) {
         }),
       },
     ),
-    tool(async () => JSON.stringify(await fetchLinearTeams(linear)), {
-      name: "list_teams",
-      description:
-        'List the workspace\'s teams with their statuses and members, and who "me" is. ' + "Creating an issue needs a team id.",
-      schema: z.object({}),
-    }),
-    tool(async (input) => JSON.stringify(await createLinearIssue(linear, input)), {
+    tool(
+      async () => {
+        const { me, teams } = await fetchLinearTeams(linear);
+        return JSON.stringify({ me, team: teams.find((team) => team.id === teamId) });
+      },
+      {
+        name: "get_team",
+        description: 'Get the project\'s Linear team with its statuses and members, and who "me" is.',
+        schema: z.object({}),
+      },
+    ),
+    tool(async (input) => JSON.stringify(await createLinearIssue(linear, { ...input, teamId })), {
       name: "create_issue",
-      description: "Create an issue. The user approves the call before it runs.",
+      description: "Create an issue in the project's team. The user approves the call before it runs.",
       schema: z.object({
-        teamId: z.string(),
         title: z.string(),
         description: z.string().optional().describe("Markdown"),
         priority: z.number().int().min(0).max(4).optional(),

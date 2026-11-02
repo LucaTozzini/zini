@@ -1,18 +1,18 @@
 import { tool } from "langchain";
 import { z } from "zod";
-import { getKey } from "../models/Integration.js";
+import { getProjectKey } from "../models/ProjectIntegration.js";
 import { MAX_EVENTS, searchLogs } from "../integrations/papertrail.js";
 
-// Searching the production app's logs in Papertrail, when it's connected in Settings. The
+// Searching the production app's logs in Papertrail, when it's connected in the project's settings. The
 // token is read per call, so a new one applies straight away.
-const papertrailToken = async () => {
-  const token = await getKey("papertrail");
-  if (!token) throw new Error("Papertrail isn't connected. The user can connect it in Settings.");
+const papertrailToken = async (projectId: number) => {
+  const token = await getProjectKey(projectId, "papertrail");
+  if (!token) throw new Error("Papertrail isn't connected. The user can connect it in the project's settings.");
   return token;
 };
 
-export const logTools = [
-  tool(async (args) => JSON.stringify(await searchLogs(await papertrailToken(), args)), {
+export const logTools = (projectId: number) => [
+  tool(async (args) => JSON.stringify(await searchLogs(await papertrailToken(projectId), args)), {
     name: "search_logs",
     description:
       "Search the production app's logs in Papertrail, e.g. to find the errors behind a bug " +

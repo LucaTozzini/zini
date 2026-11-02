@@ -3,15 +3,17 @@ import { z } from "zod";
 import { sendEvent } from "../core/events.js";
 import { getServingStatus, hasServedWiki, refreshServingWorktree, searchWiki } from "./serving.js";
 import { errorMessage } from "../core/errors.js";
+import { currentProject } from "../routes/http.js";
 
-// Serving/search routes for the repo's OpenWiki. Mounted at /api/openwiki alongside
+// Serving/search routes for the project's OpenWiki. Mounted at
+// /api/projects/:projectId/openwiki alongside
 // the generation routes (which live in routes.ts, owned separately).
 export const openwikiServe = Router();
 
 // Bring the served wiki up to the latest default branch.
 openwikiServe.post("/refresh", async (_req, res) => {
   try {
-    const { commit } = await refreshServingWorktree();
+    const { commit } = await refreshServingWorktree(currentProject(res));
     sendEvent({ type: "openwiki.updated" });
     res.json({ commit });
   } catch (err) {
@@ -22,7 +24,7 @@ openwikiServe.post("/refresh", async (_req, res) => {
 // What the wiki is served from vs. what the bare clone has: the UI compares them to
 // show whether the served wiki is stale.
 openwikiServe.get("/serve-status", async (_req, res) => {
-  res.json(await getServingStatus());
+  res.json(await getServingStatus(currentProject(res)));
 });
 
 const searchBody = z.object({
@@ -37,12 +39,13 @@ openwikiServe.post("/search", async (req, res) => {
     res.status(400).json({ error: "Expected { query, limit? }" });
     return;
   }
-  if (!hasServedWiki()) {
+  const project = currentProject(res);
+  if (!hasServedWiki(project)) {
     res.status(404).json({ error: "No wiki available; generate documentation first" });
     return;
   }
   try {
-    res.json(JSON.parse(await searchWiki(parsed.data.query, parsed.data.limit)));
+    res.json(JSON.parse(await searchWiki(project, parsed.data.query, parsed.data.limit)));
   } catch (err) {
     res.status(500).json({ error: errorMessage(err) });
   }

@@ -28,12 +28,22 @@ test("streaming chunks don't emit notifications; a saved interrupt emits one wai
   assert.deepEqual(events, [{ type: "waiting", waiting: questions }]);
 });
 
-test("completion and failure emit once; failure preserves the original exception", async () => {
+test("the pull request and failure emit once; failure preserves the original exception", async () => {
   const events: ForgeLifecycleEvent[] = [];
   const emit = async (event: ForgeLifecycleEvent) => {
     events.push(event);
   };
-  await collect(forgeEvents(Promise.resolve((async function* () {})()), async () => ({ type: "completed", plan: null }), emit));
+  await collect(
+    forgeEvents(
+      Promise.resolve((async function* () {})()),
+      async () => ({
+        type: "pull_request_created",
+        pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" as const },
+        plan: null,
+      }),
+      emit,
+    ),
+  );
   const failure = new Error("model unavailable");
   await assert.rejects(
     collect(
@@ -50,7 +60,11 @@ test("completion and failure emit once; failure preserves the original exception
     (error) => error === failure,
   );
   assert.deepEqual(events, [
-    { type: "completed", plan: null },
+    {
+      type: "pull_request_created",
+      pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" },
+      plan: null,
+    },
     { type: "failed", error: "model unavailable" },
   ]);
 });
@@ -99,7 +113,12 @@ test("a real graph emits a saved human request and completion on resume", async 
   const events: ForgeLifecycleEvent[] = [];
   const outcome = async (): Promise<ForgeLifecycleEvent | null> => {
     const snapshot = await graph.getState(config);
-    if (snapshot.values.finished) return { type: "completed", plan: null };
+    if (snapshot.values.finished)
+      return {
+        type: "pull_request_created",
+        pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" as const },
+        plan: null,
+      };
     const request = snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value;
     return request ? { type: "waiting", waiting: request as typeof questions } : null;
   };
@@ -111,6 +130,10 @@ test("a real graph emits a saved human request and completion on resume", async 
   await collect(forgeEvents(graph.stream(new Command({ resume: { answers: ["The first"] } }), config), outcome, emit));
   assert.deepEqual(events, [
     { type: "waiting", waiting: questions },
-    { type: "completed", plan: null },
+    {
+      type: "pull_request_created",
+      pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" },
+      plan: null,
+    },
   ]);
 });

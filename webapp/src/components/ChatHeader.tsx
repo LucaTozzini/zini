@@ -168,7 +168,7 @@ const ChatHeader = ({ title, agent, icon, todos, notes, actions }: ChatHeaderPro
           </List>
         )}
       </MyDialog>
-      {/* Shared by every chat: agents/project-lead.md in the backend's data folder. */}
+      {/* Shared by the project's chats: projects/<id>/project-lead.md in the backend's data folder. */}
       <MyDialog open={showModal === 3} title="Project notes" setShowModal={setShowModal}>
         {notes.trim() && <MarkdownText>{notes}</MarkdownText>}
       </MyDialog>

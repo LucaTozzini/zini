@@ -1,11 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Integrations, LinearIssue, LinearIssueDetails, Provider, StatusType } from "shared";
+import type {
+  Integrations,
+  LinearIssue,
+  LinearIssueDetails,
+  ProjectProvider,
+  Provider,
+  SharedProvider,
+  StatusType,
+} from "shared";
 import { api } from "./client.ts";
+import { projectApiPath, useProjectId } from "../hooks/useProject.ts";
 
 const integrationsKey = ["integrations"];
 const linearIssuesKey = ["linear", "issues"];
 
-// Which services are connected. Keys are tested when saved, not here.
+// Where a set of keys lives: the shared ones, or a project's.
+const integrationsPath = (projectId?: number) =>
+  projectId === undefined ? "integrations" : projectApiPath(projectId, "integrations");
+const keyFor = (projectId?: number) => (projectId === undefined ? integrationsKey : [...integrationsKey, projectId]);
+
+// Which shared services are connected. Keys are tested when saved, not here.
 export function useIntegrations() {
   return useQuery({
     queryKey: integrationsKey,
@@ -13,32 +27,51 @@ export function useIntegrations() {
   });
 }
 
-export function useConnectIntegration(provider: Provider) {
+// Which of the project's services are connected.
+export function useProjectIntegrations(projectId: number) {
+  return useQuery({
+    queryKey: keyFor(projectId),
+    queryFn: () => api.get(integrationsPath(projectId)).json<Integrations<ProjectProvider>>(),
+  });
+}
+
+// The shared services' statuses, or with projectId, the project's.
+export function useIntegrationStatus(projectId?: number) {
+  return useQuery({
+    queryKey: keyFor(projectId),
+    queryFn: () => api.get(integrationsPath(projectId)).json<Integrations | Integrations<ProjectProvider>>(),
+  });
+}
+
+// Saves a key: a shared service's, or with projectId, the project's.
+export function useConnectIntegration(provider: Provider, projectId?: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (apiKey: string) => api.put("integrations", { json: { [provider]: apiKey } }).json<Integrations>(),
+    mutationFn: (apiKey: string) => api.put(integrationsPath(projectId), { json: { [provider]: apiKey } }).json(),
     onSuccess: (data) => {
-      queryClient.setQueryData(integrationsKey, data);
+      queryClient.setQueryData(keyFor(projectId), data);
       // A new Linear key can see different issues.
-      if (provider === "linear") queryClient.invalidateQueries({ queryKey: linearIssuesKey });
+      if (provider === ("linear" satisfies SharedProvider)) queryClient.invalidateQueries({ queryKey: ["linear"] });
     },
   });
 }
 
-export function useDisconnectIntegration(provider: Provider) {
+export function useDisconnectIntegration(provider: Provider, projectId?: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.delete(`integrations/${provider}`).json<Integrations>(),
-    onSuccess: (data) => queryClient.setQueryData(integrationsKey, data),
+    mutationFn: () => api.delete(`${integrationsPath(projectId)}/${provider}`).json(),
+    onSuccess: (data) => queryClient.setQueryData(keyFor(projectId), data),
   });
 }
 
+// The project's team's issues with one of the statuses.
 export function useLinearIssues(statuses: StatusType[]) {
+  const projectId = useProjectId();
   return useQuery({
-    queryKey: [...linearIssuesKey, statuses],
+    queryKey: [...linearIssuesKey, projectId, statuses],
     queryFn: () =>
       api
-        .get("integrations/linear/issues", { searchParams: { status: statuses.join(",") } })
+        .get(projectApiPath(projectId, "linear/issues"), { searchParams: { status: statuses.join(",") } })
         .json<{ issues: LinearIssue[] }>()
         .then((res) => res.issues),
   });
@@ -48,6 +81,6 @@ export function useLinearIssues(statuses: StatusType[]) {
 export function useLinearIssue(id: string) {
   return useQuery({
     queryKey: ["linear", "issue", id],
-    queryFn: () => api.get(`integrations/linear/issues/${id}`).json<LinearIssueDetails>(),
+    queryFn: () => api.get(`linear/issues/${id}`).json<LinearIssueDetails>(),
   });
 }

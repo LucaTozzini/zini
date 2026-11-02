@@ -14,7 +14,8 @@ test(
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "zini-tls-"));
     process.env.DB_PATH = join(dir, "db.sqlite");
-    const { createTestWorkspace, probeApp } = await import("./testFixtures.js");
+    const { createTestWorkspace, probeApp, testProject } = await import("./testFixtures.js");
+    const { Workspace } = await import("../models/Workspace.js");
     const { ensureSandbox, workspaceRequest, removeSandbox, docker, sandboxName } = await import("./workspaceSandbox.js");
     const { serviceTools } = await import("../forge/serviceTools.js");
     const { startProcess, stopProcess, runCommandResult } = await import("../forge/qaProcesses.js");
@@ -22,7 +23,6 @@ test(
     const { WorkspaceAppRuntime } = await import("./workspaceAppRuntime.js");
     const { removeWorkspaceMarker } = await import("../repositories/git.js");
     const { sequelize } = await import("../db.js");
-    const { saveSettings } = await import("../core/settings.js");
     const { saveDevelopmentEnvironment } = await import("../core/developmentEnvironment.js");
     const ids = [`tls-${randomUUID()}`, `tls-${randomUUID()}`];
     const id = ids[0]!;
@@ -42,8 +42,9 @@ server.listen(4443,'127.0.0.1');`;
         "tls.cjs": tlsApp,
         "http.cjs": "require('http').createServer((q,r)=>r.end('HTTP works')).listen(4444,'127.0.0.1');",
       });
-      await saveSettings({ githubRepo: "fixture/tls" });
-      await saveDevelopmentEnvironment("fixture/tls", [{ name: "TLS_KEY", value: "invalid-host-path" }]);
+      const project = await testProject();
+      await Workspace.create({ issueId: id, projectId: project.id });
+      await saveDevelopmentEnvironment(project.id, [{ name: "TLS_KEY", value: "invalid-host-path" }]);
       const tools = serviceTools(id);
       const generate = tools.find((tool) => tool.name === "generate_tls_certificates")!;
       const bindings = { REPO_KEY: "key", REPO_CERT: "cert" } as const;

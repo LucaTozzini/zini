@@ -103,17 +103,18 @@ const ISSUES_QUERY = `
   }
 `;
 
-export async function fetchLinearIssues(client: LinearClient, statusTypes: StatusType[]) {
-  const filter = statusTypes.length ? { state: { type: { in: statusTypes } } } : undefined;
-  const { data } = await client.client.rawRequest<{ issues: { nodes: LinearIssue[] } }, { filter?: object }>(ISSUES_QUERY, {
+// The team's issues, optionally only those with one of statusTypes.
+export async function fetchLinearIssues(client: LinearClient, teamId: string, statusTypes: StatusType[]) {
+  const filter = { team: { id: { eq: teamId } }, ...(statusTypes.length && { state: { type: { in: statusTypes } } }) };
+  const { data } = await client.client.rawRequest<{ issues: { nodes: LinearIssue[] } }, { filter: object }>(ISSUES_QUERY, {
     filter,
   });
   return data!.issues.nodes;
 }
 
 const SEARCH_QUERY = `
-  query SearchIssues($term: String!) {
-    searchIssues(term: $term, first: 50) {
+  query SearchIssues($term: String!, $teamId: String!) {
+    searchIssues(term: $term, teamId: $teamId, first: 50) {
       nodes {
         id identifier title priority url updatedAt
         state { name type }
@@ -124,11 +125,12 @@ const SEARCH_QUERY = `
 `;
 
 // Linear's own full-text search over issue titles and descriptions (not comments),
-// like the search box in the Linear app. Up to 50 results.
-export async function searchLinearIssues(client: LinearClient, query: string) {
-  const { data } = await client.client.rawRequest<{ searchIssues: { nodes: LinearIssue[] } }, { term: string }>(SEARCH_QUERY, {
-    term: query,
-  });
+// like the search box in the Linear app, in the team's issues. Up to 50 results.
+export async function searchLinearIssues(client: LinearClient, teamId: string, query: string) {
+  const { data } = await client.client.rawRequest<{ searchIssues: { nodes: LinearIssue[] } }, { term: string; teamId: string }>(
+    SEARCH_QUERY,
+    { term: query, teamId },
+  );
   return data!.searchIssues.nodes;
 }
 
@@ -138,7 +140,7 @@ const ISSUE_QUERY = `
       id identifier title description priority url updatedAt branchName
       state { name type }
       assignee { name email }
-      team { key name }
+      team { id key name }
       comments(first: 100) { nodes { body createdAt user { name } } }
       attachments(first: 100) { nodes { title url } }
       relations(first: 100) { nodes { id type relatedIssue { id identifier title state { name type } } } }
@@ -299,7 +301,7 @@ async function resolveFields(client: LinearClient, teamId: string, fields: Reada
     const email = fields.assignee.toLowerCase();
     const member = members.nodes.find((m) => m.active && m.email.toLowerCase() === email);
     if (!member) {
-      throw new Error(`No team member with email "${fields.assignee}". Use list_teams to see members.`);
+      throw new Error(`No team member with email "${fields.assignee}". Use get_team to see members.`);
     }
     ids.assigneeId = member.id;
   }

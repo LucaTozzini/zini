@@ -12,7 +12,6 @@ import ListItemText from "@mui/material/ListItemText";
 import ListSubheader from "@mui/material/ListSubheader";
 import type { SvgIconComponent } from "@mui/icons-material";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import AutoModeIcon from "@mui/icons-material/AutoMode";
 import ConstructionIcon from "@mui/icons-material/Construction";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
@@ -33,8 +32,9 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { errorMessage } from "../api/client.ts";
-import { useConnectIntegration, useDisconnectIntegration, useIntegrations } from "../api/integrations.ts";
+import { useConnectIntegration, useDisconnectIntegration, useIntegrations, useIntegrationStatus } from "../api/integrations.ts";
 import { useSaveSettings, useSettings } from "../api/settings.ts";
+import { useParams } from "react-router";
 import { useDocker, useStartDocker } from "../api/docker.ts";
 import { useChatGpt, useChatGptModels, useChatGptSignIn, useChatGptSignOut } from "../api/chatgpt.ts";
 import type { ModelProvider, Provider, Settings } from "shared";
@@ -46,12 +46,10 @@ import {
   DialogContentText,
   DialogTitle,
   MenuItem,
-  Switch,
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";
-import DevelopmentEnvironmentRow from "../components/DevelopmentEnvironmentRow.tsx";
 
 // A card's title, with the service's icon in front when it has one.
 function CardTitle({ icon: Icon, children }: { icon?: SvgIconComponent; children: ReactNode }) {
@@ -75,15 +73,20 @@ type KeyFormProps = {
   connectedAs?: (hint: string) => ReactNode;
 };
 
-// A service's API key: the connected key's hint, or a field to paste one.
+// A service's API key: the connected key's hint, or a field to paste one. On a project's
+// settings page (/projects/:projectId/settings), the project's key; elsewhere the shared one.
 function KeyForm({ provider, name, helperText, instructions, input, connectedAs }: KeyFormProps) {
-  const integrations = useIntegrations();
-  const connect = useConnectIntegration(provider);
-  const disconnect = useDisconnectIntegration(provider);
+  const { projectId: param } = useParams();
+  const projectId = param ? Number(param) : undefined;
+  const integrations = useIntegrationStatus(projectId);
+  const connect = useConnectIntegration(provider, projectId);
+  const disconnect = useDisconnectIntegration(provider, projectId);
   const [apiKey, setApiKey] = useState("");
   const [replacing, setReplacing] = useState(false);
 
-  const status = integrations.data?.[provider];
+  const status = (integrations.data as Partial<Record<Provider, { connected: boolean; keyHint?: string }>> | undefined)?.[
+    provider
+  ];
   const connected = status?.connected ?? false;
   const showForm = !connected || replacing;
 
@@ -314,7 +317,7 @@ function ServiceDialog({ service, onClose }: { service: Service | null; onClose:
   );
 }
 
-const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive" | "papertrail", Service> = {
+const CONNECTIONS: Record<Provider & ("linear" | "github" | "postgres" | "googleDrive" | "papertrail"), Service> = {
   linear: {
     name: "Linear",
     icon: LinearIcon,
@@ -324,7 +327,7 @@ const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive" | "pa
   github: {
     name: "GitHub",
     icon: GitHubIcon,
-    description: "Your code: agents clone the repo, push branches and open pull requests.",
+    description: "Your code: agents clone each project's repo, push branches and open pull requests.",
     settings: (
       <KeyForm
         provider="github"
@@ -339,7 +342,7 @@ const CONNECTIONS: Record<"linear" | "github" | "postgres" | "googleDrive" | "pa
               </Link>
               .
             </li>
-            <li>Under Repository access, select your repo.</li>
+            <li>Under Repository access, select your projects' repos.</li>
             <li>Under Permissions, set Contents and Pull requests to Read and write.</li>
           </Box>
         }
@@ -453,24 +456,29 @@ ALTER ROLE zini_readonly SET default_transaction_read_only = on;`}
   },
 };
 
-const CONNECTION_IDS = Object.keys(CONNECTIONS) as (keyof typeof CONNECTIONS)[];
+type ConnectionId = keyof typeof CONNECTIONS;
+const SHARED_CONNECTIONS: ConnectionId[] = ["linear", "github"];
+const PROJECT_CONNECTIONS: ConnectionId[] = ["postgres", "googleDrive", "papertrail"];
 
-function ConnectionsCard() {
-  const integrations = useIntegrations();
-  const [open, setOpen] = useState<keyof typeof CONNECTIONS | null>(null);
+// The services in ids, each a row opening its settings: the shared ones, or with
+// projectId, the project's.
+function ConnectionsCard({ ids, projectId }: { ids: ConnectionId[]; projectId?: number }) {
+  const integrations = useIntegrationStatus(projectId);
+  const [open, setOpen] = useState<ConnectionId | null>(null);
+  const statuses = integrations.data as Partial<Record<Provider, { connected: boolean }>> | undefined;
 
   return (
     <Card variant="outlined">
       <List disablePadding>
-        {CONNECTION_IDS.map((id, i) => (
+        {ids.map((id, i) => (
           <SettingRow
             key={id}
             icon={CONNECTIONS[id].icon}
             name={CONNECTIONS[id].name}
             description={CONNECTIONS[id].description}
             onClick={() => setOpen(id)}
-            status={<ConnectionChip connected={integrations.data?.[id]?.connected} />}
-            divider={i < CONNECTION_IDS.length - 1}
+            status={<ConnectionChip connected={statuses?.[id]?.connected} />}
+            divider={i < ids.length - 1}
           />
         ))}
       </List>
@@ -484,136 +492,10 @@ function ConnectionsCard() {
   );
 }
 
-// The repo the agents work on: a row showing it, opening a dialog to set or switch it.
-function RepositoryRow() {
-  const settings = useSettings();
-  const [open, setOpen] = useState(false);
-  const repo = settings.data?.githubRepo;
-
-  return (
-    <>
-      <SettingRow
-        icon={GitHubIcon}
-        name="GitHub repository"
-        description="The repo your Linear issues are about."
-        onClick={() => setOpen(true)}
-        divider={Boolean(repo)}
-        status={
-          settings.isSuccess &&
-          (repo ? (
-            <Chip size="small" variant="outlined" label={repo} sx={{ maxWidth: 240 }} />
-          ) : (
-            <Chip size="small" variant="outlined" color="warning" label="Not set" />
-          ))
-        }
-      />
-      {settings.isError && (
-        <Alert severity="error" sx={{ m: 2 }}>
-          {errorMessage(settings.error)}
-        </Alert>
-      )}
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
-        {open && <RepositoryForm current={repo ?? ""} onClose={() => setOpen(false)} />}
-      </Dialog>
-    </>
-  );
-}
-
-// Mounted only while its dialog is open. Switching to another repo deletes every
-// workspace, so it warns as soon as the name differs, then asks to confirm.
-function RepositoryForm({ current, onClose }: { current: string; onClose: () => void }) {
-  const save = useSaveSettings();
-  const [repo, setRepo] = useState(current);
-  const [confirming, setConfirming] = useState(false);
-  const trimmed = repo.trim();
-  const switching = Boolean(current) && trimmed.toLowerCase() !== current.toLowerCase();
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (switching && !confirming) {
-      save.reset();
-      setConfirming(true);
-      return;
-    }
-    save.mutate(switching ? { githubRepo: trimmed, confirmWorkspaceDeletion: true } : { githubRepo: trimmed }, {
-      onSuccess: onClose,
-    });
-  }
-
-  if (confirming)
-    return (
-      <Box component="form" onSubmit={handleSubmit}>
-        <DialogTitle>Delete workspaces and switch repository?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Switching to {trimmed} permanently deletes all workspaces, their Docker containers, volumes, Forge history and logs.
-            Uncommitted changes and unpushed commits will be lost. This cannot be undone.
-          </DialogContentText>
-          {save.isError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {errorMessage(save.error)}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={save.isPending} onClick={() => setConfirming(false)}>
-            Back
-          </Button>
-          <Button type="submit" color="error" variant="contained" loading={save.isPending}>
-            Delete workspaces and switch
-          </Button>
-        </DialogActions>
-      </Box>
-    );
-
-  return (
-    <Box component="form" onSubmit={handleSubmit}>
-      <IconDialogTitle icon={GitHubIcon}>GitHub repository</IconDialogTitle>
-      <DialogContent>
-        <Stack spacing={2}>
-          <DialogContentText>
-            The repo your Linear issues are about. Agents clone it into their workspaces.
-            {current && (
-              <>
-                {" "}
-                Currently{" "}
-                <Link href={`https://github.com/${current}`} target="_blank" rel="noreferrer">
-                  {current}
-                </Link>
-                .
-              </>
-            )}
-          </DialogContentText>
-          <TextField
-            label="Repository"
-            placeholder="owner/name"
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            helperText="As owner/name. Connect GitHub first; the token needs access to this repo."
-            autoComplete="off"
-            autoFocus
-            required
-            disabled={save.isPending}
-            sx={{ mt: 1 }}
-          />
-          {switching && (
-            <Alert severity="warning">
-              Switching repositories deletes all workspaces, their Docker containers and volumes, and Forge history and logs.
-              Pause running Forges and stop app launches first.
-            </Alert>
-          )}
-          {save.isError && <Alert severity="error">{errorMessage(save.error)}</Alert>}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button type="submit" variant="contained" loading={save.isPending} disabled={!trimmed || trimmed === current}>
-          {switching ? "Switch…" : "Save"}
-        </Button>
-      </DialogActions>
-    </Box>
-  );
-}
+// The project's optional services.
+export const ProjectConnectionsCard = ({ projectId }: { projectId: number }) => (
+  <ConnectionsCard ids={PROJECT_CONNECTIONS} projectId={projectId} />
+);
 
 // Sign in with ChatGPT, to run models on your ChatGPT plan. Its callback goes to this
 // machine's 127.0.0.1, so the sign-in only works in a browser on the computer running
@@ -706,7 +588,7 @@ const AGENTS: Agent[] = [
 ];
 
 // A clickable row that opens a dialog: icon, name and description, then a status on the right.
-function SettingRow({
+export function SettingRow({
   icon: Icon,
   name,
   description,
@@ -734,7 +616,7 @@ function SettingRow({
 }
 
 // A dialog's title, with the icon of what it's about.
-function IconDialogTitle({ icon, children }: { icon: SvgIconComponent; children: ReactNode }) {
+export function IconDialogTitle({ icon, children }: { icon: SvgIconComponent; children: ReactNode }) {
   return (
     <DialogTitle component="div">
       <CardTitle icon={icon}>{children}</CardTitle>
@@ -908,7 +790,7 @@ function ModelsCard() {
 }
 
 // A titled group of settings cards.
-function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+export function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
     <Stack component="section" spacing={2}>
       <div>
@@ -987,31 +869,14 @@ function DockerRow() {
   );
 }
 
-// Conductor and appearance, each changed in place: the conductor's switch saves at
-// once, and setMode also saves the theme in localStorage, so it survives reloads.
+// Docker, and appearance: setMode saves the theme in localStorage, so it survives reloads.
 function GeneralCard() {
-  const settings = useSettings();
-  const save = useSaveSettings();
   const { mode, setMode } = useColorScheme();
 
   return (
     <Card variant="outlined">
       <List disablePadding>
         <DockerRow />
-        <ControlRow
-          icon={AutoModeIcon}
-          name="Conductor"
-          description="Automatically starts Forges for unstarted Linear issues. Turning it off stops new starts; running Forges continue."
-          divider
-          control={
-            <Switch
-              checked={settings.data?.conductorEnabled !== "false"}
-              disabled={!settings.isSuccess || save.isPending}
-              onChange={(_event, checked) => save.mutate({ conductorEnabled: String(checked) })}
-              slotProps={{ input: { "aria-label": "Enable conductor" } }}
-            />
-          }
-        />
         <ControlRow
           icon={PaletteOutlinedIcon}
           name="Appearance"
@@ -1036,50 +901,37 @@ function GeneralCard() {
           }
         />
       </List>
-      {settings.isError && (
-        <Alert severity="error" sx={{ m: 2 }}>
-          {errorMessage(settings.error)}
-        </Alert>
-      )}
-      {save.isError && (
-        <Alert severity="error" sx={{ m: 2 }}>
-          {errorMessage(save.error)}
-        </Alert>
-      )}
     </Card>
   );
 }
 
+// The settings every project shares, also shown under each project's own.
+export const SharedSettings = () => (
+  <>
+    <Section
+      title="Connections"
+      description="The services every project works with: your issues in Linear and your code on GitHub. Each project connects its own database, Drive and logs in its settings."
+    >
+      <ConnectionsCard ids={SHARED_CONNECTIONS} />
+    </Section>
+    <Section title="Models" description="Where the agents' models run, and which model each agent uses.">
+      <ModelsCard />
+    </Section>
+    <Section title="General" description="Docker, and how zini looks.">
+      <GeneralCard />
+    </Section>
+  </>
+);
+
+// The shared settings outside any project, e.g. to connect Linear before adding one.
 function SettingsPage() {
-  const settings = useSettings();
   return (
     <Container maxWidth="md" sx={{ my: 5 }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Settings
       </Typography>
       <Stack spacing={5}>
-        <Section
-          title="Connections"
-          description="The services zini works with: your issues in Linear, your code on GitHub, and optionally your Postgres database, Google Drive and logs."
-        >
-          <ConnectionsCard />
-        </Section>
-        <Section title="Models" description="Where the agents' models run, and which model each agent uses.">
-          <ModelsCard />
-        </Section>
-        <Section title="Repository" description="The repo the agents work on, and how its app runs in a workspace.">
-          <Card variant="outlined">
-            <List disablePadding>
-              <RepositoryRow />
-              {settings.data?.githubRepo && (
-                <DevelopmentEnvironmentRow key={settings.data.githubRepo} repository={settings.data.githubRepo} />
-              )}
-            </List>
-          </Card>
-        </Section>
-        <Section title="General" description="Docker, automation and how zini looks.">
-          <GeneralCard />
-        </Section>
+        <SharedSettings />
       </Stack>
     </Container>
   );

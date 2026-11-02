@@ -1,23 +1,25 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { rename, rm, rmdir } from "node:fs/promises";
+import { mkdir, rename, rm, rmdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { storage } from "../db.js";
 import { getKey } from "../models/Integration.js";
-import { getSetting } from "../core/settings.js";
+import type { Project } from "../models/Project.js";
+import { repoDir, workspaceProject } from "../projects/projects.js";
 import { withWorkspaceLock } from "../workspaces/workspaceLocks.js";
 import { trustedGit } from "../workspaces/trustedGit.js";
 import { cloneWorkspaceVolume, ensureWorkspaceVolume, workspaceGit } from "../workspaces/workspaceVolumes.js";
 
 const execFileAsync = promisify(execFile);
 
-// A bare clone of the githubRepo setting: git's history only, no checked-out files.
-// Code is read from REF, which fetches keep in line with GitHub's default branch.
-// Absolute, since git runs with -C REPO_DIR and would read a relative path from there.
-// Exported for the OpenWiki module, whose worktrees live next to the bare clone.
-export const REPO_DIR = resolve(dirname(storage), "repo.git");
+// Each project has a bare clone of its repo (see repoDir): git's history only, no
+// checked-out files. Code is read from REF, which fetches keep in line with GitHub's
+// default branch.
 const REF = "origin/HEAD";
+
+// A project's repo: its id, for its clone, and its GitHub repository, "owner/name".
+export type Repo = Pick<Project, "id" | "githubRepo">;
 
 // Each workspace is an independent clone with its own history and metadata.
 const WORKSPACES_DIR = resolve(dirname(storage), "workspaces");
@@ -60,6 +62,9 @@ async function executeGit(args: string[], token?: string) {
     "core.hooksPath=/dev/null",
     "-c",
     "core.fsmonitor=false",
+    "-c",
+    // On Windows, checkouts under data/projects/<id>/ can pass the 260-character path limit.
+    "core.longpaths=true",
     "-c",
     "core.pager=cat",
     "-c",
@@ -115,18 +120,16 @@ async function requireToken() {
   return token;
 }
 
-// Clones repo ("owner/name") in place of any existing clone. Does nothing if it's
-// already cloned. Throws if the clone fails, leaving the existing clone as it was.
-export function cloneRepo(repo: string, beforeReplace?: () => Promise<void>) {
+// Clones the project's repo, unless it's already cloned. Throws if the clone fails,
+// leaving nothing behind.
+export function cloneRepo({ id, githubRepo }: Repo) {
   return exclusive(async () => {
-    const url = repoUrl(repo);
-    if (existsSync(REPO_DIR)) {
-      const current = await git(["-C", REPO_DIR, "config", "remote.origin.url"]).catch(() => "");
-      if (current.trim().toLowerCase() === url.toLowerCase()) return;
-    }
-
+    const dir = repoDir(id);
+    if (existsSync(dir)) return;
+    const url = repoUrl(githubRepo);
     const token = await requireToken();
-    const tmp = `${REPO_DIR}.tmp`;
+    const tmp = `${dir}.tmp`;
+    await mkdir(dirname(dir), { recursive: true });
     await rm(tmp, { recursive: true, force: true });
     try {
       await git(["clone", "--bare", "--quiet", url, tmp], token);
@@ -136,35 +139,33 @@ export function cloneRepo(repo: string, beforeReplace?: () => Promise<void>) {
       await git(["-C", tmp, "fetch", "--quiet", "origin"], token);
       const branch = (await git(["-C", tmp, "symbolic-ref", "--short", "HEAD"])).trim();
       await git(["-C", tmp, "symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${branch}`]);
-      // Validate the new clone before destructive cleanup of existing workspaces.
-      await beforeReplace?.();
     } catch (err) {
       await rm(tmp, { recursive: true, force: true });
       throw err;
     }
-    await rm(REPO_DIR, { recursive: true, force: true });
-    await rename(tmp, REPO_DIR);
+    await rename(tmp, dir);
   });
 }
 
-// The fetch in progress, if any. Callers that arrive while it runs (e.g. the Project Lead's
-// parallel tool calls) share it, and its outcome, instead of each fetching.
-let fetching: Promise<void> | null = null;
+// The fetch in progress for each project, if any. Callers that arrive while it runs
+// (e.g. the Project Lead's parallel tool calls) share it, and its outcome, instead of
+// each fetching.
+const fetching = new Map<number, Promise<void>>();
 
-// Brings the clone up to date with GitHub, cloning it first if it's missing.
-export function fetchRepo() {
-  fetching ??= updateRepo().finally(() => {
-    fetching = null;
-  });
-  return fetching;
+// Brings the project's clone up to date with GitHub, cloning it first if it's missing.
+export function fetchRepo(repo: Repo) {
+  let fetch = fetching.get(repo.id);
+  if (!fetch) {
+    fetch = updateRepo(repo).finally(() => fetching.delete(repo.id));
+    fetching.set(repo.id, fetch);
+  }
+  return fetch;
 }
 
-async function updateRepo() {
-  const repo = await getSetting("githubRepo");
-  if (!repo) throw new Error("No GitHub repo set");
-  if (!existsSync(REPO_DIR)) return cloneRepo(repo);
+async function updateRepo(repo: Repo) {
+  if (!existsSync(repoDir(repo.id))) return cloneRepo(repo);
   const token = await requireToken();
-  await exclusive(() => git(["-C", REPO_DIR, "fetch", "--quiet", "--prune", "origin"], token));
+  await exclusive(() => git(["-C", repoDir(repo.id), "fetch", "--quiet", "--prune", "origin"], token));
 }
 
 export const workspacePath = (issueId: string) => {
@@ -174,27 +175,29 @@ export const workspacePath = (issueId: string) => {
 
 // Create an independent clone from the trusted bare cache; continue a pushed
 // branch when present.
-export async function remoteBranches() {
-  const out = await git(["-C", REPO_DIR, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/"]);
+export async function remoteBranches(repo: Repo) {
+  const out = await git(["-C", repoDir(repo.id), "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/"]);
   return out
     .trim()
     .split("\n")
     .filter((name) => name && name !== "HEAD");
 }
 
-export function cloneWorkspace(issueId: string, branch: string, target?: string, requireRemote = false) {
+export function cloneWorkspace(repo: Repo, issueId: string, branch: string, target?: string, requireRemote = false) {
   return exclusive(async () => {
+    const dir = repoDir(repo.id);
     const remote = `refs/remotes/origin/${branch}`;
-    const onRemote = await git(["-C", REPO_DIR, "rev-parse", "--verify", "--quiet", remote])
+    const onRemote = await git(["-C", dir, "rev-parse", "--verify", "--quiet", remote])
       .then(() => true)
       .catch(() => false);
     if (requireRemote && !onRemote) throw new Error("The selected PR branch is unavailable on the remote");
     await cloneWorkspaceVolume(
       issueId,
+      dir,
       branch,
       onRemote ? remote : REF,
-      (await git(["-C", REPO_DIR, "config", "remote.origin.url"])).trim(),
-      `refs/remotes/origin/${target ?? (await defaultBranch())}`,
+      (await git(["-C", dir, "config", "remote.origin.url"])).trim(),
+      `refs/remotes/origin/${target ?? (await defaultBranch(repo))}`,
     );
   });
 }
@@ -207,28 +210,19 @@ export async function workspaceBranch(issueId: string) {
 }
 
 // The name of GitHub's default branch, e.g. "main", which REF follows.
-export async function defaultBranch() {
-  const ref = (await git(["-C", REPO_DIR, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).trim();
+export async function defaultBranch(repo: Repo) {
+  const ref = (await git(["-C", repoDir(repo.id), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).trim();
   return ref.replace(/^origin\//, "");
 }
 
-// Push the independent clone's branch to the configured GitHub repository.
+// Push the independent clone's branch to its project's GitHub repository.
 export async function pushBranch(issueId: string) {
   const branch = await workspaceBranch(issueId);
   const token = await requireToken();
+  const { githubRepo } = await workspaceProject(issueId);
   // Updates origin/<branch> too, which the clone's fetch shares, so one at a time.
   await exclusive(async () => {
-    await git(
-      [
-        "-C",
-        workspacePath(issueId),
-        "push",
-        "--quiet",
-        repoUrl(String(await getSetting("githubRepo"))),
-        `HEAD:refs/heads/${branch}`,
-      ],
-      token,
-    );
+    await git(["-C", workspacePath(issueId), "push", "--quiet", repoUrl(githubRepo), `HEAD:refs/heads/${branch}`], token);
     await git(["-C", workspacePath(issueId), "update-ref", `refs/remotes/origin/${branch}`, "HEAD"]);
   });
 }
@@ -243,18 +237,8 @@ export async function syncWorkspace(issueId: string, merge = false) {
       if (isRunning(`forge:${issueId}`)) throw new Error("Pause the Forge before syncing its workspace");
       const path = workspacePath(issueId);
       const token = await requireToken();
-      await git(
-        [
-          "-C",
-          path,
-          "fetch",
-          "--quiet",
-          "--prune",
-          repoUrl(String(await getSetting("githubRepo"))),
-          "+refs/heads/*:refs/remotes/origin/*",
-        ],
-        token,
-      );
+      const { githubRepo } = await workspaceProject(issueId);
+      await git(["-C", path, "fetch", "--quiet", "--prune", repoUrl(githubRepo), "+refs/heads/*:refs/remotes/origin/*"], token);
       if (merge) {
         const { assertNoMerge, workspaceContext } = await import("../workspaces/workspaceIntegration.js");
         await assertNoMerge(issueId);
@@ -284,16 +268,16 @@ export const cleanPath = (path: string) =>
     .replace(/^\.?\/+/, "")
     .replace(/\/+$/, "");
 
-async function objectType(path: string) {
-  return (await git(["-C", REPO_DIR, "cat-file", "-t", `${REF}:${path}`]).catch(() => "")).trim();
+async function objectType(repo: Repo, path: string) {
+  return (await git(["-C", repoDir(repo.id), "cat-file", "-t", `${REF}:${path}`]).catch(() => "")).trim();
 }
 
 // The entries of a folder on the default branch, folders ending in "/".
-export async function listRepoFiles(path: string) {
+export async function listRepoFiles(repo: Repo, path: string) {
   path = cleanPath(path);
-  const type = path ? await objectType(path) : "tree";
+  const type = path ? await objectType(repo, path) : "tree";
   if (type !== "tree") throw new Error(type ? `${path} is a file` : `No folder at ${path}`);
-  const out = await git(["-C", REPO_DIR, "ls-tree", path ? `${REF}:${path}` : REF]);
+  const out = await git(["-C", repoDir(repo.id), "ls-tree", path ? `${REF}:${path}` : REF]);
   // Each line is "<mode> <type> <hash>\t<name>".
   return out
     .split("\n")
@@ -308,11 +292,11 @@ export async function listRepoFiles(path: string) {
 // A file's lines on the default branch, numbered like "12\ttext", from startLine to
 // endLine (1-based, inclusive). Stops after about MAX_FILE_CHARS, with a note saying
 // where to continue.
-export async function readRepoFile(path: string, startLine = 1, endLine?: number) {
+export async function readRepoFile(repo: Repo, path: string, startLine = 1, endLine?: number) {
   path = cleanPath(path);
-  const type = await objectType(path);
+  const type = await objectType(repo, path);
   if (type !== "blob") throw new Error(type ? `${path} is a folder` : `No file at ${path}`);
-  return numberedLines(path, await git(["-C", REPO_DIR, "show", `${REF}:${path}`]), startLine, endLine);
+  return numberedLines(path, await git(["-C", repoDir(repo.id), "show", `${REF}:${path}`]), startLine, endLine);
 }
 
 // A file's content for a model: its lines numbered like "12\ttext", from startLine to
@@ -352,11 +336,11 @@ const LOCKFILES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock
 // Lines on the default branch matching query (any case), as "path:line:text", up to
 // MAX_MATCHES. query is plain text, or with regex an extended regex (e.g. "a|b").
 // Lockfiles aren't searched.
-export async function searchRepoCode(query: string, regex = false) {
+export async function searchRepoCode(repo: Repo, query: string, regex = false) {
   const exclude = LOCKFILES.map((name) => `:(exclude,glob)**/${name}`);
   // git grep exits with 1 when nothing matches. Its lines start with "origin/HEAD:".
   const out = await git(
-    ["-C", REPO_DIR, "grep", "-n", "-I", "-i", regex ? "-E" : "-F", "-e", query, REF, "--", ".", ...exclude],
+    ["-C", repoDir(repo.id), "grep", "-n", "-I", "-i", regex ? "-E" : "-F", "-e", query, REF, "--", ".", ...exclude],
     undefined,
     { exit1Ok: true },
   );

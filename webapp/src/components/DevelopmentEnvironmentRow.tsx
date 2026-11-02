@@ -30,10 +30,10 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useDevelopmentEnvironment, useSaveDevelopmentEnvironment } from "../api/developmentEnvironment.ts";
 import { errorMessage } from "../api/client.ts";
 
-// A row summing up the repo's development variables, for a List; they're managed in a
-// dialog, since a repo can have dozens.
-export default function DevelopmentEnvironmentRow({ repository }: { repository: string }) {
-  const status = useDevelopmentEnvironment(repository);
+// A row summing up the project's development variables, for a List; they're managed in a
+// dialog, since a project can have dozens.
+export default function DevelopmentEnvironmentRow({ projectId, repository }: { projectId: number; repository: string }) {
+  const status = useDevelopmentEnvironment(projectId);
   const [open, setOpen] = useState(false);
   const variables = status.data?.variables ?? [];
   const empty = variables.filter((variable) => !variable.configured).length;
@@ -60,16 +60,24 @@ export default function DevelopmentEnvironmentRow({ repository }: { repository: 
         </Alert>
       )}
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth scroll="paper">
-        {open && <VariablesDialogContent repository={repository} onClose={() => setOpen(false)} />}
+        {open && <VariablesDialogContent projectId={projectId} repository={repository} onClose={() => setOpen(false)} />}
       </Dialog>
     </>
   );
 }
 
 // Mounted only while the dialog is open, so the search and form start empty each time.
-function VariablesDialogContent({ repository, onClose }: { repository: string; onClose: () => void }) {
-  const status = useDevelopmentEnvironment(repository);
-  const save = useSaveDevelopmentEnvironment(repository);
+function VariablesDialogContent({
+  projectId,
+  repository,
+  onClose,
+}: {
+  projectId: number;
+  repository: string;
+  onClose: () => void;
+}) {
+  const status = useDevelopmentEnvironment(projectId);
+  const save = useSaveDevelopmentEnvironment(projectId);
   const [search, setSearch] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");

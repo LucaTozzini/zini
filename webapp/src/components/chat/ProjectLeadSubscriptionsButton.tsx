@@ -18,11 +18,13 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useThread } from "../../api/projectLead.ts";
 import { useLinearIssue } from "../../api/integrations.ts";
 import { errorMessage } from "../../api/client.ts";
+import { useProjectPath } from "../../hooks/useProject.ts";
 
 function Subscription({ issueId, onClose }: { issueId: string; onClose: () => void }) {
   const issue = useLinearIssue(issueId);
+  const projectPath = useProjectPath();
   return (
-    <ListItemButton component={Link} to={`/issues/${issueId}`} onClick={onClose}>
+    <ListItemButton component={Link} to={projectPath(`/issues/${issueId}`)} onClick={onClose}>
       <ListItemText
         primary={issue.data ? `${issue.data.identifier}: ${issue.data.title}` : issueId}
         secondary={issue.isLoading ? "Loading issue…" : issue.error ? "Issue details unavailable" : "Subscribed to Forge updates"}

@@ -14,9 +14,10 @@ test(
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "zini-dev-runtime-"));
     process.env.DB_PATH = join(dir, "db.sqlite");
-    const { createTestWorkspace } = await import("./testFixtures.js");
+    const { createTestWorkspace, testProject } = await import("./testFixtures.js");
+    const { Project } = await import("../models/Project.js");
+    const { Workspace } = await import("../models/Workspace.js");
     const { initDb, sequelize } = await import("../db.js");
-    const { saveSettings } = await import("../core/settings.js");
     const { saveDevelopmentEnvironment } = await import("../core/developmentEnvironment.js");
     const { ensureSandbox, removeSandbox, docker, sandboxName } = await import("./workspaceSandbox.js");
     const { removeWorkspaceMarker } = await import("../repositories/git.js");
@@ -24,14 +25,15 @@ test(
     const { provisionWorkspaceServices, configureWorkspaceEnvironment } = await import("./workspaceServices.js");
     const { WorkspaceAppRuntime } = await import("./workspaceAppRuntime.js");
     await initDb();
-    await saveSettings({ githubRepo: "fixture/dev" });
     const id = `dev-env-${randomUUID()}`;
     const runtime = new WorkspaceAppRuntime();
     const token = "synthetic-secret-first-123";
     const script = `const token=process.env.DEV_TOKEN;if(!token)throw Error('Missing DEV_TOKEN');require('http').createServer((_q,r)=>r.end('ready')).listen(4321);`;
     try {
       await createTestWorkspace(id, { "app.cjs": script });
-      await saveDevelopmentEnvironment("fixture/dev", [
+      const project = await testProject();
+      await Workspace.create({ issueId: id, projectId: project.id });
+      await saveDevelopmentEnvironment(project.id, [
         { name: "DEV_TOKEN", value: token },
         { name: "APP_LABEL", value: "public-label" },
       ]);
@@ -52,7 +54,7 @@ test(
       assert.equal(preview.status, "ready");
       assert.ok(!JSON.stringify(preview).includes(token));
       await runtime.stop(id);
-      await saveDevelopmentEnvironment("fixture/dev", [{ name: "DEV_TOKEN", value: "synthetic-secret-rotated-456" }]);
+      await saveDevelopmentEnvironment(project.id, [{ name: "DEV_TOKEN", value: "synthetic-secret-rotated-456" }]);
       const rotated = await runCommandResult(
         id,
         'node -e \'if(process.env.DEV_TOKEN.endsWith("456"))console.log("configured");else process.exit(1)\'',
@@ -70,9 +72,7 @@ test(
         ).output,
         /configured/,
       );
-      await saveDevelopmentEnvironment("fixture/dev", [
-        { name: "DATABASE_URL", value: "postgresql://external.invalid/production" },
-      ]);
+      await saveDevelopmentEnvironment(project.id, [{ name: "DATABASE_URL", value: "postgresql://external.invalid/production" }]);
       await provisionWorkspaceServices(id, [{ kind: "postgres", bindings: { TEST_DB_PASSWORD: "password" } }]);
       const generated = await runCommandResult(
         id,
@@ -81,10 +81,12 @@ test(
       assert.equal(generated.exitCode, 0);
       assert.ok(!generated.output.includes("postgresql://"));
       assert.match(generated.output, /configured/);
-      await saveSettings({ githubRepo: "fixture/other" });
+      // In another project, the workspace has that project's variables.
+      const other = await Project.create({ name: "other", githubRepo: "fixture/other", linearTeamId: "team-other" });
+      await Workspace.update({ projectId: other.id }, { where: { issueId: id } });
       assert.equal((await runCommandResult(id, 'test -z "$DEV_TOKEN" && test -z "$APP_LABEL"')).exitCode, 0);
-      await saveSettings({ githubRepo: "fixture/dev" });
-      await saveDevelopmentEnvironment("fixture/dev", [
+      await Workspace.update({ projectId: project.id }, { where: { issueId: id } });
+      await saveDevelopmentEnvironment(project.id, [
         { name: "DEV_TOKEN", remove: true },
         { name: "APP_LABEL", remove: true },
         { name: "DATABASE_URL", remove: true },

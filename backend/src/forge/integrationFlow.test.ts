@@ -20,7 +20,8 @@ test(
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "zini-forge-integration-"));
     process.env.DB_PATH = join(dir, "db.sqlite");
-    const { createTestWorkspace } = await import("../workspaces/testFixtures.js");
+    const { createTestWorkspace, testProject } = await import("../workspaces/testFixtures.js");
+    const { repoDir } = await import("../projects/projects.js");
     const { git, workspacePath, removeWorkspaceMarker } = await import("../repositories/git.js");
     const { Workspace } = await import("../models/Workspace.js");
     const { initDb, sequelize } = await import("../db.js");
@@ -28,9 +29,7 @@ test(
       await import("./forge.js");
     const { removeSandbox } = await import("../workspaces/workspaceSandbox.js");
     const { checkpointer } = await import("../agents/agents.js");
-    const { saveSettings } = await import("../core/settings.js");
     await initDb();
-    await saveSettings({ githubRepo: "fixture/repo" });
     const id = "integration-flow";
     const runGit = (args: string[]) => git(["-C", workspacePath(id), ...args]);
     const source = join(dir, "fixture-source");
@@ -57,11 +56,11 @@ test(
         { name: "delegate_coder", args: { brief: "Resolve the conflict in file.txt, keeping both behaviors." } },
         { name: "commit", args: { message: "Preserve issue and upstream behavior" } },
         { name: "delegate_reviewer", args: { brief: "Review the conflict resolution." } },
-        { name: "finish", args: { summary: "Preserved both behaviors." } },
+        { name: "open_pull_request", args: { title: "Preserve both behaviors", body: "Keeps both behaviors." } },
         { name: "commit", args: {} },
         { name: "delegate_reviewer", args: { brief: "Main moved; review again." } },
-        { name: "finish", args: { summary: "Preserved both behaviors." } },
-        { text: "Done: both behaviors are preserved." },
+        { name: "open_pull_request", args: { title: "Preserve both behaviors", body: "Keeps both behaviors." } },
+        { text: "Done: the pull request keeps both behaviors." },
       ],
       coder: [
         { name: "write_file", args: { file_path: "/file.txt", content: "issue behavior\nupstream behavior\n" } },
@@ -82,11 +81,14 @@ test(
     const requests: Record<Agent, string[]> = { lead: [], coder: [], reviewer: [] };
     const waits: string[] = [];
     let upstreamAdvanced = false;
+    let pushes = 0;
+    const opened: string[] = [];
     try {
       await createTestWorkspace(id, { "file.txt": "baseline\n" });
       const initialHead = (await runGit(["rev-parse", "HEAD"])).trim();
       await Workspace.create({
         issueId: id,
+        projectId: (await testProject()).id,
         context: { branch: `test/${id}`, initialHead, targetBranch: "main", sourcePr: null },
       });
       // Seed the issue's implementation, then conflicting upstream work.
@@ -179,14 +181,27 @@ test(
         id,
         "Test",
         async () => {
-          // Main advances once the first review is in, so the first finish is refused.
+          // Main advances once the first review is in, so the first pull request is refused.
           if (requests.reviewer.length >= 3 && !upstreamAdvanced) {
             upstreamAdvanced = true;
             await writeFile(join(source, "later.txt"), "later upstream behavior\n");
             await hostGit("add", ".");
             await hostGit("commit", "-qm", "Later upstream behavior");
           }
-          await promisify(execFile)("git", ["-C", join(dir, "repo.git"), "fetch", "-q", "origin"]);
+          await promisify(execFile)("git", ["-C", repoDir((await testProject()).id), "fetch", "-q", "origin"]);
+        },
+        {
+          // GitHub, as far as the Lead's approved calls go: the branch's pull request is
+          // the one it opened.
+          pullRequest: async () =>
+            opened.length ? { number: 3, url: "https://github.com/fixture/product/pull/3", state: "open" } : null,
+          push: async () => {
+            pushes++;
+          },
+          openPullRequest: async (_issueId, title) => {
+            opened.push(title);
+            return { number: 3, url: "https://github.com/fixture/product/pull/3", state: "open" };
+          },
         },
       );
       for await (const _ of await startForge(run, "")) {
@@ -196,7 +211,11 @@ test(
         const forge = await getForge(id);
         if (forge.waiting) {
           waits.push(forge.waiting.kind);
-          for await (const _ of await resumeForge(run, { answers: ["Yes, keep both"] })) {
+          const reply =
+            forge.waiting.kind === "questions"
+              ? { answers: ["Yes, keep both"] }
+              : { decisions: forge.waiting.actions.map(() => ({ type: "approve" as const })) };
+          for await (const _ of await resumeForge(run, reply)) {
             /* drain */
           }
         } else if (forge.plan && !forge.planApproved) {
@@ -209,8 +228,9 @@ test(
         } else break;
       }
       const forge = await getForge(id);
-      assert.deepEqual(waits, ["questions", "plan revision 1"]);
-      assert.equal(forge.finished, true);
+      assert.deepEqual(waits, ["questions", "plan revision 1", "approval"], "Only the ready pull request asks for approval");
+      assert.deepEqual(opened, ["Preserve both behaviors"]);
+      assert.ok(pushes >= 1, "Opening the pull request pushes the branch");
       assert.deepEqual(
         forge.plan?.steps.map((step) => step.status),
         ["complete"],
@@ -227,7 +247,7 @@ test(
       assert.match(requests.lead[2]!, /stopped on conflicts in: file\.txt/, "Committing merges main and reports conflicts");
       assert.match(requests.lead[3]!, /Saved plan revision 1, not approved yet/, "Saving the plan doesn't wait");
       assert.match(requests.lead[4]!, /I approved plan revision 1/, "Approving tells the Lead");
-      assert.match(requests.lead[8]!, /Can't finish yet[\s\S]*latest default branch/, "Finishing needs the latest main");
+      assert.match(requests.lead[8]!, /Not ready to push[\s\S]*latest default branch/, "The pull request needs the latest main");
       assert.match(requests.lead[9]!, /Merged the latest main[\s\S]*back to todo/, "A merge sets the QA checks back to todo");
       assert.match(requests.coder[0]!, /Preserve both behaviors/, "The Coder sees the issue");
       assert.match(requests.coder[0]!, /Resolve the conflict in file\.txt/, "The Coder gets the Lead's brief");

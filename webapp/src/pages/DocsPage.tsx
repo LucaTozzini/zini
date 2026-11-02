@@ -24,10 +24,13 @@ import CommitIcon from "@mui/icons-material/Commit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
 import SyncIcon from "@mui/icons-material/Sync";
+import type { UseQueryResult } from "@tanstack/react-query";
+import type { PullRequest } from "shared";
 import { errorMessage } from "../api/client.ts";
 import {
   type OpenWikiProgress,
   type OpenWikiSearchResult,
+  useDocsPullRequest,
   useOpenWikiStatus,
   useRefreshServing,
   useSearchWiki,
@@ -38,7 +41,8 @@ import {
 } from "../api/openwiki.ts";
 import OpenWikiIcon from "../components/icons/OpenWikiIcon.tsx";
 import MarkdownText, { type LinkTarget } from "../components/MarkdownText.tsx";
-import { useSettings } from "../api/settings.ts";
+import { useProject } from "../api/projects.ts";
+import { useProjectId, useProjectPath } from "../hooks/useProject.ts";
 
 const shortHash = (hash: string | null) => (hash ? hash.slice(0, 7) : "—");
 
@@ -54,9 +58,9 @@ const folderLabel = (folder: string) => folder.split("/").map(pageLabel).join(" 
 const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 const isIndex = (path: string) => path === "index.md" || path.endsWith("/index.md");
 
-// The docs route for a wiki page: "architecture/index.md" → "/docs/architecture/",
-// "quickstart.md" → "/docs/quickstart".
-const docsUrl = (path: string) => `/docs/${path.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "")}`;
+// The docs route for a wiki page, under the project's docs (base): "architecture/index.md"
+// → "<base>/architecture/", "quickstart.md" → "<base>/quickstart".
+const docsUrl = (base: string, path: string) => `${base}/${path.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "")}`;
 
 // The wiki page at a path, which may leave out ".md" or point at a folder (its
 // index.md): what a docs route or a wiki link names. null if there's none.
@@ -81,7 +85,7 @@ function normalizePath(path: string) {
 // a file in the repo (the wiki lives in its openwiki/ folder) opens it on GitHub.
 // Relative links are from the page's folder. Links starting with "/" are from the
 // wiki's root, or the repo's when no wiki page is there. URLs and #anchors are kept.
-function resolveWikiLink(href: string, from: string, pages: string[], repo: string | undefined): LinkTarget {
+function resolveWikiLink(href: string, from: string, pages: string[], repo: string | undefined, base: string): LinkTarget {
   if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith("#")) return undefined;
   const hashAt = href.indexOf("#");
   const path = hashAt === -1 ? href : href.slice(0, hashAt);
@@ -89,7 +93,7 @@ function resolveWikiLink(href: string, from: string, pages: string[], repo: stri
   const absolute = path.startsWith("/");
   const wikiPath = normalizePath(absolute ? path.replace(/^\/openwiki\//, "/") : `${folderOf(from)}/${path}`);
   const page = wikiPath !== null ? findPage(wikiPath, pages) : null;
-  if (page) return { to: docsUrl(page) + hash };
+  if (page) return { to: docsUrl(base, page) + hash };
   const repoPath = normalizePath(absolute ? path : `openwiki/${folderOf(from)}/${path}`);
   return repo && repoPath ? { href: `https://github.com/${repo}/blob/HEAD/${repoPath}${hash}` } : undefined;
 }
@@ -140,24 +144,28 @@ function DocsMessage({ icon, title, children }: { icon: ReactNode; title: string
 }
 
 // No wiki on main yet: explain, and offer to generate one. Also the landing state
-// when the last scan failed, with its error and a retry.
+// when the last scan failed, with its error and a retry. While a docs PR is open, the
+// wiki is waiting on its merge, so opening it is the main action instead.
 function EmptyDocs({
   failedError,
   onScan,
   scanning,
   scanError,
+  pullRequest,
 }: {
   failedError: string | null;
   onScan: () => void;
   scanning: boolean;
   scanError: string | null;
+  pullRequest: UseQueryResult<PullRequest | null>;
 }) {
-  const refresh = useRefreshServing();
+  const open = pullRequest.data?.state === "open" ? pullRequest.data : null;
   return (
-    <DocsMessage icon={<OpenWikiIcon />} title="No docs yet">
+    <DocsMessage icon={<OpenWikiIcon />} title={open ? "Docs ready to merge" : "No docs yet"}>
       <Typography color="text.secondary">
-        Zini researches the connected repo, writes a linked architecture wiki, and opens a pull request with it. The Project Lead
-        and the Forge&apos;s agents read it to orient themselves before planning.
+        {open
+          ? `The scan opened pull request #${open.number} with the wiki. Merge it, and the docs show up here.`
+          : "Zini researches the connected repo, writes a linked architecture wiki, and opens a pull request with it. The Project Lead and the Forge's agents read it to orient themselves before planning."}
       </Typography>
       {failedError && (
         <Alert severity="error" sx={{ textAlign: "left", width: "100%" }}>
@@ -169,29 +177,37 @@ function EmptyDocs({
           {scanError}
         </Alert>
       )}
-      <Button variant="contained" startIcon={<AutoAwesomeIcon />} loading={scanning} disabled={scanning} onClick={onScan}>
-        {failedError ? "Try again" : "Generate docs"}
-      </Button>
-      <Typography variant="body2" color="text.secondary">
-        The scan runs in the background and can take a while on a big repo. It uses the OpenWiki model from Settings.
-      </Typography>
+      {open ? (
+        <Button variant="contained" href={open.url} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon />}>
+          Open pull request
+        </Button>
+      ) : (
+        <>
+          <Button variant="contained" startIcon={<AutoAwesomeIcon />} loading={scanning} disabled={scanning} onClick={onScan}>
+            {failedError ? "Try again" : "Generate docs"}
+          </Button>
+          <Typography variant="body2" color="text.secondary">
+            The scan runs in the background and can take a while on a big repo. It uses the OpenWiki model from Settings.
+          </Typography>
+        </>
+      )}
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <Typography variant="body2" color="text.secondary">
-          Merged the docs PR?
+          {open ? "Merged it?" : "Merged the docs PR?"}
         </Typography>
         <Button
           size="small"
           startIcon={<SyncIcon />}
-          loading={refresh.isPending}
-          disabled={refresh.isPending}
-          onClick={() => refresh.mutate()}
+          loading={pullRequest.isFetching}
+          disabled={pullRequest.isFetching}
+          onClick={() => pullRequest.refetch()}
         >
-          Pull latest main
+          Check again
         </Button>
       </Stack>
-      {refresh.isError && (
+      {pullRequest.isError && (
         <Typography variant="body2" color="error">
-          {errorMessage(refresh.error)}
+          {errorMessage(pullRequest.error)}
         </Typography>
       )}
     </DocsMessage>
@@ -369,6 +385,7 @@ function PageNav({
   activePage: string | null;
   onNavigate: () => void;
 }) {
+  const docs = useProjectPath()("/docs");
   return (
     <Stack component="nav" aria-label="OpenWiki pages" spacing={1.5}>
       {sections.map(({ folder, pages }) => (
@@ -394,7 +411,7 @@ function PageNav({
               <ListItemButton
                 key={p}
                 component={RouterLink}
-                to={docsUrl(p)}
+                to={docsUrl(docs, p)}
                 selected={p === activePage}
                 onClick={onNavigate}
                 title={p}
@@ -435,11 +452,11 @@ function ReadyDocs({
   const navigate = useNavigate();
   const activePage = splat ? findPage(splat, pageList) : navPages.includes("index.md") ? "index.md" : (navPages[0] ?? null);
   const page = useWikiPage(activePage);
-  const settings = useSettings();
-  const repo = settings.data?.githubRepo ?? undefined;
+  const repo = useProject(useProjectId()).data?.githubRepo;
+  const docs = useProjectPath()("/docs");
   const resolveLink = useCallback(
-    (href: string) => (activePage ? resolveWikiLink(href, activePage, pageList, repo) : undefined),
-    [activePage, pageList, repo],
+    (href: string) => (activePage ? resolveWikiLink(href, activePage, pageList, repo, docs) : undefined),
+    [activePage, pageList, repo, docs],
   );
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState("");
@@ -455,7 +472,7 @@ function ReadyDocs({
   }
 
   function openPage(path: string) {
-    navigate(docsUrl(path));
+    navigate(docsUrl(docs, path));
     search.reset();
   }
 
@@ -480,7 +497,7 @@ function ReadyDocs({
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             {pullRequestUrl && (
               <Button size="small" href={pullRequestUrl} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon />}>
-                Last docs PR
+                Docs PR to merge
               </Button>
             )}
             <Tooltip title="Writes the wiki again and opens a pull request with it">
@@ -570,12 +587,12 @@ function ReadyDocs({
             <Box sx={{ px: { xs: 2, md: 6 }, py: { xs: 2, md: 4 }, maxWidth: 880, mx: "auto" }}>
               {activePage && (
                 <Breadcrumbs separator="›" sx={{ mb: 2 }}>
-                  <CrumbLink to="/docs">OpenWiki</CrumbLink>
+                  <CrumbLink to={docs}>OpenWiki</CrumbLink>
                   {/* Each folder on the way, linking to its index when it has one. */}
                   {(folder ? folder.split("/") : []).map((part, i, parts) => {
                     const index = findPage(`${parts.slice(0, i + 1).join("/")}/`, pageList);
                     return index ? (
-                      <CrumbLink key={i} to={docsUrl(index)}>
+                      <CrumbLink key={i} to={docsUrl(docs, index)}>
                         {pageLabel(part)}
                       </CrumbLink>
                     ) : (
@@ -612,6 +629,7 @@ function ReadyDocs({
 
 function DocsPage() {
   const status = useOpenWikiStatus();
+  const pullRequest = useDocsPullRequest(status.data?.pullRequestUrl ?? null);
   const pages = useWikiPages();
   const scan = useStartScan();
   // Kept the same between renders, so the page's link handling doesn't change each time.
@@ -658,6 +676,7 @@ function DocsPage() {
         onScan={handleScan}
         scanning={scanning || running}
         scanError={scanError}
+        pullRequest={pullRequest}
       />
     );
   }
@@ -665,7 +684,7 @@ function DocsPage() {
   return (
     <ReadyDocs
       pageList={pageList}
-      pullRequestUrl={status.data?.pullRequestUrl ?? null}
+      pullRequestUrl={pullRequest.data?.state === "open" ? pullRequest.data.url : null}
       running={running}
       progress={status.data?.progress ?? null}
       onScan={handleScan}

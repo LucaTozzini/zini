@@ -10,6 +10,7 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
   process.env.DB_PATH = join(directory, "queue.sqlite");
   const { sequelize, initDb } = await import("../db.js");
   const { ProjectLeadThread } = await import("../models/ProjectLeadThread.js");
+  const { Project } = await import("../models/Project.js");
   const { ForgeSubscription } = await import("../models/ForgeSubscription.js");
   const { ProjectLeadQueueMessage: Queue } = await import("../models/ProjectLeadQueueMessage.js");
   const { forgeSubscriptions: subscriptions } = await import("./forgeSubscriptions.js");
@@ -19,7 +20,8 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
   await initDb();
   let closed = false;
   try {
-    await ProjectLeadThread.bulkCreate(["one", "two", "empty"].map((id) => ({ id, title: id })));
+    const project = await Project.create({ name: "product", githubRepo: "owner/product", linearTeamId: "team" });
+    await ProjectLeadThread.bulkCreate(["one", "two", "empty"].map((id) => ({ id, projectId: project.id, title: id })));
     await t.test("unique subscriptions and unchanged API shape", async () => {
       assert.deepEqual(await subscriptions.listAll(), []);
       await subscriptions.subscribe("one", "issue-a");
@@ -172,7 +174,8 @@ test("durable subscriptions and source-agnostic PL queues", async (t) => {
       );
       assert.match(
         forgeEventContent({
-          type: "completed",
+          type: "pull_request_created",
+          pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" as const },
           plan: {
             revision: 1,
             design: "",

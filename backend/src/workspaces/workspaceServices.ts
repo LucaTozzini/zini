@@ -164,27 +164,44 @@ async function startService(id: string, service: Service, signal?: AbortSignal) 
   }
 }
 
+// The variables a service sets in every command and app: its standard ones, then the
+// repo-specific names it was bound to.
+function serviceEnvironment(id: string, service: Service): Record<string, string> {
+  const fields = connection(id, service);
+  const values: Record<string, string> =
+    service.kind === "postgres"
+      ? {
+          DATABASE_URL: fields.url,
+          PGHOST: fields.host,
+          PGPORT: fields.port,
+          PGUSER: fields.user,
+          PGPASSWORD: fields.password,
+          PGDATABASE: fields.database,
+        }
+      : { REDIS_URL: fields.url, REDIS_HOST: fields.host, REDIS_PORT: fields.port, REDIS_PASSWORD: fields.password };
+  for (const [name, field] of Object.entries(service.bindings ?? {})) values[name] = fields[field];
+  return values;
+}
+
+// The workspace's services and the variables they set (names only), for an agent's
+// prompt: what is already running, so it uses it rather than starting its own.
+export async function workspaceServicesContext(id: string) {
+  const config = await load(id);
+  const lines = config.services.map(
+    (service) =>
+      `- ${service.kind === "postgres" ? "PostgreSQL" : "Redis"} ${service.version}, running: ${Object.keys(serviceEnvironment(id, service)).join(", ")}`,
+  );
+  if (config.tls) lines.push(`- Local TLS certificate: ${Object.keys(config.tls).join(", ")}`);
+  if (Object.keys(config.environment).length) lines.push(`- Test configuration: ${Object.keys(config.environment).join(", ")}`);
+  return lines.length ? lines.join("\n") : "None yet.";
+}
+
 // Only service IPs/ports owned by this workspace bypass the private-network firewall.
 export async function restoreWorkspaceServices(id: string, sandbox: Sandbox) {
   const config = await load(id);
-  const development = await activeDevelopmentEnvironment();
+  const development = await activeDevelopmentEnvironment(id);
   const values = { ...config.environment, ...development };
-  for (const service of config.services) {
-    const fields = connection(id, service);
-    const defaults =
-      service.kind === "postgres"
-        ? {
-            DATABASE_URL: fields.url,
-            PGHOST: fields.host,
-            PGPORT: fields.port,
-            PGUSER: fields.user,
-            PGPASSWORD: fields.password,
-            PGDATABASE: fields.database,
-          }
-        : { REDIS_URL: fields.url, REDIS_HOST: fields.host, REDIS_PORT: fields.port, REDIS_PASSWORD: fields.password };
-    Object.assign(values, defaults);
-    for (const [name, field] of Object.entries(service.bindings ?? {})) values[name] = fields[field];
-  }
+  for (const service of config.services) Object.assign(values, serviceEnvironment(id, service));
   Object.assign(values, config.tls);
   const signature = `${sandbox.generation}:${sandbox.token}:${JSON.stringify({ config, values })}`;
   if (configured.get(id) === signature) return Object.keys(values);
@@ -236,7 +253,7 @@ export async function provisionWorkspaceServices(id: string, requests: Request[]
 }
 export async function configureWorkspaceEnvironment(id: string, values: Record<string, string>) {
   validateEnvironment(values);
-  const development = await activeDevelopmentEnvironment();
+  const development = await activeDevelopmentEnvironment(id);
   for (const name of Object.keys(values))
     if (name in development) throw new Error(`${name} is managed in Settings → Development environment variables`);
   return withWorkspaceLock(id, async () => {

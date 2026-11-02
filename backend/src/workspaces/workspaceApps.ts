@@ -16,6 +16,8 @@ import { dirname, join } from "node:path";
 import { storage } from "../db.js";
 import { logTo } from "../forge/runLog.js";
 import { developmentEnvironmentContext } from "../core/developmentEnvironment.js";
+import { workspaceServicesContext } from "./workspaceServices.js";
+import { serviceTools } from "../forge/serviceTools.js";
 import { errorMessage } from "../core/errors.js";
 
 const command = z.object({ command: z.string().min(1), cwd: z.string().min(1) });
@@ -67,6 +69,11 @@ app's own localhost URLs, API endpoints and ports work as they are. Bind servers
 usable without evidence. Readiness/app paths start with /.
 The browser-facing service must have HTTP or HTTPS readiness. Use a real health/page endpoint. Set readiness=https for TLS services. Generated workspace TLS paths and CA trust variables are inherited; if missing, report that Forge setup should call generate_tls_certificates.
 Do not assume an install is present. Include an idempotent install/readiness command when uncertain.
+The sandbox has no root access, sudo or system package manager: never install a database or
+system packages. The workspace services listed below are already running, and their
+variables are set in every command and service: use them as they are, never override them
+with your own connection settings. If the app needs PostgreSQL or Redis and the workspace has
+none, call provision_services to start it.
 Execute only through start_app_services, which runs the plan in the Docker sandbox.\nInclude the verified workspace revision in each start_app_services call. If the workspace
 changed, reread affected files and get workspace_revision before proposing a new plan.
 If startup fails, inspect the returned logs, diagnose and revise the plan yourself;
@@ -110,7 +117,7 @@ export async function launchWorkspaceApp(
     model,
     checkpointer: nested || undefined,
     responseFormat: toolStrategy(REPORT),
-    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\n\nConfigured development variables (names/status only):\n${await developmentEnvironmentContext()}\nMissing credentials must be added in Settings → Development environment variables (/settings), never pasted into chat or launch commands.`,
+    systemPrompt: `${PROMPT}\n\nIssue ID: ${issueId}\nWorkspace revision: ${revision}\n\nConfigured development variables (names/status only):\n${await developmentEnvironmentContext(issueId)}\n\nWorkspace services (names only):\n${await workspaceServicesContext(issueId)}\n\nMissing credentials must be added in the project's settings (the page given above) under Development environment variables, never pasted into chat or launch commands.`,
     tools: [
       tool(async () => availableAppPort(issueId), {
         name: "available_port",
@@ -139,6 +146,7 @@ export async function launchWorkspaceApp(
           schema: z.object({ issueId: z.literal(issueId), revision: z.string(), plan: APP_LAUNCH_PLAN }),
         },
       ),
+      ...serviceTools(issueId).filter((t) => t.name === "provision_services"),
       tool(async () => JSON.stringify(workspaceApps.status(issueId)), {
         name: "workspace_app_status",
         description: "Read the app's readiness, local URL, startup error and recent process output.",

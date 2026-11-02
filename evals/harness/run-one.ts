@@ -5,8 +5,8 @@ import { pathToFileURL } from "node:url";
 import type { ForgeResume, ForgeWaiting } from "shared";
 import { approvePlan, getForge, forgeRun, resumeForge, startForge, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { checklistVerdict } from "../../backend/src/forge/plan.js";
-import { initDb } from "../../backend/src/db.js";
 import { git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
+import { repoDir } from "../../backend/src/projects/projects.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
 import { workspaceDiff } from "../../backend/src/workspaces/workspaceFiles.js";
 import { removeSandbox } from "../../backend/src/workspaces/workspaceSandbox.js";
@@ -21,6 +21,8 @@ import {
   connection,
   dataDir,
   EVALS,
+  evalProject,
+  fakeGitHub,
   fakeLinear,
   followLogs,
   git,
@@ -55,8 +57,13 @@ const fixture: Fixture = {
 let questionsAnswered = 0;
 let plansApproved = 0;
 
-// Every question gets "You decide.": the Lead makes the calls a user would.
+// Every question gets "You decide.": the Lead makes the calls a user would. Pushing and
+// opening the pull request are approved (they reach the stand-in GitHub).
 function reply(waiting: ForgeWaiting): ForgeResume {
+  if (waiting.kind === "approval") {
+    waiting.actions.forEach((action) => console.log(`✓ ${action.name} approved`));
+    return { decisions: waiting.actions.map(() => ({ type: "approve" })) };
+  }
   questionsAnswered += waiting.questions.length;
   waiting.questions.forEach((question) => console.log(`? lead: ${question}\n  → You decide.`));
   return { answers: waiting.questions.map(() => "You decide.") };
@@ -73,35 +80,42 @@ async function main() {
   mkdirSync(join(runDir, "logs"), { recursive: true });
   symlinkSync(join(runDir, "logs"), join(dataDir, "forge-logs"), "junction");
 
-  await initDb();
-  cloneLikeZini(makeSourceRepo(fixture));
+  const project = await evalProject();
+  cloneLikeZini(makeSourceRepo(fixture), project);
   const issueId = randomUUID();
-  await makeWorkspace(issueId, fixture);
+  await makeWorkspace(issueId, fixture, project);
   console.log(`${scenarioName}: ${scenario.title} (model ${model})`);
 
   let refreshes = 0;
   let advanced = false;
+  const gitHub = fakeGitHub();
   const reviewed = () => {
     const logs = join(runDir, "logs", issueId);
     return existsSync(logs) && readdirSync(logs).some((file) => file.endsWith("-reviewer.jsonl"));
   };
-  const run = forgeRun({ linear: fakeLinear(issueId, fixture), connection, model }, issueId, "Evals", async () => {
-    refreshes++;
-    const patch =
-      refreshes === 2 && scenario.upstreamAfterCoderPatch
-        ? scenario.upstreamAfterCoderPatch
-        : !advanced && scenario.upstreamAfterReviewPatch && reviewed()
-          ? scenario.upstreamAfterReviewPatch
-          : null;
-    if (patch) {
-      advanced = true;
-      const source = join(dataDir, "source");
-      git(["apply", join(scenarioDir, patch)], source);
-      git(["add", "-A"], source);
-      git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
-    }
-    git(["fetch", "--quiet", "--prune", "origin"], join(dataDir, "repo.git"));
-  });
+  const run = forgeRun(
+    { linear: fakeLinear(issueId, fixture), connection, model },
+    issueId,
+    "Evals",
+    async () => {
+      refreshes++;
+      const patch =
+        refreshes === 2 && scenario.upstreamAfterCoderPatch
+          ? scenario.upstreamAfterCoderPatch
+          : !advanced && scenario.upstreamAfterReviewPatch && reviewed()
+            ? scenario.upstreamAfterReviewPatch
+            : null;
+      if (patch) {
+        advanced = true;
+        const source = join(dataDir, "source");
+        git(["apply", join(scenarioDir, patch)], source);
+        git(["add", "-A"], source);
+        git(["commit", "--quiet", "-m", "Upstream advanced during Forge"], source);
+      }
+      git(["fetch", "--quiet", "--prune", "origin"], repoDir(project.id));
+    },
+    gitHub.github,
+  );
   const stopFollowing = followLogs(join(runDir, "logs", issueId));
   let error: string | null = null;
   try {
@@ -129,7 +143,8 @@ async function main() {
   }
 
   const forge = await getForge(issueId);
-  if (!error && !forge.finished) error = forge.waiting ? "Stopped after 200 pauses" : "Stopped before finishing";
+  const pullRequest = gitHub.opened();
+  if (!error && !pullRequest) error = forge.waiting ? "Stopped after 200 pauses" : "Stopped before opening the pull request";
   writeFileSync(join(runDir, "validation.json"), JSON.stringify({ plan: forge.plan }, null, 2));
 
   const { diff, truncated } = await workspaceDiff(issueId);
@@ -143,7 +158,7 @@ async function main() {
     .then(() => true)
     .catch(() => false);
   const dirty = (await runGit(["status", "--porcelain"])).trim();
-  if (forge.finished && (pendingMerge || dirty)) error = "Completed Forge left uncommitted changes or a pending merge";
+  if (pullRequest && (pendingMerge || dirty)) error = "Completed Forge left uncommitted changes or a pending merge";
   writeFileSync(
     join(runDir, "git.json"),
     JSON.stringify(
@@ -179,7 +194,7 @@ async function main() {
   const metrics: RunMetrics = {
     scenario: scenarioName,
     model,
-    finished: forge.finished,
+    finished: Boolean(pullRequest),
     qaVerdict: checklistVerdict(forge.plan),
     error,
     rateLimited: isModelRateLimit(error),

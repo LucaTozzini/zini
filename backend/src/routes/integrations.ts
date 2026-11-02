@@ -1,102 +1,79 @@
-import { Router } from "express";
-import { PROVIDERS, STATUS_TYPES, type Provider } from "shared";
+import { Router, type Response } from "express";
+import { PROJECT_PROVIDERS, SHARED_PROVIDERS, type Provider } from "shared";
 import { z } from "zod";
-import { getIntegrations, isProvider, removeKey, saveKeys } from "../integrations/integrations.js";
-import { InvalidInputLinearError } from "@linear/sdk";
-import { fetchLinearIssue, fetchLinearIssues, getLinearClient } from "../integrations/linear.js";
-import { parse } from "./http.js";
+import {
+  getIntegrations,
+  getProjectIntegrations,
+  isProjectProvider,
+  isSharedProvider,
+  removeKey,
+  saveKeys,
+} from "../integrations/integrations.js";
+import { currentProject, parse } from "./http.js";
 import { errorMessage } from "../core/errors.js";
-
-export const integrations = Router();
 
 // API keys to save, by service, e.g. { "linear": "lin_api_..." }.
 const apiKey = z.string({ error: "API key is required" }).trim().min(1, "API key is required").optional();
-const apiKeys = z.strictObject(
-  Object.fromEntries(PROVIDERS.map((provider) => [provider, apiKey])) as Record<Provider, typeof apiKey>,
-  {
+const apiKeys = (providers: readonly Provider[]) =>
+  z.strictObject(Object.fromEntries(providers.map((provider) => [provider, apiKey])) as Record<Provider, typeof apiKey>, {
     error: (issue) =>
       issue.code === "unrecognized_keys"
-        ? `Unknown integration "${issue.keys[0]}". Known: ${PROVIDERS.join(", ")}`
+        ? `Unknown integration "${issue.keys[0]}". Known: ${providers.join(", ")}`
         : "Expected an object of API keys",
-  },
-);
+  });
 
-// ?status=unstarted,started: the status types to filter by.
-const issuesQuery = z.object({
-  status: z
-    .string()
-    .optional()
-    .transform((value) => (value ? value.split(",") : []))
-    .pipe(z.array(z.enum(STATUS_TYPES))),
-});
+// The services one set of keys is for: the shared ones at /api/integrations, or a
+// project's at /api/projects/:projectId/integrations (projectId reads it from the request).
+function integrationRoutes(
+  providers: readonly Provider[],
+  isProvider: (value: string) => boolean,
+  projectId: (res: Response) => number | undefined,
+) {
+  const router = Router();
+  const statuses = (res: Response) => {
+    const id = projectId(res);
+    return id === undefined ? getIntegrations() : getProjectIntegrations(id);
+  };
 
-// Which services are connected, e.g. { linear: { connected: true, keyHint: "a1b" }, ... }.
-integrations.get("/", async (_req, res) => {
-  res.json(await getIntegrations());
-});
+  // Which services are connected, e.g. { linear: { connected: true, keyHint: "a1b" }, ... }.
+  router.get("/", async (_req, res) => {
+    res.json(await statuses(res));
+  });
 
-// Saves the keys in the body, e.g. { "linear": "lin_api_..." }, after each service
-// accepts its key. The rest stay as they are. Returns all integrations.
-integrations.put("/", async (req, res) => {
-  const keys = parse(apiKeys, req.body, res);
-  if (!keys) return;
+  // Saves the keys in the body, e.g. { "linear": "lin_api_..." }, after each service
+  // accepts its key. The rest stay as they are. Returns all integrations.
+  router.put("/", async (req, res) => {
+    const keys = parse(apiKeys(providers), req.body, res);
+    if (!keys) return;
 
-  // A check that fails rather than rejecting the key (e.g. the service is unreachable)
-  // says why, instead of a bare 500.
-  let rejectedBy: string | null;
-  try {
-    rejectedBy = await saveKeys(keys);
-  } catch (error) {
-    res.status(400).json({ error: errorMessage(error) });
-    return;
-  }
-  if (rejectedBy) {
-    res.status(400).json({ error: `${rejectedBy} rejected this API key` });
-    return;
-  }
-  res.json(await getIntegrations());
-});
-
-integrations.delete("/:provider", async (req, res) => {
-  if (!isProvider(req.params.provider)) {
-    res.status(404).json({ error: "Unknown integration" });
-    return;
-  }
-  await removeKey(req.params.provider);
-  res.json(await getIntegrations());
-});
-
-// Up to 250 issues, most recently updated first. ?status=unstarted,started filters by status type.
-integrations.get("/linear/issues", async (req, res) => {
-  const query = parse(issuesQuery, req.query, res, `status must be one of: ${STATUS_TYPES.join(", ")}`);
-  if (!query) return;
-  const { status } = query;
-
-  const client = await getLinearClient();
-  if (!client) {
-    res.status(409).json({ error: "Linear isn't connected" });
-    return;
-  }
-
-  res.json({ issues: await fetchLinearIssues(client, status) });
-});
-
-// One issue with its details, by identifier (e.g. ZIN-4) or id.
-integrations.get("/linear/issues/:id", async (req, res) => {
-  const client = await getLinearClient();
-  if (!client) {
-    res.status(409).json({ error: "Linear isn't connected" });
-    return;
-  }
-
-  try {
-    res.json(await fetchLinearIssue(client, req.params.id));
-  } catch (err) {
-    // What Linear throws for an issue that doesn't exist.
-    if (err instanceof InvalidInputLinearError) {
-      res.status(404).json({ error: "Issue not found" });
+    // A check that fails rather than rejecting the key (e.g. the service is unreachable)
+    // says why, instead of a bare 500.
+    let rejectedBy: string | null;
+    try {
+      rejectedBy = await saveKeys(keys, projectId(res));
+    } catch (error) {
+      res.status(400).json({ error: errorMessage(error) });
       return;
     }
-    throw err;
-  }
-});
+    if (rejectedBy) {
+      res.status(400).json({ error: `${rejectedBy} rejected this API key` });
+      return;
+    }
+    res.json(await statuses(res));
+  });
+
+  router.delete("/:provider", async (req, res) => {
+    const { provider } = req.params;
+    if (!isProvider(provider)) {
+      res.status(404).json({ error: "Unknown integration" });
+      return;
+    }
+    await removeKey(provider as Provider, projectId(res));
+    res.json(await statuses(res));
+  });
+
+  return router;
+}
+
+export const integrations = integrationRoutes(SHARED_PROVIDERS, isSharedProvider, () => undefined);
+export const projectIntegrations = integrationRoutes(PROJECT_PROVIDERS, isProjectProvider, (res) => currentProject(res).id);

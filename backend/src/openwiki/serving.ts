@@ -5,52 +5,52 @@
 // worktree; serving must never see a half-written wiki mid-generation.
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { storage } from "../db.js";
-import { REPO_DIR, fetchRepo, git } from "../repositories/git.js";
+import { join } from "node:path";
+import { fetchRepo, git, type Repo } from "../repositories/git.js";
+import { projectDir, repoDir } from "../projects/projects.js";
 import { loadOpenwiki } from "./openwiki.js";
 
-// Persistent checkout of origin/HEAD that the wiki is served from.
-export const SERVE_DIR = resolve(dirname(storage), "wiki-serve");
+// Each project's persistent checkout of origin/HEAD that its wiki is served from.
+const serveDir = (repo: Repo) => join(projectDir(repo.id), "wiki-serve");
 
 // The serving worktree exists and has a wiki checked out.
-export function hasServedWiki(): boolean {
-  return existsSync(join(SERVE_DIR, "openwiki"));
+export function hasServedWiki(repo: Repo): boolean {
+  return existsSync(join(serveDir(repo), "openwiki"));
 }
 
 // Create the serving worktree if it's missing. The bare clone is the source of
 // truth; the worktree shares its objects, so this is one cheap checkout.
-export async function ensureServingWorktree(): Promise<void> {
-  if (existsSync(join(SERVE_DIR, ".git"))) return;
-  await fetchRepo();
-  await git(["-C", REPO_DIR, "worktree", "add", "--detach", SERVE_DIR, "origin/HEAD"]);
+export async function ensureServingWorktree(repo: Repo): Promise<void> {
+  if (existsSync(join(serveDir(repo), ".git"))) return;
+  await fetchRepo(repo);
+  await git(["-C", repoDir(repo.id), "worktree", "add", "--detach", serveDir(repo), "origin/HEAD"]);
 }
 
 // Bring the serving worktree up to the latest default branch. Returns the new HEAD.
-export async function refreshServingWorktree(): Promise<{ commit: string }> {
-  await ensureServingWorktree();
-  await fetchRepo();
-  await git(["-C", SERVE_DIR, "reset", "--hard", "origin/HEAD"]);
-  const commit = (await git(["-C", SERVE_DIR, "rev-parse", "HEAD"])).trim();
+export async function refreshServingWorktree(repo: Repo): Promise<{ commit: string }> {
+  await ensureServingWorktree(repo);
+  await fetchRepo(repo);
+  await git(["-C", serveDir(repo), "reset", "--hard", "origin/HEAD"]);
+  const commit = (await git(["-C", serveDir(repo), "rev-parse", "HEAD"])).trim();
   return { commit };
 }
 
 // What the wiki is served from (null when there's no serving worktree yet) and what
 // the bare clone has (null when the repo was never fetched): the UI compares them
 // to show whether the served wiki is stale.
-export async function getServingStatus(): Promise<{ commit: string | null; mainCommit: string | null }> {
+export async function getServingStatus(repo: Repo): Promise<{ commit: string | null; mainCommit: string | null }> {
   let commit: string | null = null;
-  if (existsSync(join(SERVE_DIR, ".git"))) {
+  if (existsSync(join(serveDir(repo), ".git"))) {
     try {
-      commit = (await git(["-C", SERVE_DIR, "rev-parse", "HEAD"])).trim() || null;
+      commit = (await git(["-C", serveDir(repo), "rev-parse", "HEAD"])).trim() || null;
     } catch {
       commit = null;
     }
   }
   let mainCommit: string | null = null;
-  if (existsSync(REPO_DIR)) {
+  if (existsSync(repoDir(repo.id))) {
     try {
-      mainCommit = (await git(["-C", REPO_DIR, "rev-parse", "origin/HEAD"])).trim() || null;
+      mainCommit = (await git(["-C", repoDir(repo.id), "rev-parse", "origin/HEAD"])).trim() || null;
     } catch {
       mainCommit = null;
     }
@@ -59,10 +59,10 @@ export async function getServingStatus(): Promise<{ commit: string | null; mainC
 }
 
 // Search the served wiki. Returns a compact JSON array of { page, section, excerpt }.
-export async function searchWiki(query: string, limit?: number): Promise<string> {
-  if (!hasServedWiki()) throw new Error("No wiki is being served; generate the documentation first.");
+export async function searchWiki(repo: Repo, query: string, limit?: number): Promise<string> {
+  if (!hasServedWiki(repo)) throw new Error("No wiki is being served; generate the documentation first.");
   const openwiki = await loadOpenwiki();
-  const response = await openwiki.searchWiki(SERVE_DIR, { query, ...(limit !== undefined ? { limit } : {}) });
+  const response = await openwiki.searchWiki(serveDir(repo), { query, ...(limit !== undefined ? { limit } : {}) });
   if (!("results" in response)) return JSON.stringify(response);
   return JSON.stringify(
     response.results.map((r) => {
@@ -75,15 +75,15 @@ export async function searchWiki(query: string, limit?: number): Promise<string>
 }
 
 // Read a wiki page (whole page, or exact sections). Page stays under openwiki/.
-export async function readWikiPage(page: string, sections?: string[]): Promise<string> {
+export async function readWikiPage(repo: Repo, page: string, sections?: string[]): Promise<string> {
   const safe = normalizeWikiPath(page);
-  if (!hasServedWiki()) throw new Error("No wiki is being served; generate the documentation first.");
+  if (!hasServedWiki(repo)) throw new Error("No wiki is being served; generate the documentation first.");
   if (sections && sections.length > 0) {
     const openwiki = await loadOpenwiki();
-    const response = await openwiki.readWikiSections(SERVE_DIR, { page: `openwiki/${safe}`, sections });
+    const response = await openwiki.readWikiSections(serveDir(repo), { page: `openwiki/${safe}`, sections });
     return response.sections.map((s) => s.content).join("\n\n---\n\n");
   }
-  return await readFile(join(SERVE_DIR, "openwiki", safe), "utf8");
+  return await readFile(join(serveDir(repo), "openwiki", safe), "utf8");
 }
 
 function normalizeWikiPath(page: string): string {

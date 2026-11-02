@@ -5,8 +5,9 @@ import { approvalsKey, forgeKey, forgeMessagesKey } from "./forge.ts";
 import { chatGptKey } from "./chatgpt.ts";
 import { evalsKey } from "./evals.ts";
 import { openwikiKey } from "./openwiki.ts";
-import { threadKey, threadsKey } from "./projectLead.ts";
+import { threadKey, threadListsKey, threadsKey } from "./projectLead.ts";
 import { workspaceKey, workspacesKey } from "./workspaces.ts";
+import { projectsKey } from "./projects.ts";
 
 // Keeps the app up to date, from one connection to the server's events (mounted once,
 // in App). Each event says what changed, and that's refetched: a chat (and the chat
@@ -30,7 +31,7 @@ export function useServerEvents() {
       const event = JSON.parse(e.data) as ServerEvent;
       if (event.type === "thread.updated") {
         refetch(threadKey(event.threadId));
-        refetch(threadsKey, true);
+        refetch(threadListsKey);
       } else if (event.type === "workspace.updated") {
         refetch(workspaceKey(event.issueId));
       } else if (event.type === "chatgpt.updated") {
@@ -51,6 +52,8 @@ export function useServerEvents() {
         // Whether it's waiting for an approval, for the issue lists, and whether its
         // workspace can be deleted, which change only as it starts or stops running.
         refetch(approvalsKey);
+        // How many Forges each project has running.
+        refetch(projectsKey);
         refetch(workspaceKey(event.issueId), true);
       }
     };

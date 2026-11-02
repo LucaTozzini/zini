@@ -30,6 +30,9 @@ import { freshQueuedMessages } from "./queuedMessages.js";
 import { getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
 import { getSetting } from "../core/settings.js";
+import type { Project } from "../models/Project.js";
+import { ProjectLeadThread } from "../models/ProjectLeadThread.js";
+import { getProject } from "../projects/projects.js";
 import { browserTools } from "../browser/browserTools.js";
 import { closeBrowser } from "../browser/agentBrowser.js";
 import { SYSTEM_PROMPT } from "./systemPrompt.js";
@@ -55,13 +58,14 @@ const senderNames = createMiddleware({
 
 // Built per call, like the Linear client, so a new key or model applies straight
 // away. The shared checkpointer keeps each thread's history between calls.
-function buildAgent({ linear, connection, model, repo }: Setup, threadId: string) {
+function buildAgent({ linear, connection, model, project }: Setup, threadId: string) {
+  const repo = project.githubRepo;
   const chatModel = connectModel(connection, model);
   // The run's signal reaches the tool, so stopping the chat stops the explorer too.
   // The chat's id goes in the explorer's log.
   const exploreCodeTool = tool(
     async ({ question }, config) =>
-      exploreCode(chatModel, question, {
+      exploreCode(chatModel, project, question, {
         signal: config.signal,
         caller: config.configurable?.thread_id,
       }),
@@ -78,18 +82,18 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
   return createAgent({
     model: chatModel,
     tools: [
-      ...linearTools(linear),
+      ...linearTools(linear, project),
       ...linearFileTools(() => linear),
       uploadFileTool(linear),
-      ...forgeTools(linear),
-      ...workspaceAppTools(linear, chatModel),
-      ...codeTools,
-      ...wikiTools,
+      ...forgeTools(linear, project),
+      ...workspaceAppTools(linear, chatModel, project),
+      ...codeTools(project),
+      ...wikiTools(async () => project),
       exploreCodeTool,
       ...pullRequestTools(repo),
-      ...databaseTools,
-      ...googleDriveTools,
-      ...logTools,
+      ...databaseTools(project.id),
+      ...googleDriveTools(project.id),
+      ...logTools(project.id),
       ...npmTools,
       ...browserTools(`project-lead:${threadId}`, () => sendEvent({ type: "thread.updated", threadId }), { external: true }),
     ],
@@ -106,7 +110,7 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
       // Inside senderNames, which merges a message's text blocks.
       chatFilesMiddleware,
       todoListMiddleware(),
-      notesMiddleware,
+      notesMiddleware(project),
       humanInTheLoopMiddleware({
         interruptOn: {
           create_issue: { allowedDecisions: ["approve", "reject"] },
@@ -120,28 +124,33 @@ function buildAgent({ linear, connection, model, repo }: Setup, threadId: string
           pull_request_resolve_thread: { allowedDecisions: ["approve", "reject"] },
         },
       }),
-      fetchRepoMiddleware,
+      fetchRepoMiddleware(project),
     ],
   });
 }
 
-// repo is the githubRepo setting, "owner/name".
-type Setup = { linear: LinearClient; connection: ModelConnection; model: string; repo: string };
+// project is the one the chat is in.
+type Setup = { linear: LinearClient; connection: ModelConnection; model: string; project: Project };
 
-export async function loadProjectLeadSetup(): Promise<Setup | string> {
-  const [linear, connection, githubToken, model, repo] = await Promise.all([
+export async function loadProjectLeadSetup(project: Project): Promise<Setup | string> {
+  const [linear, connection, githubToken, model] = await Promise.all([
     getLinearClient(),
     getSetting("projectLeadProvider").then(loadConnection),
     getKey("github"),
     getSetting("projectLeadModel"),
-    getSetting("githubRepo"),
   ]);
   if (!linear) return "Linear isn't connected";
   if (typeof connection === "string") return connection;
   if (!githubToken) return "GitHub isn't connected";
   if (!model) return "No model set";
-  if (!repo) return "No GitHub repository set";
-  return { linear, connection, model, repo };
+  return { linear, connection, model, project };
+}
+
+// The setup for a chat, in its project.
+export async function threadSetup(threadId: string): Promise<Setup | string> {
+  const thread = await ProjectLeadThread.findByPk(threadId, { attributes: ["projectId"] });
+  if (!thread) return "Chat not found";
+  return loadProjectLeadSetup(await getProject(thread.projectId));
 }
 
 export async function receiveQueuedMessages(setup: Setup, threadId: string, events: QueuedMessage[], signal: AbortSignal) {
@@ -210,7 +219,7 @@ export async function loadThread(setup: Setup, threadId: string, running: boolea
       entry.role === "tool" ? { ...entry, result: undefined } : entry,
     ),
     pending,
-    notes: readNotes(),
+    notes: readNotes(setup.project),
     todos: (state.values.todos ?? []) as Todo[],
     subscriptions: await forgeSubscriptions.list(threadId),
   };

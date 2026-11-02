@@ -6,6 +6,7 @@ import { Link as RouterLink, useParams } from "react-router";
 import { useWorkspace } from "../api/workspaces.ts";
 import { errorMessage } from "../api/client.ts";
 import { useLinearIssue } from "../api/integrations.ts";
+import { useProjectPath } from "../hooks/useProject.ts";
 import ForgeView from "../components/ForgeView.tsx";
 import ForgeDocuments from "../components/forge/ForgeDocuments.tsx";
 import { isActiveBlocker } from "shared";
@@ -95,6 +96,7 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
   // The URL can name the issue by its identifier; the workspace is keyed by its id.
   const workspace = useWorkspace(issue.data?.id);
   const [showDetails, setShowDetails] = useState(false);
+  const projectPath = useProjectPath();
 
   if (issue.isPending) return <Header title="Loading..." />;
 
@@ -118,13 +120,13 @@ function IssueDetails({ issueId, view }: { issueId: string; view: "forge" | "pre
         link={
           view === "preview"
             ? {
-                to: `/issues/${issue.data.id}`,
+                to: projectPath(`/issues/${issue.data.id}`),
                 label: "Open the Forge",
                 icon: <ConstructionOutlinedIcon sx={{ fontSize: 19 }} />,
               }
             : workspace.data
               ? {
-                  to: `/issues/${issue.data.id}/preview`,
+                  to: projectPath(`/issues/${issue.data.id}/preview`),
                   label: "Open the app's preview",
                   icon: <OpenInBrowserIcon sx={{ fontSize: 19 }} />,
                 }

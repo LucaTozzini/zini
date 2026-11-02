@@ -5,7 +5,7 @@ import { z } from "zod";
 import { findPullRequest } from "../integrations/github.js";
 import { getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
-import { getSetting } from "../core/settings.js";
+import { workspaceProject } from "../projects/projects.js";
 import { errorMessage } from "../core/errors.js";
 import { isPushed, workspaceDiff } from "../workspaces/workspaceFiles.js";
 import { workspaceApps } from "../workspaces/workspaceAppSessions.js";
@@ -151,11 +151,12 @@ workspaces.post("/:issueId/commit", async (req, res) => {
   res.json(result.workspace);
 });
 
-// GitHub's token and the repo ("owner/name"), or null after sending a 409.
-async function loadGitHub(res: Response) {
-  const [token, repo] = await Promise.all([getKey("github"), getSetting("githubRepo")]);
-  if (token && repo) return { token, repo };
-  res.status(409).json({ error: "Connect GitHub and set a repository first" });
+// GitHub's token and the workspace's project's repo ("owner/name"), or null after
+// sending a 409.
+async function loadGitHub(issueId: string, res: Response) {
+  const [token, { githubRepo }] = await Promise.all([getKey("github"), workspaceProject(issueId)]);
+  if (token) return { token, repo: githubRepo };
+  res.status(409).json({ error: "Connect GitHub first" });
   return null;
 }
 
@@ -168,7 +169,7 @@ workspaces.get("/:issueId/pull-request", async (req, res) => {
     res.status(404).json({ error: "This issue has no workspace" });
     return;
   }
-  const github = await loadGitHub(res);
+  const github = await loadGitHub(issueId, res);
   if (!github) return;
   try {
     const pushed = await isPushed(issueId);
@@ -189,19 +190,20 @@ workspaces.post("/:issueId/pull-request", async (req, res) => {
   else res.status(201).json(result.pullRequest);
 });
 
-// Creates a workspace for { issueId }, or returns the one it already has.
+// Creates a workspace for { issueId }, in the project of the issue's team, or returns
+// the one it already has.
 workspaces.post("/", async (req, res) => {
   const body = parse(newWorkspace, req.body, res);
   if (!body) return;
   const { issueId, ...selection } = body;
 
-  const [linear, githubToken, repo] = await Promise.all([getLinearClient(), getKey("github"), getSetting("githubRepo")]);
+  const [linear, githubToken] = await Promise.all([getLinearClient(), getKey("github")]);
   if (!linear) {
     res.status(409).json({ error: "Linear isn't connected" });
     return;
   }
-  if (!githubToken || !repo) {
-    res.status(409).json({ error: "Connect GitHub and set a repository first" });
+  if (!githubToken) {
+    res.status(409).json({ error: "Connect GitHub first" });
     return;
   }
 

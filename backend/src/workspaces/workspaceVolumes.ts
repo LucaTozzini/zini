@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { storage } from "../db.js";
 import { docker, dockerInput } from "./docker.js";
 import { withWorkspaceLock } from "./workspaceLocks.js";
@@ -237,10 +237,18 @@ export function ensureWorkspaceVolume(issueId: string) {
   }
   return promise;
 }
-export async function cloneWorkspaceVolume(issueId: string, branch: string, ref: string, url: string, defaultRef: string) {
+// Clones the workspace from source, the bare clone of its project's repo.
+export async function cloneWorkspaceVolume(
+  issueId: string,
+  source: string,
+  branch: string,
+  ref: string,
+  url: string,
+  defaultRef: string,
+) {
   await withWorkspaceLock(issueId, async () => {
     await prepareVolume(issueId);
-    await volumeHelper(issueId, { operation: "clone", branch, ref, url, defaultRef }, resolve(dirname(storage), "repo.git"));
+    await volumeHelper(issueId, { operation: "clone", branch, ref, url, defaultRef }, source);
     const { workspacePath } = await import("../repositories/git.js");
     await mkdir(workspacePath(issueId), { recursive: true });
     await writeFile(resolve(workspacePath(issueId), ".docker-volume"), workspaceVolume(issueId));
@@ -267,5 +275,6 @@ export async function workspaceGit(issueId: string, args: string[], token?: stri
 
 // Refresh from the trusted host cache, also used by evals with a local upstream.
 export async function refreshWorkspaceRefs(issueId: string) {
-  await volumeHelper(issueId, { operation: "refresh" }, resolve(dirname(storage), "repo.git"));
+  const { workspaceProject, repoDir } = await import("../projects/projects.js");
+  await volumeHelper(issueId, { operation: "refresh" }, repoDir((await workspaceProject(issueId)).id));
 }

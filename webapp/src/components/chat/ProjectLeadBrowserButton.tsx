@@ -4,13 +4,14 @@ import { Alert, Box, CircularProgress, Dialog, DialogContent, DialogTitle, IconB
 import LanguageIcon from "@mui/icons-material/Language";
 import CloseIcon from "@mui/icons-material/Close";
 import { api, errorMessage } from "../../api/client.ts";
+import { projectApiPath, useProjectId } from "../../hooks/useProject.ts";
 
 export default function ProjectLeadBrowserButton({ threadId }: { threadId?: string }) {
   const [open, setOpen] = useState(false);
+  const base = projectApiPath(useProjectId(), `project-lead/threads/${threadId}/browser`);
   const browser = useQuery({
     queryKey: ["project-lead", "browser", threadId],
-    queryFn: () =>
-      api.get(`project-lead/threads/${threadId}/browser/status`).json<{ url: string | null; sessionId: string | null }>(),
+    queryFn: () => api.get(`${base}/status`).json<{ url: string | null; sessionId: string | null }>(),
     enabled: open && Boolean(threadId),
     refetchInterval: open ? 2000 : false,
   });
@@ -57,7 +58,7 @@ export default function ProjectLeadBrowserButton({ threadId }: { threadId?: stri
                 <Box
                   component="img"
                   key={sessionId}
-                  src={`/api/project-lead/threads/${threadId}/browser?session=${sessionId}`}
+                  src={`/api/${base}?session=${sessionId}`}
                   alt="The Project Lead's current browser page"
                   onLoad={() => setFailedStream(null)}
                   onError={() => setFailedStream(sessionId)}

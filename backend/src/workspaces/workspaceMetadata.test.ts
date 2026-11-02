@@ -12,13 +12,16 @@ test("workspace metadata loads while its execution lock is held, without a Docke
   process.env.DB_PATH = join(dir, "db.sqlite");
   const { workspaces } = await import("../routes/workspaces.js");
   const { Workspace } = await import("../models/Workspace.js");
+  const { Project } = await import("../models/Project.js");
   const { initDb, sequelize } = await import("../db.js");
   const { checkpointer } = await import("../agents/agents.js");
   const { withWorkspaceLock } = await import("./workspaceLocks.js");
   await initDb();
   const id = randomUUID();
+  const project = await Project.create({ name: "product", githubRepo: "owner/product", linearTeamId: "team" });
   await Workspace.create({
     issueId: id,
+    projectId: project.id,
     context: {
       branch: "feature/existing-pr",
       initialHead: "abc",

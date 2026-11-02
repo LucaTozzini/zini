@@ -2,10 +2,14 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { LinearClient } from "@linear/sdk";
+import type { PullRequest } from "shared";
 import { chromium } from "playwright";
-import { storage } from "../../backend/src/db.js";
+import { initDb, storage } from "../../backend/src/db.js";
 import { cloneWorkspace, git as workspaceGit, workspacePath } from "../../backend/src/repositories/git.js";
 import { Workspace } from "../../backend/src/models/Workspace.js";
+import { Project } from "../../backend/src/models/Project.js";
+import { repoDir } from "../../backend/src/projects/projects.js";
+import type { ForgeGitHub } from "../../backend/src/forge/run.js";
 import { ensureSandbox, sandboxRequest } from "../../backend/src/workspaces/workspaceSandbox.js";
 import { runCommandResult } from "../../backend/src/forge/qaProcesses.js";
 import type { ModelConnection } from "../../backend/src/providers/modelProvider.js";
@@ -94,10 +98,21 @@ export function makeSourceRepo(fixture: Fixture) {
   return source;
 }
 
+// The project the fixture repo is, as if it were added in zini (its repo and team are
+// stand-ins: nothing reaches GitHub or Linear).
+export async function evalProject() {
+  await initDb();
+  const [project] = await Project.findOrCreate({
+    where: { githubRepo: "evals/fixture" },
+    defaults: { name: "Evals", githubRepo: "evals/fixture", linearTeamId: "evals-team" },
+  });
+  return project;
+}
+
 // The clone zini works from, made like cloneRepo makes one from GitHub (see git.ts):
 // bare, with origin/* branches and origin/HEAD pointing at the default branch.
-export function cloneLikeZini(source: string) {
-  const repo = join(dataDir, "repo.git");
+export function cloneLikeZini(source: string, project: Project) {
+  const repo = repoDir(project.id);
   git(["clone", "--bare", "--quiet", source, repo]);
   git(["-C", repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
   git(["-C", repo, "fetch", "--quiet", "origin"]);
@@ -106,8 +121,8 @@ export function cloneLikeZini(source: string) {
 
 // A workspace like createWorkspace makes, without Linear: its independent clone and row.
 // Fixtures can omit the image's dependency install to exercise preparation.
-export async function makeWorkspace(issueId: string, fixture: Fixture) {
-  await cloneWorkspace(issueId, branchOf(fixture));
+export async function makeWorkspace(issueId: string, fixture: Fixture, project: Project) {
+  await cloneWorkspace(project, issueId, branchOf(fixture));
   await ensureSandbox(issueId);
   if (fixture.preinstalledDependencies !== false) {
     const install = await runCommandResult(issueId, "npm ci");
@@ -115,6 +130,7 @@ export async function makeWorkspace(issueId: string, fixture: Fixture) {
   }
   await Workspace.create({
     issueId,
+    projectId: project.id,
     context: {
       branch: branchOf(fixture),
       initialHead: (await workspaceGit(["-C", workspacePath(issueId), "rev-parse", "HEAD"])).trim(),
@@ -146,7 +162,7 @@ export function fakeLinear(issueId: string, fixture: Fixture): LinearClient {
     branchName: `eval/${fixture.name}`,
     state: { name: "Todo", type: "unstarted" },
     assignee: null,
-    team: { key: "EVAL", name: "Evals" },
+    team: { id: "evals-team", key: "EVAL", name: "Evals" },
     comments: { nodes: [] },
     attachments: { nodes: [] },
     relations: { nodes: [] },
@@ -157,6 +173,21 @@ export function fakeLinear(issueId: string, fixture: Fixture): LinearClient {
     return { data: { issue } };
   };
   return { client: { rawRequest } } as unknown as LinearClient;
+}
+
+// GitHub, as far as the Lead's push and open_pull_request go: the run ends on the pull
+// request, which only needs to be asked for. opened is the one the Lead opened, if any.
+export function fakeGitHub() {
+  let opened: PullRequest | null = null;
+  const github: ForgeGitHub = {
+    pullRequest: async () => opened,
+    push: async () => {},
+    openPullRequest: async () => {
+      opened = { number: 2, url: "https://github.com/evals/fixture/pull/2", state: "open" };
+      return opened;
+    },
+  };
+  return { github, opened: () => opened };
 }
 
 // What a hidden check is given, for the issue's workspace.

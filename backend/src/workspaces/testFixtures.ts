@@ -6,13 +6,25 @@ import { dirname, join } from "node:path";
 import { storage, initDb } from "../db.js";
 import "../core/developmentEnvironment.js";
 import { cloneWorkspace } from "../repositories/git.js";
+import { Project } from "../models/Project.js";
+import { repoDir } from "../projects/projects.js";
+
+// The project test workspaces belong to.
+export async function testProject() {
+  await initDb();
+  const [project] = await Project.findOrCreate({
+    where: { githubRepo: "fixture/product" },
+    defaults: { name: "product", githubRepo: "fixture/product", linearTeamId: "fixture-team" },
+  });
+  return project;
+}
 
 // Trusted host fixtures seed the same bare cache used by production clones.
 export async function createTestWorkspace(issueId: string, files: Record<string, string>) {
-  await initDb();
+  const project = await testProject();
   const dir = dirname(storage),
     source = join(dir, "fixture-source"),
-    bare = join(dir, "repo.git");
+    bare = repoDir(project.id);
   const git = async (...args: string[]) =>
     promisify(execFile)("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", ...args]);
   if (!existsSync(bare)) {
@@ -29,7 +41,7 @@ export async function createTestWorkspace(issueId: string, files: Record<string,
     await git("-C", bare, "fetch", "-q", "origin");
     await git("-C", bare, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   }
-  await cloneWorkspace(issueId, `test/${issueId}`);
+  await cloneWorkspace(project, issueId, `test/${issueId}`);
 }
 
 // Starts an app command in the workspace, waits up to timeoutSeconds for url to answer

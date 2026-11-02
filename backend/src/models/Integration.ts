@@ -1,5 +1,5 @@
 import { DataTypes, Model, type InferAttributes, type InferCreationAttributes } from "sequelize";
-import type { Provider } from "shared";
+import type { SharedProvider } from "shared";
 import { sequelize } from "../db.js";
 
 export class Integration extends Model<InferAttributes<Integration>, InferCreationAttributes<Integration>> {
@@ -15,8 +15,8 @@ Integration.init(
   { sequelize, tableName: "integrations" },
 );
 
-// The saved API key for a service, or null if it isn't connected.
-export async function getKey(provider: Provider) {
+// The saved API key for a shared service, or null if it isn't connected.
+export async function getKey(provider: SharedProvider) {
   const row = await Integration.findByPk(provider);
   return row?.apiKey ?? null;
 }

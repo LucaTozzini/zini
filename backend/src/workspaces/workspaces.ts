@@ -2,7 +2,8 @@ import type { LinearClient } from "@linear/sdk";
 import type { Workspace as WorkspaceResponse, WorkspaceSelection, WorkspaceGitStatus } from "shared";
 import { findPullRequest, getPullRequest } from "../integrations/github.js";
 import { getKey } from "../models/Integration.js";
-import { getSetting } from "../core/settings.js";
+import type { Project } from "../models/Project.js";
+import { teamProject } from "../projects/projects.js";
 import { selectWorkspaceBranch, WorkspaceChoiceRequired } from "./branchSelection.js";
 import { assertNoMerge } from "./workspaceIntegration.js";
 import { sendEvent } from "../core/events.js";
@@ -36,6 +37,7 @@ function toResponse(row: Workspace): WorkspaceResponse {
   if (!row.context?.branch) throw new Error("Workspace branch metadata is missing");
   return {
     issueId: row.issueId,
+    projectId: row.projectId,
     context: row.context,
     branch: row.context.branch,
     path: `docker-volume:${workspaceVolume(row.issueId)}/repo`,
@@ -64,25 +66,42 @@ export async function getWorkspaceWithStatus(issueId: string) {
 
 // Resumes a Linear-linked PR or the exact suggested branch, or returns the
 // existing one; created says which. The row is only kept if the volume was cloned,
-// and vice versa.
-export async function createWorkspace(linear: LinearClient, issueId: string, selection: WorkspaceSelection = {}) {
-  return withRepositoryLock(() => createWorkspaceLocked(linear, issueId, selection));
+// and vice versa. The workspace is a clone of the repo of the project the issue's team
+// belongs to; with expected, only if that's this project.
+export async function createWorkspace(
+  linear: LinearClient,
+  issueId: string,
+  selection: WorkspaceSelection = {},
+  expected?: Project,
+) {
+  return withRepositoryLock(() => createWorkspaceLocked(linear, issueId, selection, expected));
 }
-async function createWorkspaceLocked(linear: LinearClient, issueId: string, selection: WorkspaceSelection) {
+async function createWorkspaceLocked(
+  linear: LinearClient,
+  issueId: string,
+  selection: WorkspaceSelection,
+  expected: Project | undefined,
+) {
   const existing = await Workspace.findByPk(issueId);
-  if (existing) return { workspace: await toResponse(existing), created: false };
+  if (existing) {
+    if (expected && existing.projectId !== expected.id) throw new Error("This issue's workspace belongs to another project");
+    return { workspace: await toResponse(existing), created: false };
+  }
 
   const issue = await fetchLinearIssue(linear, issueId);
-  await fetchRepo();
+  const project = await teamProject(issue.team.id);
+  if (!project) throw new Error(`${issue.identifier} is in ${issue.team.name}, which isn't any project's Linear team`);
+  if (expected && project.id !== expected.id) throw new Error(`${issue.identifier} is in another project's Linear team`);
+  await fetchRepo(project);
   const token = await getKey("github");
-  const repo = await getSetting("githubRepo");
-  if (!token || !repo) throw new Error("Connect GitHub and set a repository first");
+  if (!token) throw new Error("Connect GitHub first");
+  const repo = project.githubRepo;
   const numbers = await linkedPullRequests(linear, issue.id, repo);
   const pulls = await Promise.all(numbers.map((number) => getPullRequest(token, repo, number)));
-  const branches = await remoteBranches();
+  const branches = await remoteBranches(project);
   const exactPr = branches.includes(issue.branchName) ? await findPullRequest(token, repo, issue.branchName) : null;
   const exact = exactPr ? await getPullRequest(token, repo, exactPr.number) : null;
-  const selected = selectWorkspaceBranch(issue.branchName, await defaultBranch(), branches, pulls, exact, selection);
+  const selected = selectWorkspaceBranch(issue.branchName, await defaultBranch(project), branches, pulls, exact, selection);
   if (selected.pull && selected.pull.headRepo?.toLowerCase() !== repo.toLowerCase()) {
     throw new WorkspaceChoiceRequired(
       [selected.pull],
@@ -91,12 +110,13 @@ async function createWorkspaceLocked(linear: LinearClient, issueId: string, sele
   }
   if (selected.pull && !branches.includes(selected.branch))
     throw new WorkspaceChoiceRequired([selected.pull], "The PR branch was deleted; choose a fresh branch instead");
-  await cloneWorkspace(issue.id, selected.branch, selected.target, selected.reuse);
+  await cloneWorkspace(project, issue.id, selected.branch, selected.target, selected.reuse);
   let row: Workspace;
   try {
     const initialHead = (await git(["-C", workspacePath(issue.id), "rev-parse", "HEAD"])).trim();
     row = await Workspace.create({
       issueId: issue.id,
+      projectId: project.id,
       context: {
         branch: selected.branch,
         initialHead,

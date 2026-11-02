@@ -119,7 +119,7 @@ forge.post("/:issueId/resume", async (req, res) => {
   const { issueId } = req.params;
   const reply = readReply(req.body);
   if (!reply) {
-    res.status(400).json({ error: "Expected { answers }" });
+    res.status(400).json({ error: "Expected { answers } or { decisions }" });
     return;
   }
   if (!(await requireWorkspace(issueId, res))) return;

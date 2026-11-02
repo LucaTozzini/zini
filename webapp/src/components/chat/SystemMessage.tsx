@@ -2,6 +2,7 @@ import { Box, Typography } from "@mui/material";
 import { Link } from "react-router";
 import { useLinearIssue } from "../../api/integrations";
 import CampaignIcon from "@mui/icons-material/Campaign";
+import { useProjectPath } from "../../hooks/useProject.ts";
 type SystemMessageProps = {
   issueId?: string;
   content: string;
@@ -9,6 +10,7 @@ type SystemMessageProps = {
 
 const SystemMessage = ({ issueId, content }: SystemMessageProps) => {
   const { data } = issueId ? useLinearIssue(issueId) : {};
+  const issuePath = useProjectPath()(`/issues/${issueId}`);
 
   return (
     <Box
@@ -25,7 +27,7 @@ const SystemMessage = ({ issueId, content }: SystemMessageProps) => {
         <Typography
           variant="body2"
           component={Link}
-          to={"/issues/" + issueId}
+          to={issuePath}
           sx={{
             color: "inherit",
             flexShrink: 0,

@@ -2,7 +2,7 @@ import type { LinearIssueDetails, PullRequest } from "shared";
 import { createPullRequest } from "../integrations/github.js";
 import { fetchLinearIssue, getLinearClient } from "../integrations/linear.js";
 import { getKey } from "../models/Integration.js";
-import { getSetting } from "../core/settings.js";
+import { workspaceProject } from "../projects/projects.js";
 import { defaultBranch } from "../repositories/git.js";
 import { getWorkspaceWithStatus, isForgeRunning } from "./workspaces.js";
 import { isPushed } from "./workspaceFiles.js";
@@ -12,19 +12,20 @@ import { sendEvent } from "../core/events.js";
 import { Workspace } from "../models/Workspace.js";
 import { assertNoMerge } from "./workspaceIntegration.js";
 import { errorMessage } from "../core/errors.js";
+import { forgetPullRequest } from "../forge/pullRequest.js";
 
-const dependencies = {
+export const pullRequestDependencies = {
   starting: (id: string) => workspaceApps.starting(id),
   running: (id: string) => isForgeRunning(id),
   workspace: getWorkspaceWithStatus,
   pushed: isPushed,
-  github: async () => {
-    const [token, repo] = await Promise.all([getKey("github"), getSetting("githubRepo")]);
-    return token && repo ? { token, repo } : null;
+  github: async (id: string) => {
+    const [token, { githubRepo }] = await Promise.all([getKey("github"), workspaceProject(id)]);
+    return token ? { token, repo: githubRepo } : null;
   },
   linear: getLinearClient,
   issue: fetchLinearIssue,
-  base: defaultBranch,
+  base: async (id: string) => defaultBranch(await workspaceProject(id)),
   create: createPullRequest,
   noMerge: assertNoMerge,
   target: async (id: string) => (await Workspace.findByPk(id))?.context?.targetBranch,
@@ -35,12 +36,13 @@ const dependencies = {
 const withIdentifier = (issue: Pick<LinearIssueDetails, "identifier">, title: string) =>
   title.startsWith(issue.identifier) ? title : `${issue.identifier}: ${title}`;
 
-// Shared by the workspace UI and Project Lead. Never commits or pushes implicitly.
+// Shared by the workspace UI, the Project Lead and the Forge's Lead. Never commits or pushes implicitly.
 export async function openWorkspacePullRequest(
   issueId: string,
   title: string,
   body = "",
-  deps: Omit<typeof dependencies, "noMerge" | "target"> & Partial<Pick<typeof dependencies, "noMerge" | "target">> = dependencies,
+  deps: Omit<typeof pullRequestDependencies, "noMerge" | "target"> &
+    Partial<Pick<typeof pullRequestDependencies, "noMerge" | "target">> = pullRequestDependencies,
 ): Promise<{ pullRequest: PullRequest } | { status: number; error: string }> {
   return withWorkspaceLock(issueId, async () => {
     if (deps.starting(issueId)) return { status: 409, error: "The user app is still being prepared" };
@@ -60,8 +62,8 @@ export async function openWorkspacePullRequest(
           error: "Commit and push the changes first (commit_and_push), then retry opening the pull request.",
         };
       }
-      const github = await deps.github();
-      if (!github) return { status: 409, error: "Connect GitHub and set a repository first" };
+      const github = await deps.github(issueId);
+      if (!github) return { status: 409, error: "Connect GitHub first" };
       const linear = await deps.linear();
       if (!linear) return { status: 409, error: "Linear isn't connected" };
       const issue = await deps.issue(linear, issueId);
@@ -69,8 +71,9 @@ export async function openWorkspacePullRequest(
         title: withIdentifier(issue, title.trim()),
         body: body.trim(),
         branch: workspace.branch,
-        base: (await deps.target?.(issueId)) ?? (await deps.base()),
+        base: (await deps.target?.(issueId)) ?? (await deps.base(issueId)),
       });
+      forgetPullRequest(issueId);
       sendEvent({ type: "workspace.updated", issueId });
       return { pullRequest };
     } catch (error) {

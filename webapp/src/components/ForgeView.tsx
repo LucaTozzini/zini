@@ -9,6 +9,7 @@ import {
   Box,
   Button,
   Container,
+  Link,
   Skeleton,
   Stack,
   Typography,
@@ -21,7 +22,6 @@ import CheckpointActivity from "./forge/CheckpointActivity.tsx";
 import ChatInput from "./chat/ChatInput.tsx";
 import BrowserView from "./forge/BrowserView.tsx";
 import ForgeRequest from "./forge/ForgeRequest.tsx";
-import PullRequestCard from "./forge/PullRequestCard.tsx";
 
 function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }) {
   const start = useStartForge(issueId);
@@ -81,10 +81,16 @@ function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }
               </Alert>
             )}
             {failure && <Alert severity="error">{errorMessage(failure)}</Alert>}
-            {forge.finished && (
-              <>
-                <PullRequestCard issueId={issueId} />
-              </>
+            {forge.pullRequest && (
+              <Alert severity={forge.pullRequest.state === "open" ? "success" : "info"}>
+                <Link href={forge.pullRequest.url} target="_blank" rel="noreferrer">
+                  Pull request #{forge.pullRequest.number}
+                </Link>{" "}
+                is {forge.pullRequest.state}.{" "}
+                {forge.pullRequest.state === "open"
+                  ? "Ask the Lead for changes below, and it pushes them to it."
+                  : "Ask the Lead for more changes below, and it opens a new pull request for them."}
+              </Alert>
             )}
             <Box data-chat-message="">
               <ForgeRequest
@@ -164,7 +170,7 @@ function ForgeContent({ issueId, forge }: { issueId: string; forge: ForgeState }
                       ? "Reply to the Lead above first"
                       : forge.running
                         ? "Pause the Lead to message it"
-                        : forge.finished
+                        : forge.pullRequest
                           ? "Ask the Lead for changes"
                           : "Message the Lead"
                   }

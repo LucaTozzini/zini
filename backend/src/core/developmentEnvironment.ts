@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sequelize } from "../db.js";
 import { DevelopmentVariable } from "../models/DevelopmentVariable.js";
-import { getSetting } from "./settings.js";
+import { Workspace } from "../models/Workspace.js";
 
 export function validateDevelopmentValues(values: Record<string, string>) {
   for (const [name, value] of Object.entries(values)) {
@@ -15,7 +15,6 @@ export function validateDevelopmentValues(values: Record<string, string>) {
 }
 export const DEVELOPMENT_CHANGES = z
   .object({
-    repository: z.string().min(1),
     variables: z
       .array(
         z.union([
@@ -27,33 +26,36 @@ export const DEVELOPMENT_CHANGES = z
   })
   .strict();
 
-export async function saveDevelopmentEnvironment(repository: string, changes: z.infer<typeof DEVELOPMENT_CHANGES>["variables"]) {
+// A project's development variables, which its workspaces' apps run with.
+export async function saveDevelopmentEnvironment(projectId: number, changes: z.infer<typeof DEVELOPMENT_CHANGES>["variables"]) {
   for (const change of changes) validateDevelopmentValues({ [change.name]: "value" in change ? change.value : "" });
   await sequelize.transaction(async (transaction) => {
     for (const change of changes) {
-      if ("remove" in change) await DevelopmentVariable.destroy({ where: { repository, name: change.name }, transaction });
-      else await DevelopmentVariable.upsert({ repository, name: change.name, value: change.value }, { transaction });
+      if ("remove" in change) await DevelopmentVariable.destroy({ where: { projectId, name: change.name }, transaction });
+      else await DevelopmentVariable.upsert({ projectId, name: change.name, value: change.value }, { transaction });
     }
-    if ((await DevelopmentVariable.count({ where: { repository }, transaction })) > 100)
-      throw new Error("At most 100 development variables per repository");
+    if ((await DevelopmentVariable.count({ where: { projectId }, transaction })) > 100)
+      throw new Error("At most 100 development variables per project");
   });
 }
-async function variablesFor(repository: string): Promise<Record<string, string>> {
-  const rows = await DevelopmentVariable.findAll({ where: { repository }, order: [["name", "ASC"]] });
+async function variablesFor(projectId: number): Promise<Record<string, string>> {
+  const rows = await DevelopmentVariable.findAll({ where: { projectId }, order: [["name", "ASC"]] });
   return Object.fromEntries(rows.map((row) => [row.name, row.value]));
 }
-export async function developmentEnvironmentStatus(repository: string) {
-  const values = await variablesFor(repository);
-  return { repository, variables: Object.entries(values).map(([name, value]) => ({ name, configured: Boolean(value) })) };
+export async function developmentEnvironmentStatus(projectId: number) {
+  const values = await variablesFor(projectId);
+  return { variables: Object.entries(values).map(([name, value]) => ({ name, configured: Boolean(value) })) };
 }
-export async function activeDevelopmentEnvironment(): Promise<Record<string, string>> {
-  const repository = await getSetting("githubRepo");
-  return repository ? variablesFor(repository) : {};
+// The variables of the project the issue's workspace belongs to.
+export async function activeDevelopmentEnvironment(issueId: string): Promise<Record<string, string>> {
+  const workspace = await Workspace.findByPk(issueId, { attributes: ["projectId"] });
+  return workspace ? variablesFor(workspace.projectId) : {};
 }
-export async function developmentEnvironmentContext() {
-  const values = await activeDevelopmentEnvironment();
+export async function developmentEnvironmentContext(issueId: string) {
+  const workspace = await Workspace.findByPk(issueId, { attributes: ["projectId"] });
+  const values = workspace ? await variablesFor(workspace.projectId) : {};
   return JSON.stringify({
-    settings: "/settings",
+    settings: workspace ? `/projects/${workspace.projectId}/settings` : "/",
     variables: Object.entries(values).map(([name, value]) => ({ name, configured: Boolean(value) })),
   });
 }

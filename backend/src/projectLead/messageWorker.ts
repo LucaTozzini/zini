@@ -1,6 +1,6 @@
 import { outsideAgentRun } from "../forge/forge.js";
 import { sendEvent } from "../core/events.js";
-import { loadProjectLeadSetup, projectLeadAwaitingApproval, receiveQueuedMessages } from "./projectLead.js";
+import { projectLeadAwaitingApproval, receiveQueuedMessages, threadSetup } from "./projectLead.js";
 import { isRunning, onRunEnd, startRun } from "../agents/runs.js";
 import { drainMessageQueue, onEnqueue } from "./messageQueue.js";
 import { ProjectLeadThread } from "../models/ProjectLeadThread.js";
@@ -40,12 +40,12 @@ export function startProjectLeadMessageWorker() {
         drainMessageQueue(
           async (threadId) => {
             if (isRunning(threadId)) return false;
-            const setup = await loadProjectLeadSetup();
+            const setup = await threadSetup(threadId);
             return typeof setup !== "string" && !(await projectLeadAwaitingApproval(setup, threadId));
           },
           async (threadId, messages) => {
             if (!(await ProjectLeadThread.findByPk(threadId))) return false;
-            const setup = await loadProjectLeadSetup();
+            const setup = await threadSetup(threadId);
             if (typeof setup === "string" || isRunning(threadId) || (await projectLeadAwaitingApproval(setup, threadId)))
               return false;
             return startRun(

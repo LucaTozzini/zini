@@ -13,6 +13,7 @@ test("PR creation rejects unfinished work and uses the workspace branch and conf
   type Dependencies = NonNullable<Parameters<typeof open>[3]>;
   let workspace: Workspace & WorkspaceGitStatus = {
     issueId: "issue",
+    projectId: 1,
     branch: "feature/email",
     path: "docker-volume:fixture/repo",
     createdAt: "",

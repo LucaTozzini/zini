@@ -67,10 +67,11 @@ export async function stopApp(issueId: string) {
   await workspaceApps.stop(issueId);
 }
 
-// The app's state for the preview page: starting while the launcher works, and failed
-// with the launcher's reason when it didn't get the app running.
+// The app's state for the preview page: starting while the launcher works (even after a
+// failed launch, whose failure the runtime still reports), and failed with the
+// launcher's reason when it didn't get the app running.
 export function appState({ status, error }: WorkspaceAppState, issueId: string): WorkspaceAppState {
-  if (status === "stopped" && launches.has(issueId)) return { status: "starting", error: null };
+  if (status !== "ready" && launches.has(issueId)) return { status: "starting", error: null };
   const outcome = outcomes.get(issueId);
   if (status === "stopped" && outcome) return { status: "failed", error: outcome };
   return { status, error: error ?? null };

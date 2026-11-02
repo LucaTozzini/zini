@@ -10,7 +10,7 @@ const forge: ForgeState = {
   plan: null,
   planApproved: true,
   browserUrl: null,
-  finished: false,
+  pullRequest: null,
   error: null,
 };
 const plan = {
@@ -49,13 +49,18 @@ test("subscribedOnly excludes other workspaces and retains approvals and complet
       read.push(id);
       return id === "watched"
         ? { ...forge, running: null, waiting: { kind: "questions" as const, questions: ["Which list?"] } }
-        : { ...forge, running: null, finished: true, plan };
+        : {
+            ...forge,
+            running: null,
+            pullRequest: { number: 7, url: "https://github.com/acme/app/pull/7", state: "open" as const },
+            plan,
+          };
     },
     true,
   );
   assert.deepEqual(read, ["watched", "done"]);
   assert.ok(rows.every((row) => row.subscribed));
   assert.deepEqual(rows[0]?.waiting, { kind: "questions", questions: ["Which list?"] });
-  assert.equal(rows[1]?.finished, true);
+  assert.equal(rows[1]?.pullRequest?.number, 7);
   assert.equal(rows[1]?.qaVerdict, "partial");
 });

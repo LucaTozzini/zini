@@ -5,6 +5,7 @@ import { AIMessage, createAgent } from "langchain";
 import type { RunLogEntry } from "shared";
 import { modelRetry, toolErrors } from "./agents.js";
 import { codeTools, fetchRepoMiddleware } from "./codeTools.js";
+import type { Repo } from "../repositories/git.js";
 import { logTo } from "../forge/runLog.js";
 import { storage } from "../db.js";
 import { npmTools } from "./npmTools.js";
@@ -59,12 +60,13 @@ async function openExplorerLog() {
   };
 }
 
-// Answers a question about the code with a subagent of its own, so the files it reads
+// Answers a question about the project's code with a subagent of its own, so the files it reads
 // stay out of the asker's conversation: only the answer goes back. It starts fresh
 // every time and saves nothing but its log. signal stops it, e.g. with the asker's run;
 // caller is the asker's thread id, for the log.
 export async function exploreCode(
   model: BaseChatModel,
+  repo: Repo,
   question: string,
   { signal, caller }: { signal?: AbortSignal; caller?: string } = {},
 ) {
@@ -77,11 +79,11 @@ export async function exploreCode(
   });
   const agent = createAgent({
     model,
-    tools: [...codeTools, ...npmTools],
+    tools: [...codeTools(repo), ...npmTools],
     systemPrompt: SYSTEM_PROMPT,
     // logTo outermost, so a tool that fails shows as the error toolErrors gives the
     // model; toolErrors outside fetchRepoMiddleware, so it covers its tools too.
-    middleware: [logTo(log), toolErrors, modelRetry, fetchRepoMiddleware],
+    middleware: [logTo(log), toolErrors, modelRetry, fetchRepoMiddleware(repo)],
     // Run from a tool, it would otherwise save into the asker's checkpoints.
     checkpointer: false,
   });

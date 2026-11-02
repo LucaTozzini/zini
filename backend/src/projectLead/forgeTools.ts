@@ -31,19 +31,32 @@ import { WorkspaceChoiceRequired } from "../workspaces/branchSelection.js";
 import { syncWorkspace } from "../repositories/git.js";
 import { openWorkspacePullRequest } from "../workspaces/workspacePullRequests.js";
 import { ISSUE_ID, toIssueId } from "./linearTools.js";
+import type { Project } from "../models/Project.js";
+
+// The issue's id, refusing an issue whose workspace belongs to another project. A new
+// workspace's issue is checked when it's created (see createWorkspace).
+async function projectIssueId(project: Project, linear: LinearClient, id: string) {
+  const issueId = await toIssueId(linear, id);
+  const workspace = await Workspace.findByPk(issueId, { attributes: ["projectId"] });
+  if (workspace && workspace.projectId !== project.id) throw new Error(`${id}'s workspace belongs to another project`);
+  return issueId;
+}
 
 // Syncing an issue's workspace and running its app.
-export function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
+export function workspaceAppTools(linear: LinearClient, model: BaseChatModel, project: Project) {
   return [
-    tool(async ({ issueId, merge }) => JSON.stringify(await syncWorkspace(await toIssueId(linear, issueId), merge)), {
-      name: "sync_workspace",
-      description:
-        "Fetch the configured GitHub repository into an idle workspace. With merge=true, merge the current default branch while preserving history; refuses unfinished edits and surfaces conflicts. Pause the Forge first. Use merge only when the user requests integrating upstream changes.",
-      schema: z.object({ issueId: ISSUE_ID, merge: z.boolean().default(false) }),
-    }),
+    tool(
+      async ({ issueId, merge }) => JSON.stringify(await syncWorkspace(await projectIssueId(project, linear, issueId), merge)),
+      {
+        name: "sync_workspace",
+        description:
+          "Fetch the configured GitHub repository into an idle workspace. With merge=true, merge the current default branch while preserving history; refuses unfinished edits and surfaces conflicts. Pause the Forge first. Use merge only when the user requests integrating upstream changes.",
+        schema: z.object({ issueId: ISSUE_ID, merge: z.boolean().default(false) }),
+      },
+    ),
     tool(
       async ({ issueId, request }, config) =>
-        JSON.stringify(await launchWorkspaceApp(model, await toIssueId(linear, issueId), request, config.signal)),
+        JSON.stringify(await launchWorkspaceApp(model, await projectIssueId(project, linear, issueId), request, config.signal)),
       {
         name: "launch_workspace_app",
         description:
@@ -59,23 +72,29 @@ export function workspaceAppTools(linear: LinearClient, model: BaseChatModel) {
         }),
       },
     ),
-    tool(async ({ issueId }) => JSON.stringify(await workspaceApps.refresh(await toIssueId(linear, issueId))), {
+    tool(async ({ issueId }) => JSON.stringify(await workspaceApps.refresh(await projectIssueId(project, linear, issueId))), {
       name: "workspace_app_status",
       description:
         "Read the user app session's status, previewUrl (Zini's preview page), its address inside the workspace, startup errors and recent server output.",
       schema: z.object({ issueId: ISSUE_ID }),
     }),
-    tool(async ({ issueId }) => (await stopApp(await toIssueId(linear, issueId)), JSON.stringify({ status: "stopped" })), {
-      name: "stop_workspace_app",
-      description: "Stop all processes in a user app session without stopping Forge or QA processes.",
-      schema: z.object({ issueId: ISSUE_ID }),
-    }),
+    tool(
+      async ({ issueId }) => (
+        await stopApp(await projectIssueId(project, linear, issueId)),
+        JSON.stringify({ status: "stopped" })
+      ),
+      {
+        name: "stop_workspace_app",
+        description: "Stop all processes in a user app session without stopping Forge or QA processes.",
+        schema: z.object({ issueId: ISSUE_ID }),
+      },
+    ),
   ];
 }
 
 // Drive the Forge (see forge.ts) from chat. None of them waits on
 // the workspace's setup or the Forge's work: they start it, or say where it's at.
-export function forgeTools(linear: LinearClient) {
+export function forgeTools(linear: LinearClient, project: Project) {
   const caller = (config: { configurable?: Record<string, unknown> }) => {
     const id = config.configurable?.thread_id;
     if (typeof id !== "string") throw new Error("This tool needs a Project Lead chat");
@@ -84,7 +103,7 @@ export function forgeTools(linear: LinearClient) {
   return [
     tool(
       async ({ issueId, message }, config) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         if (!(await Workspace.findByPk(id))) return JSON.stringify({ status: "error", error: "This issue has no workspace" });
         if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
         const pipeline = await getForge(id);
@@ -111,7 +130,7 @@ export function forgeTools(linear: LinearClient) {
       {
         name: "message_forge",
         description:
-          "Send the Forge's Lead a message with the user's requested changes or corrections, e.g. after it finished. " +
+          "Send the Forge's Lead a message with the user's requested changes or corrections, e.g. after it opened its pull request. " +
           "Not while it's running (pause_forge first) or waiting on a reply (use reply_to_forge). Automatically subscribes this chat.",
         schema: z.object({
           issueId: ISSUE_ID,
@@ -125,7 +144,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId }) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         if (!pauseRun(forgeThreadId(id))) {
           return JSON.stringify({ status: "error", error: "The Forge isn't running or is already pausing" });
         }
@@ -142,7 +161,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId }, config) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         const workspace = await Workspace.findByPk(id);
         if (!workspace) {
           return JSON.stringify({ status: "error", error: "This issue has no workspace" });
@@ -180,7 +199,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ subscribedOnly }, config) => {
-        const workspaces = await Workspace.findAll({ order: [["createdAt", "DESC"]] });
+        const workspaces = await Workspace.findAll({ where: { projectId: project.id }, order: [["createdAt", "DESC"]] });
         return JSON.stringify(
           await listForges(workspaces, await forgeSubscriptions.list(caller(config)), getForge, subscribedOnly),
         );
@@ -190,7 +209,7 @@ export function forgeTools(linear: LinearClient) {
         description:
           "Discover all issues with workspaces, plus issues this Project Lead chat follows. Returns issueId, " +
           "subscribed, hasWorkspace, whether the Forge started, its current running role, " +
-          "waiting questions/approvals, completion, errors, resume availability and QA verdict. " +
+          "waiting questions/approvals, its pull request once its work is done, errors, resume availability and QA verdict. " +
           "Set subscribedOnly to true to list just this chat's subscriptions. Use forge_status for full reports.",
         schema: z.object({ subscribedOnly: z.boolean().optional() }),
       },
@@ -198,7 +217,7 @@ export function forgeTools(linear: LinearClient) {
     tool(
       async ({ action, issueId }, config) => {
         const threadId = caller(config);
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         if (action === "subscribe") {
           await forgeSubscriptions.subscribe(threadId, id);
           const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getForge(id)]);
@@ -222,11 +241,11 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, pullRequest, fresh }, config) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         await forgeSubscriptions.subscribe(caller(config), id);
         let result;
         try {
-          result = await createWorkspace(linear, id, { pullRequest, fresh });
+          result = await createWorkspace(linear, id, { pullRequest, fresh }, project);
         } catch (error) {
           if (error instanceof WorkspaceChoiceRequired)
             return JSON.stringify({
@@ -239,7 +258,7 @@ export function forgeTools(linear: LinearClient) {
         const { workspace } = result;
         if (workspaceApps.starting(id)) throw new Error("The user app is still being prepared.");
         const pipeline = await getForge(workspace.issueId);
-        if (pipeline.finished) return JSON.stringify({ status: "finished", pipeline });
+        if (pipeline.pullRequest) return JSON.stringify({ status: "pull_request_created", pipeline });
         if (pipeline.started) return JSON.stringify({ status: "already_running", pipeline });
         const setup = await loadForgeSetup();
         if (typeof setup === "string") return JSON.stringify({ status: "error", error: setup });
@@ -254,7 +273,8 @@ export function forgeTools(linear: LinearClient) {
         description:
           "Build an issue: create its workspace if it has none, and start the Forge " +
           "pipeline. Environment preparation happens in the Forge. Returns a status: started, already_running, " +
-          "finished (send changes with message_forge instead) or error.",
+          "pull_request_created (its work is in a pull request, whose state is pipeline.pullRequest.state: send " +
+          "changes with message_forge instead) or error.",
         schema: z.object({
           issueId: ISSUE_ID,
           pullRequest: z.number().int().positive().optional(),
@@ -264,7 +284,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId }) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         const [workspace, pipeline] = await Promise.all([Workspace.findByPk(id), getForge(id)]);
         return JSON.stringify({
           hasWorkspace: Boolean(workspace),
@@ -283,7 +303,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, path }) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         if (!(await Workspace.findByPk(id))) return "This issue has no workspace.";
         return diffForModel(id, path);
       },
@@ -299,7 +319,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, message }) => {
-        const result = await commitAndPush(await toIssueId(linear, issueId), message ?? "");
+        const result = await commitAndPush(await projectIssueId(project, linear, issueId), message ?? "");
         if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
         return JSON.stringify({ status: "pushed", branch: result.workspace.branch });
       },
@@ -318,7 +338,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, title, body }) => {
-        const result = await openWorkspacePullRequest(await toIssueId(linear, issueId), title, body);
+        const result = await openWorkspacePullRequest(await projectIssueId(project, linear, issueId), title, body);
         if ("error" in result) return JSON.stringify({ status: "error", error: result.error });
         return JSON.stringify({ status: "opened", pullRequest: result.pullRequest });
       },
@@ -337,7 +357,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, answers }) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         const { waiting } = await getForge(id);
         if (!waiting) return JSON.stringify({ status: "not_waiting" });
         const reply = readReply({ answers });
@@ -365,7 +385,8 @@ export function forgeTools(linear: LinearClient) {
         name: "reply_to_forge",
         description:
           "Answer the questions an issue's Forge is waiting on (waiting.kind=questions), one answer per question, " +
-          "in order. Feedback on a plan and other changes use message_forge. The user approves the call before it runs.",
+          "in order. Feedback on a plan and other changes use message_forge. A push or pull request waiting for " +
+          "approval (waiting.kind=approval) is approved by the user in the Forge view. The user approves the call before it runs.",
         schema: z.object({
           issueId: ISSUE_ID,
           answers: z.array(z.string()).describe("The user's answers, one per question in order."),
@@ -374,7 +395,7 @@ export function forgeTools(linear: LinearClient) {
     ),
     tool(
       async ({ issueId, revision }, config) => {
-        const id = await toIssueId(linear, issueId);
+        const id = await projectIssueId(project, linear, issueId);
         if (!(await Workspace.findByPk(id))) return JSON.stringify({ status: "error", error: "This issue has no workspace" });
         const error = await planApprovalError(id, revision);
         if (error) return JSON.stringify({ status: "error", error });

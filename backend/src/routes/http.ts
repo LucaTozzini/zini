@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { z } from "zod";
+import type { Project } from "../models/Project.js";
 import { isIssueId } from "../workspaces/workspaces.js";
 
 // For router.param("issueId"): a request whose :issueId isn't a Linear issue id gets a
@@ -17,3 +18,6 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown, res: Response, er
   res.status(400).json({ error: error ?? result.error.issues[0]?.message ?? "Invalid request" });
   return null;
 }
+
+// The project a /api/projects/:projectId route is for, which loadProject found.
+export const currentProject = (res: Response) => res.locals.project as Project;

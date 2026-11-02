@@ -1,14 +1,14 @@
 import { tool } from "langchain";
 import { z } from "zod";
-import { getKey } from "../models/Integration.js";
+import { getProjectKey } from "../models/ProjectIntegration.js";
 import { fileContent } from "../agents/linearFileTools.js";
 import { MAX_CHARS, MAX_FILES, MAX_IMAGES, readDriveFile, searchDrive } from "../integrations/googleDrive.js";
 
 // Read-only access to the Google Drive files shared with zini's service account, when it's
-// connected in Settings. The key is read per call, so a new one applies straight away.
-const driveKey = async () => {
-  const key = await getKey("googleDrive");
-  if (!key) throw new Error("Google Drive isn't connected. The user can connect it in Settings.");
+// connected in the project's settings. The key is read per call, so a new one applies straight away.
+const driveKey = async (projectId: number) => {
+  const key = await getProjectKey(projectId, "googleDrive");
+  if (!key) throw new Error("Google Drive isn't connected. The user can connect it in the project's settings.");
   return key;
 };
 
@@ -17,8 +17,8 @@ const IMAGE_URL = /^data:image\/(png|jpeg|gif|webp);base64,/;
 
 // A Drive file as tool content: PDFs and images as themselves, as get_linear_file returns
 // them; text with a Doc's images after it, each labelled with its marker in the text.
-async function readFile(fileId: string, offset?: number) {
-  const file = await readDriveFile(await driveKey(), fileId, offset);
+async function readFile(projectId: number, fileId: string, offset?: number) {
+  const file = await readDriveFile(await driveKey(projectId), fileId, offset);
   if (file.kind === "file") return fileContent(file.info.name, file.info.type, file.bytes);
 
   const shown = file.images.filter((image) => IMAGE_URL.test(image.url));
@@ -41,8 +41,8 @@ async function readFile(fileId: string, offset?: number) {
   ];
 }
 
-export const googleDriveTools = [
-  tool(async (args) => JSON.stringify(await searchDrive(await driveKey(), args)), {
+export const googleDriveTools = (projectId: number) => [
+  tool(async (args) => JSON.stringify(await searchDrive(await driveKey(projectId), args)), {
     name: "search_drive",
     description:
       "Search or browse the team's Google Drive (the files and folders shared with zini) for " +
@@ -57,7 +57,7 @@ export const googleDriveTools = [
       folderId: z.string().trim().min(1).optional().describe("A folder's id, to list or search only its files"),
     }),
   }),
-  tool(async ({ fileId, offset }) => readFile(fileId, offset), {
+  tool(async ({ fileId, offset }) => readFile(projectId, fileId, offset), {
     name: "read_drive_file",
     description:
       "Read a Google Drive file by its id from search_drive. PDFs and images come back as " +

@@ -1,8 +1,25 @@
 import { Command, interrupt, StateSchema } from "@langchain/langgraph";
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { createAgent, createMiddleware, fakeModel, modelCallLimitMiddleware, tool } from "langchain";
-import type { AgentRole, ForgePlan, IntegrationState, PendingApproval, ForgeResume, ForgeState, ForgeWaiting } from "shared";
+import {
+  createAgent,
+  createMiddleware,
+  fakeModel,
+  humanInTheLoopMiddleware,
+  modelCallLimitMiddleware,
+  tool,
+  type HITLRequest,
+} from "langchain";
+import type {
+  AgentRole,
+  ForgePlan,
+  IntegrationState,
+  PendingApproval,
+  ForgeResume,
+  ForgeState,
+  ForgeWaiting,
+  PullRequest,
+} from "shared";
 import { z } from "zod";
 import {
   checkpointer,
@@ -22,21 +39,23 @@ import { browserUrl, closeBrowser } from "../browser/agentBrowser.js";
 import { fetchLinearIssue } from "../integrations/linear.js";
 import { Workspace } from "../models/Workspace.js";
 import { wikiTools } from "../openwiki/wikiTools.js";
+import { workspaceProject } from "../projects/projects.js";
 import { userMessage, withSenderName } from "../projectLead/messageInput.js";
 import { hasUncommitted, workspaceChanges, workspaceRevision } from "../workspaces/workspaceFiles.js";
-import { commitAndIntegrate, isUpToDate, workspaceContext } from "../workspaces/workspaceIntegration.js";
+import { commitAndIntegrate, isUpToDate, pushWorkspace, workspaceContext } from "../workspaces/workspaceIntegration.js";
 import { emitForgeEvent, type ForgeLifecycleEvent } from "./events.js";
 import { loadForgeHistory } from "./history.js";
 import { checkpointMessages, forgeMessages } from "./messages.js";
 import { draftPlan, editPlan, issueText, planText, resetChecks, unfinishedPlan } from "./plan.js";
 import { forgeEvents } from "./forgeEvents.js";
 import { stopAllProcesses } from "./qaProcesses.js";
-import { forgeModel, forgeThreadId, working, workerThreadId, type Run } from "./run.js";
+import { forgeModel, forgeThreadId, working, workerThreadId, type ForgeGitHub, type Run } from "./run.js";
 import { logTo, openRunLog, type RunLog } from "./runLog.js";
 import { LEAD_PROMPT } from "./systemPrompts.js";
 import { conflictTools, diffTool, workspaceFilesystem } from "./tools.js";
 import { forgeSkillsMiddleware } from "./forgeSkills.js";
 import { restartApp } from "../workspaces/appLaunches.js";
+import { branchPullRequest, forgetPullRequest } from "./pullRequest.js";
 import { coderWorker, reviewerWorker, runWorker } from "./workers.js";
 
 export { loadSetup, forgeThreadId, outsideAgentRun, forgeRun, type Run, type Setup } from "./run.js";
@@ -44,43 +63,54 @@ export { loadSetup, forgeThreadId, outsideAgentRun, forgeRun, type Run, type Set
 // The forge: per issue, a Lead agent that works the issue end to end in its workspace.
 // It reads the code, writes the plan (every change to it pauses for your approval),
 // delegates the code to the Coder and the testing to the Reviewer (see workers.ts),
-// commits (merging the latest default branch each time) and finishes once the plan is
-// done. It pauses (interrupt) to ask you questions. You can message it at any time it
-// isn't working, e.g. with changes after it finished.
+// commits (merging the latest default branch each time), and once the plan is done and
+// reviewed, pushes the branch and opens its pull request. It pauses (interrupt) to ask you
+// questions, and for your approval before pushing or opening the pull request. You can
+// message it at any time it isn't working, e.g. with changes after the pull request.
 
 // ---- The Lead's state -------------------------------------------------------------
 
 type LeadState = {
   plan: ForgePlan | null;
   planApproved: boolean;
-  finished: boolean;
   integration: IntegrationState | null;
   // The workspace revision the Reviewer last reviewed.
   reviewedRevision: string | null;
 };
 
 // The plan and where the work is at, kept with the Lead's conversation. Each model call
-// sees the current plan, which also keeps it through compaction.
-const leadState = createMiddleware({
-  name: "ForgePlan",
-  stateSchema: new StateSchema({
-    plan: z.custom<ForgePlan | null>().default(null),
-    planApproved: z.boolean().default(false),
-    finished: z.boolean().default(false),
-    integration: z.custom<IntegrationState | null>().default(null),
-    reviewedRevision: z.string().nullable().default(null),
-  }),
-  wrapModelCall: (request, handler) => {
-    const { plan, planApproved } = request.state as unknown as LeadState;
-    const text = plan
-      ? `Revision ${plan.revision}. ${planApproved ? "Approved." : "Not approved yet: the user is reviewing it."}\n\n` +
-        `Design:\n${plan.design}\n\n` +
-        (plan.mockups.length ? `Mockups: ${plan.mockups.map((mockup) => mockup.title).join(", ")}\n\n` : "") +
-        planText(plan)
-      : "No plan yet.";
-    return handler({ ...request, systemMessage: request.systemMessage.concat(`\n\n# The current plan\n\n${text}`) });
-  },
+// sees the current plan, which also keeps it through compaction, and the branch's pull
+// request as GitHub has it (when running: github).
+const leadStateSchema = new StateSchema({
+  plan: z.custom<ForgePlan | null>().default(null),
+  planApproved: z.boolean().default(false),
+  integration: z.custom<IntegrationState | null>().default(null),
+  reviewedRevision: z.string().nullable().default(null),
 });
+const leadState = (issueId: string, github: ForgeGitHub | null) =>
+  createMiddleware({
+    name: "ForgePlan",
+    stateSchema: leadStateSchema,
+    wrapModelCall: async (request, handler) => {
+      const { plan, planApproved } = request.state as unknown as LeadState;
+      const text = plan
+        ? `Revision ${plan.revision}. ${planApproved ? "Approved." : "Not approved yet: the user is reviewing it."}\n\n` +
+          `Design:\n${plan.design}\n\n` +
+          (plan.mockups.length ? `Mockups: ${plan.mockups.map((mockup) => mockup.title).join(", ")}\n\n` : "") +
+          planText(plan)
+        : "No plan yet.";
+      // A failed lookup leaves the line out: push and open_pull_request check again anyway.
+      const pullRequest = github ? await github.pullRequest(issueId).catch(() => undefined) : undefined;
+      const pullRequestText =
+        pullRequest === undefined
+          ? ""
+          : `\n\n# The pull request\n\n${pullRequest ? `#${pullRequest.number}, ${pullRequest.state}: ${pullRequest.url}` : "None yet."}`;
+      return handler({
+        ...request,
+        systemMessage: request.systemMessage.concat(`\n\n# The current plan\n\n${text}${pullRequestText}`),
+      });
+    },
+  });
 
 // Tools that change the plan or the workspace, or pause for the user, run one at a time:
 // a reply that calls one alongside other tools gets an error for each call instead.
@@ -92,27 +122,63 @@ const SEQUENTIAL = new Set([
   "delegate_coder",
   "delegate_reviewer",
   "commit",
-  "finish",
+  "push",
+  "open_pull_request",
 ]);
+// Back to the model, so no later hook (e.g. the approval) sees the refused calls.
 const oneAtATime = createMiddleware({
   name: "OneAtATime",
-  afterModel: (state) => {
-    const last = state.messages.at(-1);
-    const calls = AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
-    if (calls.length < 2 || !calls.some((call) => SEQUENTIAL.has(call.name))) return;
-    return {
-      messages: calls.map(
-        (call) =>
-          new ToolMessage({
-            tool_call_id: call.id!,
-            name: call.name,
-            status: "error",
-            content: `${[...SEQUENTIAL].join(", ")} must each be called alone, not with other tools. Call them one at a time.`,
-          }),
-      ),
-    };
+  afterModel: {
+    canJumpTo: ["model"],
+    hook: (state) => {
+      const last = state.messages.at(-1);
+      const calls = AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
+      if (calls.length < 2 || !calls.some((call) => SEQUENTIAL.has(call.name))) return;
+      return {
+        messages: calls.map(
+          (call) =>
+            new ToolMessage({
+              tool_call_id: call.id!,
+              name: call.name,
+              status: "error",
+              content: `${[...SEQUENTIAL].join(", ")} must each be called alone, not with other tools. Call them one at a time.`,
+            }),
+        ),
+        jumpTo: "model" as const,
+      };
+    },
   },
 });
+
+// A push or open_pull_request call that would be refused is answered with why, before the
+// approval asks you (it's listed after it: hooks after a model call run last to first).
+// One call alone: oneAtATime refuses it with others.
+const readyToPush = (issueId: string, github: ForgeGitHub, refreshUpstream?: () => Promise<void>) =>
+  createMiddleware({
+    name: "ReadyToPush",
+    stateSchema: leadStateSchema,
+    afterModel: {
+      canJumpTo: ["model"],
+      hook: async (state) => {
+        const last = state.messages.at(-1);
+        const [call, ...others] = AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
+        if (!call || others.length || (call.name !== "push" && call.name !== "open_pull_request")) return;
+        const problems = await unpushable(issueId, call.name, state as unknown as LeadState, github, refreshUpstream);
+        if (!problems.length) return;
+        return {
+          messages: [
+            new ToolMessage({
+              tool_call_id: call.id!,
+              name: call.name,
+              status: "error",
+              content: `Not ready to push:\n- ${problems.join("\n- ")}`,
+            }),
+          ],
+          jumpTo: "model" as const,
+        };
+      },
+    },
+  });
 
 // Shows the model who sent each message, from the username saved with it.
 const senderNames = createMiddleware({
@@ -137,7 +203,7 @@ const savePlan = (runtime: Runtime, name: string, plan: ForgePlan) =>
     `Saved plan revision ${plan.revision}, not approved yet. The user reviews it now: their approval or ` +
       "feedback comes as a message. End your turn with one short sentence for them; until it's approved, " +
       "delegate_coder and delegate_reviewer are refused.",
-    { plan, planApproved: false, finished: false },
+    { plan, planApproved: false },
   );
 
 // A step or QA check edit for edit_plan (see plan.ts's ListEdit).
@@ -150,11 +216,61 @@ const LIST_EDIT = z.object({
   text: z.string().optional().describe("The new text, for replace and insert"),
 });
 
+// Pushing and opening the pull request on GitHub, from inside the Lead's run (which the
+// Git button and the Project Lead refuse while the Forge works).
+const gitHub: ForgeGitHub = {
+  pullRequest: branchPullRequest,
+  push: async (issueId) => {
+    await pushWorkspace(issueId);
+    forgetPullRequest(issueId);
+  },
+  openPullRequest: async (issueId, title, body) => {
+    const { openWorkspacePullRequest, pullRequestDependencies } = await import("../workspaces/workspacePullRequests.js");
+    const result = await openWorkspacePullRequest(issueId, title, body, { ...pullRequestDependencies, running: () => false });
+    forgetPullRequest(issueId);
+    if ("error" in result) throw new Error(result.error);
+    return result.pullRequest;
+  },
+};
+
+// Why the push (tool: push or open_pull_request) can't go ahead, empty when it can: push
+// is for the open pull request, open_pull_request for when there's none open; and either
+// needs the plan done and approved, the code committed on the latest default branch, and
+// that code reviewed.
+async function unpushable(
+  issueId: string,
+  tool: string,
+  state: LeadState,
+  github: ForgeGitHub,
+  refreshUpstream?: () => Promise<void>,
+) {
+  const pullRequest = await github.pullRequest(issueId);
+  if (tool === "push" && pullRequest?.state !== "open")
+    return [
+      pullRequest
+        ? `Pull request #${pullRequest.number} was ${pullRequest.state}: open a new one with open_pull_request.`
+        : "There's no pull request yet: open one with open_pull_request.",
+    ];
+  if (tool === "open_pull_request" && pullRequest?.state === "open")
+    return [`Pull request #${pullRequest.number} is open: push to it with push.`];
+  const problems = unfinishedPlan(state.plan, state.planApproved);
+  if (!(await isUpToDate(issueId, refreshUpstream)))
+    problems.push("The workspace isn't committed on top of the latest default branch: call commit, then review again.");
+  else if ((await workspaceRevision(issueId)) !== state.reviewedRevision)
+    problems.push("The code changed since the Reviewer's last review: review it again.");
+  return problems;
+}
+
 function leadTools(issueId: string, need: () => Run) {
   const issue = () => fetchLinearIssue(need().setup.linear, issueId);
   const approved = (state: LeadState) => {
     if (!state.plan || !state.planApproved) throw new Error("Write a plan and have it approved first (write_plan)");
     return state.plan;
+  };
+  const github = () => need().github ?? gitHub;
+  const assertReady = async (runtime: Runtime, tool: string) => {
+    const problems = await unpushable(issueId, tool, runtime.state, github(), need().refreshUpstream);
+    if (problems.length) throw new Error(`Not ready to push:\n- ${problems.join("\n- ")}`);
   };
   return [
     tool(
@@ -363,7 +479,6 @@ function leadTools(issueId: string, need: () => Run) {
         return updating(runtime, "commit", `${result}${changed ? " The QA checks are back to todo." : ""}`, {
           integration,
           plan,
-          ...(changed ? { finished: false } : {}),
         });
       },
       {
@@ -379,22 +494,42 @@ function leadTools(issueId: string, need: () => Run) {
       },
     ),
     tool(
-      async ({ summary }, config) => {
-        const runtime = runtimeOf(config);
-        const problems = unfinishedPlan(runtime.state.plan, runtime.state.planApproved);
-        if (!(await isUpToDate(issueId, need().refreshUpstream)))
-          problems.push("The workspace isn't committed on top of the latest default branch: call commit, then review again.");
-        else if ((await workspaceRevision(issueId)) !== runtime.state.reviewedRevision)
-          problems.push("The code changed since the Reviewer's last review: review it again.");
-        if (problems.length) throw new Error(`Can't finish yet:\n- ${problems.join("\n- ")}`);
-        return updating(runtime, "finish", `Finished. Tell the user: ${summary}`, { finished: true });
+      async (_input, config) => {
+        await assertReady(runtimeOf(config), "push");
+        await github().push(issueId);
+        return "Pushed: the pull request has the changes.";
       },
       {
-        name: "finish",
+        name: "push",
         description:
-          "Hand the work over. Refused unless every step is complete, every QA check passed or was skipped on the current code, " +
-          "and everything is committed on top of the latest default branch.",
-        schema: z.object({ summary: z.string().min(1).describe("What was done, for the user") }),
+          "Push the branch to GitHub, after the user approves it. Refused unless every step is complete, every QA check " +
+          "passed or was skipped on the current code, and everything is committed on top of the latest default branch. " +
+          "Use it for changes after the pull request is open; open_pull_request pushes too.",
+        schema: z.object({}),
+      },
+    ),
+    tool(
+      async ({ title, body }, config) => {
+        const runtime = runtimeOf(config);
+        await assertReady(runtime, "open_pull_request");
+        await github().push(issueId);
+        const pullRequest = await github().openPullRequest(issueId, title, body);
+        await emitForgeEvent(issueId, { type: "pull_request_created", pullRequest, plan: runtime.state.plan });
+        return `Opened pull request #${pullRequest.number}: ${pullRequest.url}. Your work is done: tell the user in a sentence or two.`;
+      },
+      {
+        name: "open_pull_request",
+        description:
+          "Push the branch and open its pull request, after the user approves it: this hands the work over. Refused " +
+          "unless every step is complete, every QA check passed or was skipped on the current code, and everything is " +
+          "committed on top of the latest default branch.",
+        schema: z.object({
+          title: z.string().min(1).describe("What the change does, in a short line"),
+          body: z
+            .string()
+            .min(1)
+            .describe("Markdown for reviewers: what changed and why, how it was tested, and anything left out or to watch"),
+        }),
       },
     ),
   ];
@@ -423,7 +558,7 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
       ...linearFileTools(() => need().setup.linear),
       diffTool(issueId),
       ...conflictTools(issueId),
-      ...wikiTools,
+      ...wikiTools(() => workspaceProject(issueId)),
       ...npmTools,
     ],
     middleware: [
@@ -444,8 +579,16 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
       compactionMiddleware(model),
       repairToolCalls,
       senderNames,
-      leadState,
+      // Listed before the hooks that refuse calls, so it runs after them (see readyToPush).
+      humanInTheLoopMiddleware({
+        interruptOn: {
+          push: { allowedDecisions: ["approve", "reject"] },
+          open_pull_request: { allowedDecisions: ["approve", "reject"] },
+        },
+      }),
+      leadState(issueId, run ? (run.github ?? gitHub) : null),
       oneAtATime,
+      readyToPush(issueId, run?.github ?? gitHub, run?.refreshUpstream),
       modelCallLimitMiddleware({ runLimit: MODEL_CALLS_PER_RUN, exitBehavior: "end" }),
       workspaceFilesystem(issueId),
       forgeSkillsMiddleware(issueId),
@@ -455,10 +598,20 @@ function leadAgent(issueId: string, run: Run | null, model: BaseChatModel, syste
 
 const reader = (issueId: string) => leadAgent(issueId, null, fakeModel(), "");
 
+// A pause, as the webapp shows it: ask_user's questions are already a ForgeWaiting; the
+// approval middleware's request lists the calls waiting for approval.
+function toWaiting(value: unknown): ForgeWaiting | null {
+  if (!value) return null;
+  const request = value as Partial<HITLRequest>;
+  if (request.actionRequests)
+    return { kind: "approval", actions: request.actionRequests.map(({ name, args }) => ({ name, args })) };
+  return value as ForgeWaiting;
+}
+
 async function readLead(issueId: string) {
   const snapshot = await reader(issueId).graph.getState(threadConfig(forgeThreadId(issueId)));
   const values = snapshot.values as Partial<LeadState> & { messages?: BaseMessage[] };
-  const waiting = (snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value ?? null) as ForgeWaiting | null;
+  const waiting = toWaiting(snapshot.tasks.flatMap((task) => task.interrupts)[0]?.value);
   return { snapshot, values, waiting };
 }
 
@@ -472,14 +625,12 @@ async function runLead(run: Run, input: unknown, describe: string, signal?: Abor
   const log = await openRunLog(issueId, "lead");
   await log.write({ event: "start", role: "lead", model: setup.model, prompt, input: describe });
   const before = (await readLead(issueId)).values;
-  const wasFinished = Boolean(before.finished);
   const agent = leadAgent(issueId, run, forgeModel(setup), prompt, log);
   const source = agent.stream(input as never, streamConfig(forgeThreadId(issueId), 2_000, signal));
   return forgeEvents(
     Promise.resolve(logged(log, run.execution.stream(source))),
     async (): Promise<ForgeLifecycleEvent | null> => {
       const { values, waiting } = await readLead(issueId);
-      if (values.finished && !wasFinished) return { type: "completed", plan: values.plan ?? null };
       if (waiting) return { type: "waiting", waiting };
       // A new revision of the plan, for the user to review.
       if (values.plan && !values.planApproved && values.plan.revision !== before.plan?.revision)
@@ -514,7 +665,8 @@ export function messageForge(run: Run, message: string, signal?: AbortSignal, im
   return runLead(run, { messages: [userMessage(message, images, run.username ?? null)] }, message, signal);
 }
 
-// Answers the Lead's questions, and carries on.
+// Answers the Lead's questions, or decides on its calls waiting for approval (in the
+// approval middleware's shape), and carries on.
 export function resumeForge(run: Run, reply: ForgeResume, signal?: AbortSignal) {
   return runLead(run, new Command({ resume: reply }), JSON.stringify(reply), signal);
 }
@@ -522,7 +674,7 @@ export function resumeForge(run: Run, reply: ForgeResume, signal?: AbortSignal) 
 // Why the plan's revision can't be approved now, or null if it can. Only the revision
 // the user reviewed, and only while the Lead isn't working or asking.
 export async function planApprovalError(issueId: string, revision: number) {
-  const forge = await getForge(issueId);
+  const forge = await getForge(issueId, { withPullRequest: false });
   if (forge.running || forge.pausing) return "The Lead is working: approve the plan once it stops";
   if (forge.waiting) return "Answer the Lead's questions first";
   if (!forge.plan || forge.planApproved) return "There's no plan waiting for approval";
@@ -541,13 +693,26 @@ export function continueForge(run: Run, signal?: AbortSignal) {
   return runLead(run, null, "Continue", signal);
 }
 
-// Checks, and narrows, answers to the Lead's questions.
-const replySchema: z.ZodType<ForgeResume> = z.strictObject({ answers: z.array(z.string()) });
+// Checks, and narrows, answers to the Lead's questions or decisions on its calls.
+const replySchema: z.ZodType<ForgeResume> = z.union([
+  z.strictObject({ answers: z.array(z.string()) }),
+  z.strictObject({
+    decisions: z.array(
+      z.union([
+        z.strictObject({ type: z.literal("approve") }),
+        z.strictObject({ type: z.literal("reject"), message: z.string().optional() }),
+      ]),
+    ),
+  }),
+]);
 export const readReply = (body: unknown) => replySchema.safeParse(body).data ?? null;
 
-// Whether the answers fit the questions the Forge is waiting on.
+// Whether the reply fits what the Forge is waiting on: an answer per question, or a
+// decision per call.
 export const replyFits = (waiting: ForgeWaiting | null, reply: ForgeResume) =>
-  waiting?.kind === "questions" && reply.answers.length === waiting.questions.length;
+  waiting?.kind === "questions"
+    ? "answers" in reply && reply.answers.length === waiting.questions.length
+    : waiting?.kind === "approval" && "decisions" in reply && reply.decisions.length === waiting.actions.length;
 
 // ---- Reading it -------------------------------------------------------------------
 
@@ -555,8 +720,9 @@ export const replyFits = (waiting: ForgeWaiting | null, reply: ForgeResume) =>
 const runningAgent = (issueId: string): AgentRole | null =>
   runStatus(forgeThreadId(issueId)).running ? (working.get(issueId) ?? "lead") : null;
 
-// The issue's Forge, for the webapp.
-export async function getForge(issueId: string): Promise<ForgeState> {
+// The issue's Forge, for the webapp. withPullRequest: false skips asking GitHub for the
+// branch's pull request (pullRequest is then null), where it isn't used.
+export async function getForge(issueId: string, { withPullRequest = true } = {}): Promise<ForgeState> {
   const threadId = forgeThreadId(issueId);
   const { snapshot, values, waiting: saved } = await readLead(issueId);
   const { running, error, pausing } = runStatus(threadId);
@@ -573,7 +739,7 @@ export async function getForge(issueId: string): Promise<ForgeState> {
     planApproved: values.planApproved ?? false,
     integration: values.integration ?? null,
     browserUrl: browserUrl(issueId),
-    finished: values.finished ?? false,
+    pullRequest: withPullRequest ? await branchPullRequest(issueId).catch(() => null) : null,
     error,
   };
 }
@@ -609,7 +775,9 @@ export const awaitingPlanApproval = (forge: ForgeState) =>
 // webapp's issue lists.
 export async function pendingApprovals(): Promise<PendingApproval[]> {
   const workspaces = await Workspace.findAll({ attributes: ["issueId"] });
-  const forges = await Promise.all(workspaces.map(async ({ issueId }) => ({ issueId, forge: await getForge(issueId) })));
+  const forges = await Promise.all(
+    workspaces.map(async ({ issueId }) => ({ issueId, forge: await getForge(issueId, { withPullRequest: false }) })),
+  );
   return forges.flatMap(({ issueId, forge }) =>
     awaitingPlanApproval(forge) ? [{ issueId, kind: "approve_plan" as const }] : [],
   );

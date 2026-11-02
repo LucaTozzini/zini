@@ -37,7 +37,8 @@ import { Graph, layout } from "@dagrejs/dagre";
 import type { DatabaseSchema } from "shared";
 import { errorMessage } from "../api/client.ts";
 import { useDatabaseSchema } from "../api/database.ts";
-import { useIntegrations } from "../api/integrations.ts";
+import { useProjectIntegrations } from "../api/integrations.ts";
+import { useProjectId, useProjectPath } from "../hooks/useProject.ts";
 import PostgresIcon from "../components/icons/PostgresIcon.tsx";
 
 // The connected Postgres database drawn as a diagram: a box per table with its columns,
@@ -264,7 +265,9 @@ function Diagram({ schema, shownSchema }: { schema: DatabaseSchema; shownSchema:
 }
 
 function DatabasePage() {
-  const integrations = useIntegrations();
+  const projectId = useProjectId();
+  const projectPath = useProjectPath();
+  const integrations = useProjectIntegrations(projectId);
   const status = integrations.data?.postgres;
   const connected = Boolean(status?.connected);
   const schema = useDatabaseSchema(connected);
@@ -346,8 +349,8 @@ function DatabasePage() {
             Connect your Postgres database, read-only, to see its tables and how they relate, and to let the Project Lead query
             it.
           </Typography>
-          <Button variant="contained" component={RouterLink} to="/settings">
-            Connect in Settings
+          <Button variant="contained" component={RouterLink} to={projectPath("/settings")}>
+            Connect in the project's settings
           </Button>
         </Stack>
       ) : schema.isError ? (

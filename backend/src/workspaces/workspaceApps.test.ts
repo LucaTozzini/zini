@@ -18,7 +18,7 @@ test(
     const { launchWorkspaceApp } = await import("./workspaceApps.js");
     const { Workspace } = await import("../models/Workspace.js");
     const { initDb, sequelize } = await import("../db.js");
-    const { createTestWorkspace } = await import("./testFixtures.js");
+    const { createTestWorkspace, testProject } = await import("./testFixtures.js");
     const { checkpointer, toolErrors } = await import("../agents/agents.js");
     const { workspaceApps } = await import("./workspaceAppSessions.js");
     const { availableAppPort } = await import("./workspaceAppRuntime.js");
@@ -133,7 +133,7 @@ test(
         "app.cjs": "require('http').createServer((req,res)=>res.end('app')).listen(Number(process.argv[2]),'127.0.0.1');",
         "fail.cjs": "console.error('Startup failed'); process.exit(1);",
       });
-      await Workspace.create({ issueId });
+      await Workspace.create({ issueId, projectId: (await testProject()).id });
       port = await availableAppPort(issueId);
       assert.equal(report((await build().invoke(input, config("library"))).messages).status, "not_webapp");
       const { workspaceRequest } = await import("./workspaceSandbox.js");

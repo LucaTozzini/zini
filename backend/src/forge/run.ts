@@ -1,6 +1,6 @@
 import type { LinearClient } from "@linear/sdk";
 import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons";
-import type { AgentRole } from "shared";
+import type { AgentRole, PullRequest } from "shared";
 import { getLinearClient } from "../integrations/linear.js";
 import { chatModel, loadConnection, type ModelConnection } from "../providers/modelProvider.js";
 import { getSetting } from "../core/settings.js";
@@ -48,14 +48,31 @@ export type Run = {
   username?: string;
   // Fetches the target branch before merging it (evals stand in for GitHub).
   refreshUpstream?: () => Promise<void>;
+  // Pushes the branch and opens its pull request (evals stand in for GitHub).
+  github?: ForgeGitHub;
+};
+
+// What the Lead's push and open_pull_request tools do on GitHub, once you approved them,
+// and the pull request they check first (see pullRequest.ts).
+export type ForgeGitHub = {
+  pullRequest: (issueId: string) => Promise<PullRequest | null>;
+  push: (issueId: string) => Promise<void>;
+  openPullRequest: (issueId: string, title: string, body: string) => Promise<PullRequest>;
 };
 
 // A run of the issue's Forge, which tells every connected webapp whenever it changes.
-export const forgeRun = (setup: Setup, issueId: string, username?: string, refreshUpstream?: () => Promise<void>): Run => ({
+export const forgeRun = (
+  setup: Setup,
+  issueId: string,
+  username?: string,
+  refreshUpstream?: () => Promise<void>,
+  github?: ForgeGitHub,
+): Run => ({
   setup,
   issueId,
   username,
   refreshUpstream,
+  github,
   execution: new ForgeExecution(),
   notify: () => notifyForge(issueId),
 });

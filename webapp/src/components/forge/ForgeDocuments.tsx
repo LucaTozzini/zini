@@ -33,7 +33,7 @@ export default function ForgeDocuments({ issueId }: { issueId: string }) {
   const working = Boolean(forge.data?.running || forge.data?.pausing);
   const title =
     open === "plan"
-      ? `Plan${forge.data?.planApproved ? "" : " (not approved yet)"}${forge.data?.finished ? " · finished" : ""}`
+      ? `Plan${forge.data?.planApproved ? "" : " (not approved yet)"}${forge.data?.pullRequest ? ` · pull request #${forge.data.pullRequest.number}` : ""}`
       : open === "git"
         ? "Git"
         : "Code changes";

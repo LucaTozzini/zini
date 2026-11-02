@@ -6,7 +6,6 @@ import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langcha
 import type { ForgePlan, RunLogEvent, RunMetrics } from "shared";
 import { forgeRun, stopForgeProcesses } from "../../backend/src/forge/forge.js";
 import { reviewerWorker, runWorker } from "../../backend/src/forge/workers.js";
-import { initDb } from "../../backend/src/db.js";
 import { fetchLinearIssue } from "../../backend/src/integrations/linear.js";
 import { removeSandbox } from "../../backend/src/workspaces/workspaceSandbox.js";
 import { isModelRateLimit } from "../../backend/src/providers/modelErrors.js";
@@ -19,6 +18,7 @@ import {
   connection,
   dataDir,
   EVALS,
+  evalProject,
   fakeLinear,
   followLogs,
   makeSourceRepo,
@@ -78,10 +78,10 @@ async function main() {
   mkdirSync(join(runDir, "logs"), { recursive: true });
   symlinkSync(join(runDir, "logs"), join(dataDir, "forge-logs"), "junction");
 
-  await initDb();
-  cloneLikeZini(makeSourceRepo(fixture));
+  const project = await evalProject();
+  cloneLikeZini(makeSourceRepo(fixture), project);
   const issueId = randomUUID();
-  await makeWorkspace(issueId, fixture);
+  await makeWorkspace(issueId, fixture, project);
   console.log(`${testName}: ${test.role} on "${test.title}" (model ${model})`);
 
   const { plan } = readJson<{ plan: ForgePlan }>(test.state);

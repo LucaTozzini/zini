@@ -5,8 +5,7 @@ import Chat from "../components/Chat.tsx";
 import ProjectLeadBrowserButton from "../components/chat/ProjectLeadBrowserButton.tsx";
 import ProjectLeadSubscriptionsButton from "../components/chat/ProjectLeadSubscriptionsButton.tsx";
 import { useChat, type CreatedChatState } from "../hooks/useChat.ts";
-
-const BASE_PATH = "/project-lead";
+import { useProjectPath } from "../hooks/useProject.ts";
 
 const SUGGESTIONS = [
   { label: "Plan a feature", message: "I'd like to plan a new feature: " },
@@ -17,7 +16,7 @@ const SUGGESTIONS = [
 // Keyed in the page (see chatKey), so switching chats starts with a fresh draft,
 // request and scroll state.
 function ProjectLeadChat({ threadId }: { threadId?: string }) {
-  const chat = useChat(threadId, BASE_PATH);
+  const chat = useChat(threadId, useProjectPath()("/project-lead"));
   const threads = useThreads();
   const title = (threadId && threads.data?.find((thread) => thread.id === threadId)?.title) || "New chat";
   return (
